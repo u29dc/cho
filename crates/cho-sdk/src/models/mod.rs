@@ -12,3 +12,4 @@ pub mod dates;
 pub mod enums;
 pub mod invoice;
 pub mod payment;
+pub mod report;

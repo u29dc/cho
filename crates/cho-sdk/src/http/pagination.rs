@@ -2,6 +2,16 @@
 //!
 //! Returns `impl Stream<Item = Result<T>>` that transparently fetches pages
 //! until all items are retrieved or a limit is reached.
+//!
+//! # Known limitation
+//!
+//! If the access token expires mid-pagination (e.g., during a large multi-page
+//! fetch), the client will attempt a single token refresh and retry. However,
+//! if the refresh itself fails (network error, revoked refresh token), the
+//! entire pagination operation will return a `TokenExpired` error. Partial
+//! results from earlier pages are lost. Callers fetching many pages should
+//! ensure the access token has sufficient remaining lifetime or handle the
+//! `TokenExpired` error and resume from the last successful page.
 
 use serde::de::DeserializeOwned;
 

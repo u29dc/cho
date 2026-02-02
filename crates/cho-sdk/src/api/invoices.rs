@@ -138,7 +138,9 @@ impl<'a> InvoicesApi<'a> {
         // Reject characters that could break the OData where filter
         if number.contains('"') || number.contains('\\') {
             return Err(crate::error::ChoSdkError::Parse {
-                message: "Invalid invoice number: contains illegal characters (quotes or backslashes)".to_string(),
+                message:
+                    "Invalid invoice number: contains illegal characters (quotes or backslashes)"
+                        .to_string(),
             });
         }
         let params = ListParams::new().with_where(format!("InvoiceNumber==\"{number}\""));

@@ -1,0 +1,27 @@
+AGENTS.md
+  63ea92db6886569c 425-440,442-447
+biome.json
+  63ea92db6886569c 1-4
+package.json
+  63ea92db6886569c 15,19-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.42",
+  "base_commit_sha": "ff78e1973eb6762c17af843755c34ade70537aab",
+  "prompts": {
+    "63ea92db6886569c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4a614242-e1d0-4eb8-9b76-9d7e78a54c76",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 30,
+      "total_deletions": 13,
+      "accepted_lines": 30,
+      "overriden_lines": 0
+    }
+  }
+}

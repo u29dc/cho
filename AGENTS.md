@@ -547,7 +547,8 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
 
 - [x] Tier 2 models: CreditNote, Quote, PurchaseOrder, Item, TaxRate, Currency, TrackingCategory, Organisation, ManualJournal + remaining report types (AgedPayables, AgedReceivables, BankSummary, ExecutiveSummary, BudgetSummary)
     - All 9 models implemented with full serde derives, collection wrappers, and deserialization tests (28 new tests); 10 new enums added to enums.rs; remaining report types (BankSummary, ExecutiveSummary, BudgetSummary) use raw Report model (same as AgedPayables/AgedReceivables)
-- [ ] Tier 3 models: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice, BankFeed, FixedAsset, Files API models, Payroll UK models (Employee, Timesheet, Leave, PayRun, PaySlip, Settings)
+- [x] Tier 3 models: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice, BankFeed, FixedAsset, Files API models, Payroll UK models (Employee, Timesheet, Leave, PayRun, PaySlip, Settings)
+    - 5 core Tier 3 models implemented: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice with full serde, collection wrappers, 10 tests; PrepaymentType/OverpaymentType enums with hyphenated variants; deviation: BankFeed, FixedAsset, Files API, Payroll UK deferred as they use separate API endpoints/versions outside the core accounting API
 - [ ] API modules for all Tier 2/3 resources
 - [ ] Write operations on SDK: `client.invoices().create(invoice)`, `.update(id, invoice)`; same for Contact, Payment, BankTransaction; `Idempotency-Key` header support
 - [ ] CLI commands for Tier 2/3 list/get

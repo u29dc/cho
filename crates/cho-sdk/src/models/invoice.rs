@@ -321,7 +321,7 @@ mod tests {
                 "Type": "ACCREC",
                 "InvoiceNumber": "INV-0001"
             }],
-            "pagination": {"Page": 1, "PageSize": 100, "PageCount": 1, "ItemCount": 1}
+            "pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "itemCount": 1}
         }"#;
         let invoices: Invoices = serde_json::from_str(json).unwrap();
         assert_eq!(invoices.invoices.as_ref().unwrap().len(), 1);

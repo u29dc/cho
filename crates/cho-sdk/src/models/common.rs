@@ -11,7 +11,7 @@ use super::dates::MsDateTime;
 
 /// Pagination metadata returned by Xero collection endpoints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
+#[serde(rename_all = "camelCase")]
 pub struct Pagination {
     /// Current page number (1-indexed).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn pagination_deserialize() {
-        let json = r#"{"Page": 1, "PageSize": 100, "PageCount": 3, "ItemCount": 250}"#;
+        let json = r#"{"page": 1, "pageSize": 100, "pageCount": 3, "itemCount": 250}"#;
         let p: Pagination = serde_json::from_str(json).unwrap();
         assert_eq!(p.page, Some(1));
         assert_eq!(p.page_size, Some(100));

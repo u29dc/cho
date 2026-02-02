@@ -204,7 +204,7 @@ mod tests {
                 "Type": "ACCPAYCREDIT",
                 "CreditNoteNumber": "CN-0002"
             }],
-            "pagination": {"Page": 1, "PageSize": 100, "PageCount": 1, "ItemCount": 1}
+            "pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "itemCount": 1}
         }"#;
         let cns: CreditNotes = serde_json::from_str(json).unwrap();
         assert_eq!(cns.credit_notes.as_ref().unwrap().len(), 1);

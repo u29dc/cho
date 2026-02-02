@@ -296,7 +296,7 @@ mod tests {
     fn contacts_collection_with_pagination() {
         let json = r#"{
             "Contacts": [{"ContactID": "a3e5f9b4-2c3d-4e5f-b6a7-8d9e0f1a2b3c", "Name": "Test"}],
-            "pagination": {"Page": 1, "PageSize": 100, "PageCount": 1, "ItemCount": 1}
+            "pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "itemCount": 1}
         }"#;
         let contacts: Contacts = serde_json::from_str(json).unwrap();
         assert_eq!(contacts.contacts.as_ref().unwrap().len(), 1);

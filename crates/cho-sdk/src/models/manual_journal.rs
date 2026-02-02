@@ -174,7 +174,7 @@ mod tests {
                 "Narration": "Test journal",
                 "Status": "DRAFT"
             }],
-            "pagination": {"Page": 1, "PageSize": 100, "PageCount": 1, "ItemCount": 1}
+            "pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "itemCount": 1}
         }"#;
         let mjs: ManualJournals = serde_json::from_str(json).unwrap();
         assert_eq!(mjs.manual_journals.as_ref().unwrap().len(), 1);

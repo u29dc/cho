@@ -183,7 +183,7 @@ mod tests {
                 "QuoteNumber": "QU-0001",
                 "Status": "DRAFT"
             }],
-            "pagination": {"Page": 1, "PageSize": 100, "PageCount": 1, "ItemCount": 1}
+            "pagination": {"page": 1, "pageSize": 100, "pageCount": 1, "itemCount": 1}
         }"#;
         let quotes: Quotes = serde_json::from_str(json).unwrap();
         assert_eq!(quotes.quotes.as_ref().unwrap().len(), 1);

@@ -7,6 +7,7 @@ pub mod config;
 pub mod contacts;
 pub mod credit_notes;
 pub mod currencies;
+pub mod init;
 pub mod invoices;
 pub mod items;
 pub mod linked_transactions;

@@ -372,7 +372,8 @@ max_retries = 3
 | Command               | Action                                                                 |
 | --------------------- | ---------------------------------------------------------------------- |
 | `bun run build`       | `cargo build --workspace --release`                                    |
-| `bun run dev`         | `cargo run -p cho-cli --`                                              |
+| `bun run cho:dev`     | `cargo run -p cho-cli --` (debug build)                                |
+| `bun run cho`         | `./target/release/cho-cli` (release binary alias)                      |
 | `bun run util:format` | `cargo fmt --all`                                                      |
 | `bun run util:lint`   | `cargo clippy --all-targets --all-features -- -D warnings`             |
 | `bun run util:test`   | `cargo test --workspace`                                               |

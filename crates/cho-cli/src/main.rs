@@ -73,6 +73,9 @@ struct Cli {
 /// Top-level CLI commands.
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Interactive first-time setup: authenticate and select a tenant.
+    Init(commands::init::InitArgs),
+
     /// Authentication management.
     Auth {
         #[command(subcommand)]
@@ -218,6 +221,16 @@ async fn main() {
         precise: cli.precise,
     };
 
+    // Early dispatch for init (runs before CliContext, which requires client_id/tenant_id)
+    if let Commands::Init(ref args) = cli.command {
+        if let Err(e) = commands::init::run(args).await {
+            let msg = error::format_error(&e, false);
+            eprintln!("{msg}");
+            std::process::exit(error::exit_code(&e));
+        }
+        return;
+    }
+
     // Build SDK client
     let client_id = std::env::var("CHO_CLIENT_ID").unwrap_or_default();
     let base_url =
@@ -253,6 +266,7 @@ async fn main() {
 
     // Dispatch command
     let result = match &cli.command {
+        Commands::Init(_) => unreachable!("Init handled by early dispatch"),
         Commands::Auth { command } => commands::auth::run(command, &ctx).await,
         Commands::Invoices { command } => commands::invoices::run(command, &ctx).await,
         Commands::Contacts { command } => commands::contacts::run(command, &ctx).await,

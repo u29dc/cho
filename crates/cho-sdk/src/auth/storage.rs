@@ -3,6 +3,16 @@
 //! Tokens are stored in the OS keychain via the `keyring` crate when available.
 //! When the keychain is not accessible (headless Linux, CI, containers), tokens
 //! are written to `~/.config/cho/tokens.json` with `0600` permissions.
+//!
+//! # Security note
+//!
+//! The file fallback stores tokens as **plaintext JSON** on disk. While file
+//! permissions are restricted to `0600` (owner-only read/write), any process
+//! running as the same user can read the tokens. The spec originally called for
+//! encrypted file storage (`tokens.enc`), but this was simplified to plaintext
+//! JSON for the MVP. Consider using the OS keychain (macOS Keychain, GNOME
+//! Keyring, Windows Credential Manager) in production environments. A warning
+//! is emitted via `tracing::warn!` when the file fallback is used for storage.
 
 use std::path::PathBuf;
 
@@ -67,7 +77,10 @@ pub(crate) fn store_tokens(tokens: &StoredTokens) -> crate::error::Result<()> {
 
     // Always write file fallback
     store_to_file(&json)?;
-    debug!("Stored tokens to file fallback");
+    warn!(
+        "Tokens stored as plaintext JSON at ~/.config/cho/tokens.json (0600 permissions). \
+         Use OS keychain for production environments."
+    );
 
     Ok(())
 }

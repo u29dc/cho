@@ -5,7 +5,7 @@ use comfy_table::{Cell, CellAlignment, ContentArrangement, Table};
 /// A column definition for table output.
 pub struct Column {
     /// Header label.
-    pub header: &'static str,
+    pub header: String,
     /// Alignment (left for text, right for numbers).
     pub alignment: CellAlignment,
     /// Maximum width before truncation (0 = no limit).
@@ -22,7 +22,7 @@ pub fn format_table(columns: &[Column], rows: &[Vec<String>]) -> String {
     // Header row
     let headers: Vec<Cell> = columns
         .iter()
-        .map(|c| Cell::new(c.header).set_alignment(c.alignment))
+        .map(|c| Cell::new(&c.header).set_alignment(c.alignment))
         .collect();
     table.set_header(headers);
 
@@ -57,7 +57,16 @@ pub fn format_table(columns: &[Column], rows: &[Vec<String>]) -> String {
 /// Helper: creates a left-aligned text column.
 pub fn text_col(header: &'static str) -> Column {
     Column {
-        header,
+        header: header.to_string(),
+        alignment: CellAlignment::Left,
+        max_width: 0,
+    }
+}
+
+/// Helper: creates a left-aligned text column from a borrowed string.
+pub fn text_col_static(header: &str) -> Column {
+    Column {
+        header: header.to_string(),
         alignment: CellAlignment::Left,
         max_width: 0,
     }
@@ -66,7 +75,7 @@ pub fn text_col(header: &'static str) -> Column {
 /// Helper: creates a right-aligned number column.
 pub fn num_col(header: &'static str) -> Column {
     Column {
-        header,
+        header: header.to_string(),
         alignment: CellAlignment::Right,
         max_width: 0,
     }
@@ -75,7 +84,7 @@ pub fn num_col(header: &'static str) -> Column {
 /// Helper: creates a left-aligned column with max width.
 pub fn text_col_width(header: &'static str, max_width: u16) -> Column {
     Column {
-        header,
+        header: header.to_string(),
         alignment: CellAlignment::Left,
         max_width,
     }

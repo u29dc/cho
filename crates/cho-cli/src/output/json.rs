@@ -85,7 +85,7 @@ pub fn format_json_list<T: Serialize>(
 }
 
 /// Recursively converts all object keys from PascalCase to snake_case.
-fn pascal_to_snake_keys(value: Value) -> Value {
+pub fn pascal_to_snake_keys(value: Value) -> Value {
     match value {
         Value::Object(map) => {
             let new_map: serde_json::Map<String, Value> = map

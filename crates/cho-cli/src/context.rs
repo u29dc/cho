@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::output::OutputFormat;
 use crate::output::json::{JsonOptions, format_json, format_json_list};
+use crate::output::value_to_rows;
 
 /// Shared context for all CLI commands.
 pub struct CliContext {
@@ -64,14 +65,70 @@ impl CliContext {
 
     /// Formats a serializable value according to the selected output format.
     pub fn format_output<T: Serialize>(&self, value: &T) -> cho_sdk::error::Result<String> {
-        format_json(value, &self.json_options)
-            .map_err(|e| cho_sdk::error::ChoSdkError::Parse { message: e })
+        match self.format {
+            OutputFormat::Json => format_json(value, &self.json_options)
+                .map_err(|e| cho_sdk::error::ChoSdkError::Parse { message: e }),
+            OutputFormat::Table | OutputFormat::Csv => {
+                let json_value = serde_json::to_value(value)
+                    .map_err(|e| cho_sdk::error::ChoSdkError::Parse {
+                        message: format!("JSON serialization failed: {e}"),
+                    })?;
+                let transformed = if self.json_options.raw {
+                    json_value
+                } else {
+                    crate::output::json::pascal_to_snake_keys(json_value)
+                };
+                let (headers, rows) = value_to_rows(&transformed);
+                match self.format {
+                    OutputFormat::Table => {
+                        let columns: Vec<_> = headers
+                            .iter()
+                            .map(|h| crate::output::table::text_col_static(h))
+                            .collect();
+                        Ok(crate::output::table::format_table(&columns, &rows))
+                    }
+                    OutputFormat::Csv => {
+                        let header_refs: Vec<&str> = headers.iter().map(|s| s.as_str()).collect();
+                        Ok(crate::output::csv::format_csv(&header_refs, &rows))
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
     }
 
     /// Formats a list of items, optionally wrapping with `--meta` envelope.
     pub fn format_list_output<T: Serialize>(&self, items: &[T]) -> cho_sdk::error::Result<String> {
-        format_json_list(items, None, &self.json_options)
-            .map_err(|e| cho_sdk::error::ChoSdkError::Parse { message: e })
+        match self.format {
+            OutputFormat::Json => format_json_list(items, None, &self.json_options)
+                .map_err(|e| cho_sdk::error::ChoSdkError::Parse { message: e }),
+            OutputFormat::Table | OutputFormat::Csv => {
+                let json_value = serde_json::to_value(items)
+                    .map_err(|e| cho_sdk::error::ChoSdkError::Parse {
+                        message: format!("JSON serialization failed: {e}"),
+                    })?;
+                let transformed = if self.json_options.raw {
+                    json_value
+                } else {
+                    crate::output::json::pascal_to_snake_keys(json_value)
+                };
+                let (headers, rows) = value_to_rows(&transformed);
+                match self.format {
+                    OutputFormat::Table => {
+                        let columns: Vec<_> = headers
+                            .iter()
+                            .map(|h| crate::output::table::text_col_static(h))
+                            .collect();
+                        Ok(crate::output::table::format_table(&columns, &rows))
+                    }
+                    OutputFormat::Csv => {
+                        let header_refs: Vec<&str> = headers.iter().map(|s| s.as_str()).collect();
+                        Ok(crate::output::csv::format_csv(&header_refs, &rows))
+                    }
+                    _ => unreachable!(),
+                }
+            }
+        }
     }
 
     /// Checks whether write operations are allowed.

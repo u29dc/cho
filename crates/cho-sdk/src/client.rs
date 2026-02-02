@@ -388,7 +388,11 @@ impl XeroClient {
             let response = match result {
                 Ok(r) => r,
                 Err(e) => {
-                    if attempt < max_retries && is_transient_error(&e) {
+                    // Only retry write operations when an idempotency key is provided,
+                    // to prevent duplicate mutations on transient network errors.
+                    let can_retry =
+                        attempt < max_retries && is_transient_error(&e) && idempotency_key.is_some();
+                    if can_retry {
                         let delay = backoff_delay(attempt);
                         warn!(
                             "Request failed (attempt {}/{}), retrying in {delay:?}: {e}",

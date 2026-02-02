@@ -774,6 +774,317 @@ pub enum OverpaymentType {
     Unknown,
 }
 
+// ── Country Code (ISO 3166-1 alpha-2, ~60 common codes) ──
+
+/// ISO 3166-1 alpha-2 country codes used by Xero.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum CountryCode {
+    /// United States.
+    #[serde(rename = "US")]
+    UnitedStates,
+    /// United Kingdom.
+    #[serde(rename = "GB")]
+    UnitedKingdom,
+    /// New Zealand.
+    #[serde(rename = "NZ")]
+    NewZealand,
+    /// Australia.
+    #[serde(rename = "AU")]
+    Australia,
+    /// Canada.
+    #[serde(rename = "CA")]
+    Canada,
+    /// Germany.
+    #[serde(rename = "DE")]
+    Germany,
+    /// France.
+    #[serde(rename = "FR")]
+    France,
+    /// Italy.
+    #[serde(rename = "IT")]
+    Italy,
+    /// Spain.
+    #[serde(rename = "ES")]
+    Spain,
+    /// Japan.
+    #[serde(rename = "JP")]
+    Japan,
+    /// China.
+    #[serde(rename = "CN")]
+    China,
+    /// India.
+    #[serde(rename = "IN")]
+    India,
+    /// Brazil.
+    #[serde(rename = "BR")]
+    Brazil,
+    /// Mexico.
+    #[serde(rename = "MX")]
+    Mexico,
+    /// South Africa.
+    #[serde(rename = "ZA")]
+    SouthAfrica,
+    /// Singapore.
+    #[serde(rename = "SG")]
+    Singapore,
+    /// Hong Kong.
+    #[serde(rename = "HK")]
+    HongKong,
+    /// Ireland.
+    #[serde(rename = "IE")]
+    Ireland,
+    /// Netherlands.
+    #[serde(rename = "NL")]
+    Netherlands,
+    /// Belgium.
+    #[serde(rename = "BE")]
+    Belgium,
+    /// Austria.
+    #[serde(rename = "AT")]
+    Austria,
+    /// Switzerland.
+    #[serde(rename = "CH")]
+    Switzerland,
+    /// Sweden.
+    #[serde(rename = "SE")]
+    Sweden,
+    /// Norway.
+    #[serde(rename = "NO")]
+    Norway,
+    /// Denmark.
+    #[serde(rename = "DK")]
+    Denmark,
+    /// Finland.
+    #[serde(rename = "FI")]
+    Finland,
+    /// Portugal.
+    #[serde(rename = "PT")]
+    Portugal,
+    /// Greece.
+    #[serde(rename = "GR")]
+    Greece,
+    /// Poland.
+    #[serde(rename = "PL")]
+    Poland,
+    /// Czech Republic.
+    #[serde(rename = "CZ")]
+    CzechRepublic,
+    /// Hungary.
+    #[serde(rename = "HU")]
+    Hungary,
+    /// Romania.
+    #[serde(rename = "RO")]
+    Romania,
+    /// Bulgaria.
+    #[serde(rename = "BG")]
+    Bulgaria,
+    /// Croatia.
+    #[serde(rename = "HR")]
+    Croatia,
+    /// Slovenia.
+    #[serde(rename = "SI")]
+    Slovenia,
+    /// Slovakia.
+    #[serde(rename = "SK")]
+    Slovakia,
+    /// Lithuania.
+    #[serde(rename = "LT")]
+    Lithuania,
+    /// Latvia.
+    #[serde(rename = "LV")]
+    Latvia,
+    /// Estonia.
+    #[serde(rename = "EE")]
+    Estonia,
+    /// Malta.
+    #[serde(rename = "MT")]
+    Malta,
+    /// Cyprus.
+    #[serde(rename = "CY")]
+    Cyprus,
+    /// Luxembourg.
+    #[serde(rename = "LU")]
+    Luxembourg,
+    /// Iceland.
+    #[serde(rename = "IS")]
+    Iceland,
+    /// Malaysia.
+    #[serde(rename = "MY")]
+    Malaysia,
+    /// Thailand.
+    #[serde(rename = "TH")]
+    Thailand,
+    /// Philippines.
+    #[serde(rename = "PH")]
+    Philippines,
+    /// Indonesia.
+    #[serde(rename = "ID")]
+    Indonesia,
+    /// Vietnam.
+    #[serde(rename = "VN")]
+    Vietnam,
+    /// South Korea.
+    #[serde(rename = "KR")]
+    SouthKorea,
+    /// Taiwan.
+    #[serde(rename = "TW")]
+    Taiwan,
+    /// United Arab Emirates.
+    #[serde(rename = "AE")]
+    UnitedArabEmirates,
+    /// Saudi Arabia.
+    #[serde(rename = "SA")]
+    SaudiArabia,
+    /// Qatar.
+    #[serde(rename = "QA")]
+    Qatar,
+    /// Kuwait.
+    #[serde(rename = "KW")]
+    Kuwait,
+    /// Bahrain.
+    #[serde(rename = "BH")]
+    Bahrain,
+    /// Oman.
+    #[serde(rename = "OM")]
+    Oman,
+    /// Israel.
+    #[serde(rename = "IL")]
+    Israel,
+    /// Turkey.
+    #[serde(rename = "TR")]
+    Turkey,
+    /// Egypt.
+    #[serde(rename = "EG")]
+    Egypt,
+    /// Kenya.
+    #[serde(rename = "KE")]
+    Kenya,
+    /// Nigeria.
+    #[serde(rename = "NG")]
+    Nigeria,
+    /// Ghana.
+    #[serde(rename = "GH")]
+    Ghana,
+    /// Unknown country code (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+// ── TimeZone (Windows timezone identifiers used by Xero) ──
+
+/// Windows timezone identifiers used by Xero API.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum TimeZone {
+    /// New Zealand Standard Time (Pacific/Auckland).
+    #[serde(rename = "NEWZEALANDSTANDARDTIME")]
+    NewZealandStandard,
+    /// AUS Eastern Standard Time (Australia/Sydney).
+    #[serde(rename = "AUSEASTERNSTANDARDTIME")]
+    AusEasternStandard,
+    /// AUS Central Standard Time (Australia/Adelaide).
+    #[serde(rename = "AUSCENTRALSTANDARDTIME")]
+    AusCentralStandard,
+    /// AUS Western Standard Time (Australia/Perth).
+    #[serde(rename = "AUSWESTERNSTANDARDTIME")]
+    AusWesternStandard,
+    /// Tasmania Standard Time (Australia/Hobart).
+    #[serde(rename = "TASMANIASTANDARDTIME")]
+    TasmaniaStandard,
+    /// GMT Standard Time (Europe/London).
+    #[serde(rename = "GMTSTANDARDTIME")]
+    GmtStandard,
+    /// Greenwich Mean Time (Atlantic/Reykjavik).
+    #[serde(rename = "GREENWICHMEANTIME")]
+    GreenwichMeanTime,
+    /// Pacific Standard Time (America/Los_Angeles).
+    #[serde(rename = "PACIFICSTANDARDTIME")]
+    PacificStandard,
+    /// Mountain Standard Time (America/Denver).
+    #[serde(rename = "MOUNTAINSTANDARDTIME")]
+    MountainStandard,
+    /// Central Standard Time (America/Chicago).
+    #[serde(rename = "CENTRALSTANDARDTIME")]
+    CentralStandard,
+    /// Eastern Standard Time (America/New_York).
+    #[serde(rename = "EASTERNSTANDARDTIME")]
+    EasternStandard,
+    /// Atlantic Standard Time (America/Halifax).
+    #[serde(rename = "ATLANTICSTANDARDTIME")]
+    AtlanticStandard,
+    /// Newfoundland Standard Time (America/St_Johns).
+    #[serde(rename = "NEWFOUNDLANDSTANDARDTIME")]
+    NewfoundlandStandard,
+    /// Hawaiian Standard Time (Pacific/Honolulu).
+    #[serde(rename = "HAWAIIANSTANDARDTIME")]
+    HawaiianStandard,
+    /// Alaskan Standard Time (America/Anchorage).
+    #[serde(rename = "ALASKANSTANDARDTIME")]
+    AlaskanStandard,
+    /// UTC (Coordinated Universal Time).
+    #[serde(rename = "UTC")]
+    Utc,
+    /// UTC-12 (Dateline Standard Time).
+    #[serde(rename = "UTCM12")]
+    UtcMinus12,
+    /// Tokyo Standard Time (Asia/Tokyo).
+    #[serde(rename = "TOKYOSTANDARDTIME")]
+    TokyoStandard,
+    /// China Standard Time (Asia/Shanghai).
+    #[serde(rename = "CHINASTANDARDTIME")]
+    ChinaStandard,
+    /// India Standard Time (Asia/Kolkata).
+    #[serde(rename = "INDIASTANDARDTIME")]
+    IndiaStandard,
+    /// Singapore Standard Time (Asia/Singapore).
+    #[serde(rename = "SINGAPORESTANDARDTIME")]
+    SingaporeStandard,
+    /// Korea Standard Time (Asia/Seoul).
+    #[serde(rename = "KOREASTANDARDTIME")]
+    KoreaStandard,
+    /// Taipei Standard Time (Asia/Taipei).
+    #[serde(rename = "TAIPEISTANDARTIME")]
+    TaipeiStandard,
+    /// West Asia Standard Time (Asia/Tashkent).
+    #[serde(rename = "WESTASIASTANDARDTIME")]
+    WestAsiaStandard,
+    /// Central Asia Standard Time (Asia/Almaty).
+    #[serde(rename = "CENTRALASIASTANDARDTIME")]
+    CentralAsiaStandard,
+    /// Arabian Standard Time (Asia/Dubai).
+    #[serde(rename = "ARABIANSTANDARDTIME")]
+    ArabianStandard,
+    /// Russian Standard Time (Europe/Moscow).
+    #[serde(rename = "RUSSIANSTANDARDTIME")]
+    RussianStandard,
+    /// W. Europe Standard Time (Europe/Berlin).
+    #[serde(rename = "WESTEUROPESTANDARDTIME")]
+    WestEuropeStandard,
+    /// Central Europe Standard Time (Europe/Budapest).
+    #[serde(rename = "CENTRALEUROPESTANDARDTIME")]
+    CentralEuropeStandard,
+    /// E. Europe Standard Time (Europe/Bucharest).
+    #[serde(rename = "EASTEUROPESTANDARDTIME")]
+    EastEuropeStandard,
+    /// Romance Standard Time (Europe/Paris).
+    #[serde(rename = "ROMANCESTANDARDTIME")]
+    RomanceStandard,
+    /// SA Eastern Standard Time (America/Cayenne).
+    #[serde(rename = "SAEASTERNSTANDARDTIME")]
+    SaEasternStandard,
+    /// SA Pacific Standard Time (America/Bogota).
+    #[serde(rename = "SAPACIFICSTANDARDTIME")]
+    SaPacificStandard,
+    /// SA Western Standard Time (America/La_Paz).
+    #[serde(rename = "SAWESTERNSTANDARDTIME")]
+    SaWesternStandard,
+    /// South Africa Standard Time (Africa/Johannesburg).
+    #[serde(rename = "SOUTHAFRICASTANDARDTIME")]
+    SouthAfricaStandard,
+    /// Unknown timezone (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1061,6 +1372,116 @@ mod tests {
             serde_json::from_str::<OrganisationClass>(r#""SOMETHING_NEW""#).unwrap(),
             OrganisationClass::Unknown
         );
+    }
+
+    #[test]
+    fn country_code_common() {
+        assert_eq!(
+            serde_json::from_str::<CountryCode>(r#""US""#).unwrap(),
+            CountryCode::UnitedStates
+        );
+        assert_eq!(
+            serde_json::from_str::<CountryCode>(r#""GB""#).unwrap(),
+            CountryCode::UnitedKingdom
+        );
+        assert_eq!(
+            serde_json::from_str::<CountryCode>(r#""NZ""#).unwrap(),
+            CountryCode::NewZealand
+        );
+        assert_eq!(
+            serde_json::from_str::<CountryCode>(r#""AU""#).unwrap(),
+            CountryCode::Australia
+        );
+        assert_eq!(
+            serde_json::from_str::<CountryCode>(r#""DE""#).unwrap(),
+            CountryCode::Germany
+        );
+        assert_eq!(
+            serde_json::from_str::<CountryCode>(r#""JP""#).unwrap(),
+            CountryCode::Japan
+        );
+        assert_eq!(
+            serde_json::from_str::<CountryCode>(r#""SG""#).unwrap(),
+            CountryCode::Singapore
+        );
+        assert_eq!(
+            serde_json::from_str::<CountryCode>(r#""AE""#).unwrap(),
+            CountryCode::UnitedArabEmirates
+        );
+    }
+
+    #[test]
+    fn country_code_unknown() {
+        assert_eq!(
+            serde_json::from_str::<CountryCode>(r#""XX""#).unwrap(),
+            CountryCode::Unknown
+        );
+        assert_eq!(
+            serde_json::from_str::<CountryCode>(r#""INVALID""#).unwrap(),
+            CountryCode::Unknown
+        );
+    }
+
+    #[test]
+    fn country_code_round_trip() {
+        let nz = CountryCode::NewZealand;
+        let json = serde_json::to_string(&nz).unwrap();
+        assert_eq!(json, r#""NZ""#);
+        let parsed: CountryCode = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, CountryCode::NewZealand);
+    }
+
+    #[test]
+    fn timezone_common() {
+        assert_eq!(
+            serde_json::from_str::<TimeZone>(r#""NEWZEALANDSTANDARDTIME""#).unwrap(),
+            TimeZone::NewZealandStandard
+        );
+        assert_eq!(
+            serde_json::from_str::<TimeZone>(r#""AUSEASTERNSTANDARDTIME""#).unwrap(),
+            TimeZone::AusEasternStandard
+        );
+        assert_eq!(
+            serde_json::from_str::<TimeZone>(r#""GMTSTANDARDTIME""#).unwrap(),
+            TimeZone::GmtStandard
+        );
+        assert_eq!(
+            serde_json::from_str::<TimeZone>(r#""PACIFICSTANDARDTIME""#).unwrap(),
+            TimeZone::PacificStandard
+        );
+        assert_eq!(
+            serde_json::from_str::<TimeZone>(r#""EASTERNSTANDARDTIME""#).unwrap(),
+            TimeZone::EasternStandard
+        );
+        assert_eq!(
+            serde_json::from_str::<TimeZone>(r#""UTC""#).unwrap(),
+            TimeZone::Utc
+        );
+        assert_eq!(
+            serde_json::from_str::<TimeZone>(r#""INDIASTANDARDTIME""#).unwrap(),
+            TimeZone::IndiaStandard
+        );
+        assert_eq!(
+            serde_json::from_str::<TimeZone>(r#""SOUTHAFRICASTANDARDTIME""#).unwrap(),
+            TimeZone::SouthAfricaStandard
+        );
+    }
+
+    #[test]
+    fn timezone_unknown() {
+        assert_eq!(
+            serde_json::from_str::<TimeZone>(r#""SOMECUSTOMTIMEZONE""#).unwrap(),
+            TimeZone::Unknown
+        );
+    }
+
+    #[test]
+    fn timezone_round_trip() {
+        let tz = TimeZone::NewZealandStandard;
+        let json = serde_json::to_string(&tz).unwrap();
+        assert_eq!(json, r#""NEWZEALANDSTANDARDTIME""#);
+        let parsed: TimeZone = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, TimeZone::NewZealandStandard);
     }
 
     #[test]

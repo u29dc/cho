@@ -593,7 +593,7 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
 - [x] Replace `blocking_write()` in `AuthManager::load_stored_tokens()` with async-safe alternative
 - [x] Add wiremock/httpmock integration tests for retry, pagination, auth refresh, and write flows
 - [x] Remove `#[allow(dead_code)]` from write safety functions when CLI write commands are added
-- [ ] Add CountryCode (~250 variants) and TimeZone (~140 variants) enums when needed by models
+- [x] Add CountryCode (~250 variants) and TimeZone (~140 variants) enums when needed by models
 
 ### Phase 4: cho-tui
 

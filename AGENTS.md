@@ -545,7 +545,8 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
 
 ### Phase 3: cho-sdk Tier 2 + Tier 3 + write operations
 
-- [ ] Tier 2 models: CreditNote, Quote, PurchaseOrder, Item, TaxRate, Currency, TrackingCategory, Organisation, ManualJournal + remaining report types (AgedPayables, AgedReceivables, BankSummary, ExecutiveSummary, BudgetSummary)
+- [x] Tier 2 models: CreditNote, Quote, PurchaseOrder, Item, TaxRate, Currency, TrackingCategory, Organisation, ManualJournal + remaining report types (AgedPayables, AgedReceivables, BankSummary, ExecutiveSummary, BudgetSummary)
+    - All 9 models implemented with full serde derives, collection wrappers, and deserialization tests (28 new tests); 10 new enums added to enums.rs; remaining report types (BankSummary, ExecutiveSummary, BudgetSummary) use raw Report model (same as AgedPayables/AgedReceivables)
 - [ ] Tier 3 models: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice, BankFeed, FixedAsset, Files API models, Payroll UK models (Employee, Timesheet, Leave, PayRun, PaySlip, Settings)
 - [ ] API modules for all Tier 2/3 resources
 - [ ] Write operations on SDK: `client.invoices().create(invoice)`, `.update(id, invoice)`; same for Contact, Payment, BankTransaction; `Idempotency-Key` header support

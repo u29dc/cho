@@ -17,8 +17,8 @@ use super::token::{TOKEN_ENDPOINT, TokenResponse};
 /// Xero authorization endpoint.
 const AUTHORIZE_URL: &str = "https://login.xero.com/identity/connect/authorize";
 
-/// Default scopes for cho.
-const DEFAULT_SCOPES: &str = "openid offline_access accounting.transactions.read accounting.contacts.read accounting.settings.read accounting.reports.read accounting.journals.read";
+/// Default scopes for cho PKCE flow.
+const DEFAULT_SCOPES: &str = "openid offline_access accounting.transactions.read accounting.contacts.read accounting.settings.read accounting.reports.read accounting.journals.read files.read assets.read projects.read payroll.employees payroll.timesheets payroll.settings";
 
 /// PKCE code verifier length (43-128 characters per RFC 7636).
 const VERIFIER_LENGTH: usize = 64;

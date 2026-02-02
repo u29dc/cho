@@ -22,7 +22,7 @@ pub struct ClientCredentialsParams {
 }
 
 /// Default scopes for client credentials (no offline_access needed).
-const DEFAULT_SCOPES: &str = "accounting.transactions.read accounting.contacts.read accounting.settings.read accounting.reports.read accounting.journals.read";
+const DEFAULT_SCOPES: &str = "accounting.transactions.read accounting.contacts.read accounting.settings.read accounting.reports.read accounting.journals.read files.read assets.read projects.read payroll.employees payroll.timesheets payroll.settings";
 
 /// Authenticates using the client_credentials grant type.
 ///

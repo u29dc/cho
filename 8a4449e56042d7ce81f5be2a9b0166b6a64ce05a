@@ -1,0 +1,27 @@
+crates/cho-sdk/src/models/mod.rs
+  63ea92db6886569c 7,9,14-16,18-21
+crates/cho-sdk/src/models/enums.rs
+  63ea92db6886569c 1-453
+crates/cho-sdk/src/models/common.rs
+  63ea92db6886569c 1-376
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.42",
+  "base_commit_sha": "8a4449e56042d7ce81f5be2a9b0166b6a64ce05a",
+  "prompts": {
+    "63ea92db6886569c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4a614242-e1d0-4eb8-9b76-9d7e78a54c76",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 844,
+      "total_deletions": 3,
+      "accepted_lines": 844,
+      "overriden_lines": 0
+    }
+  }
+}

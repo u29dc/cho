@@ -368,14 +368,8 @@ mod tests {
         }"#;
         let li: LineItem = serde_json::from_str(json).unwrap();
         assert_eq!(li.description.as_deref(), Some("Widget"));
-        assert_eq!(
-            li.unit_amount,
-            Some(rust_decimal::Decimal::new(4999, 2))
-        );
-        assert_eq!(
-            li.line_amount,
-            Some(rust_decimal::Decimal::new(9998, 2))
-        );
+        assert_eq!(li.unit_amount, Some(rust_decimal::Decimal::new(4999, 2)));
+        assert_eq!(li.line_amount, Some(rust_decimal::Decimal::new(9998, 2)));
     }
 
     #[test]
@@ -437,13 +431,7 @@ mod tests {
     fn decimal_negative_and_zero() {
         let json = r#"{"UnitAmount": -50.25, "LineAmount": 0.00}"#;
         let li: LineItem = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            li.unit_amount,
-            Some(rust_decimal::Decimal::new(-5025, 2))
-        );
-        assert_eq!(
-            li.line_amount,
-            Some(rust_decimal::Decimal::new(0, 2))
-        );
+        assert_eq!(li.unit_amount, Some(rust_decimal::Decimal::new(-5025, 2)));
+        assert_eq!(li.line_amount, Some(rust_decimal::Decimal::new(0, 2)));
     }
 }

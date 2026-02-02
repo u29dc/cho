@@ -586,7 +586,7 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
 - [x] Add `extract_validation_errors()` call in `request_with_body()` write error path (currently returns empty `validation_errors`)
 - [x] Wire table/CSV output formatters through `CliContext` format dispatch (currently dead code behind `#[allow(dead_code)]`)
 - [x] Only write file fallback + emit warning when keyring storage fails (currently always writes file and warns)
-- [ ] Use `refresh_attempted` flag for 401 retry instead of `attempt == 0` (401 after 429 retry skips refresh)
+- [x] Use `refresh_attempted` flag for 401 retry instead of `attempt == 0` (401 after 429 retry skips refresh)
 - [ ] Track `X-AppMinLimit-Remaining` header in rate limiter `update_from_headers()`
 - [ ] Thread pagination metadata through `format_list_output()` for `--meta` envelope support
 - [ ] Add URL scheme validation for `SdkConfig.base_url` (SSRF mitigation for crates.io publishing)

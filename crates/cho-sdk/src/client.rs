@@ -274,6 +274,7 @@ impl XeroClient {
         if_modified_since: Option<&str>,
     ) -> Result<T> {
         let max_retries = self.config.max_retries;
+        let mut refresh_attempted = false;
 
         for attempt in 0..=max_retries {
             let guard = self.rate_limiter.acquire().await?;
@@ -330,8 +331,9 @@ impl XeroClient {
             }
 
             if status == reqwest::StatusCode::UNAUTHORIZED {
-                // Try to refresh token once
-                if attempt == 0 {
+                // Try to refresh token once, regardless of which attempt we're on
+                if !refresh_attempted {
+                    refresh_attempted = true;
                     debug!("Got 401, attempting token refresh");
                     match self.auth.refresh().await {
                         Ok(()) => continue,
@@ -402,6 +404,7 @@ impl XeroClient {
         }
 
         let max_retries = self.config.max_retries;
+        let mut refresh_attempted = false;
         let json_body = serde_json::to_string(body).map_err(|e| ChoSdkError::Parse {
             message: format!("Failed to serialize request body: {e}"),
         })?;
@@ -472,7 +475,9 @@ impl XeroClient {
             }
 
             if status == reqwest::StatusCode::UNAUTHORIZED {
-                if attempt == 0 {
+                // Try to refresh token once, regardless of which attempt we're on
+                if !refresh_attempted {
+                    refresh_attempted = true;
                     debug!("Got 401, attempting token refresh");
                     match self.auth.refresh().await {
                         Ok(()) => continue,

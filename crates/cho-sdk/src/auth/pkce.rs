@@ -83,8 +83,20 @@ pub struct PkceFlowParams {
 /// 3. Opens browser to Xero authorization URL
 /// 4. Waits for callback with authorization code
 /// 5. Exchanges code for tokens
+/// Generates a random state string for CSRF protection (RFC 6749 §10.12).
+fn generate_state() -> String {
+    let mut rng = rand::rng();
+    (0..32)
+        .map(|_| {
+            let idx = rng.random_range(0..VERIFIER_CHARS.len());
+            VERIFIER_CHARS[idx] as char
+        })
+        .collect()
+}
+
 pub(crate) async fn run_pkce_flow(params: &PkceFlowParams) -> crate::error::Result<TokenResponse> {
     let pkce = PkceChallenge::new();
+    let state = generate_state();
 
     // Start callback server
     let listener = TcpListener::bind(format!("127.0.0.1:{}", params.port))
@@ -103,13 +115,14 @@ pub(crate) async fn run_pkce_flow(params: &PkceFlowParams) -> crate::error::Resu
     let redirect_uri = format!("http://localhost:{port}/callback");
     let scopes = params.scopes.as_deref().unwrap_or(DEFAULT_SCOPES);
 
-    // Build authorization URL
+    // Build authorization URL with state parameter for CSRF protection
     let auth_url = format!(
-        "{AUTHORIZE_URL}?response_type=code&client_id={}&redirect_uri={}&scope={}&code_challenge={}&code_challenge_method=S256",
+        "{AUTHORIZE_URL}?response_type=code&client_id={}&redirect_uri={}&scope={}&code_challenge={}&code_challenge_method=S256&state={}",
         urlencoded(&params.client_id),
         urlencoded(&redirect_uri),
         urlencoded(scopes),
         urlencoded(&pkce.challenge),
+        urlencoded(&state),
     );
 
     info!("Opening browser for Xero authorization...");
@@ -123,8 +136,8 @@ pub(crate) async fn run_pkce_flow(params: &PkceFlowParams) -> crate::error::Resu
         info!("{auth_url}");
     }
 
-    // Wait for callback
-    let code = wait_for_callback(listener).await?;
+    // Wait for callback and verify state parameter
+    let code = wait_for_callback(listener, &state).await?;
     debug!("Received authorization code");
 
     // Exchange code for tokens
@@ -139,9 +152,9 @@ pub(crate) async fn run_pkce_flow(params: &PkceFlowParams) -> crate::error::Resu
     .await
 }
 
-/// Waits for the OAuth callback on the localhost server and extracts the
-/// authorization code from the query string.
-async fn wait_for_callback(listener: TcpListener) -> crate::error::Result<String> {
+/// Waits for the OAuth callback on the localhost server, verifies the state
+/// parameter for CSRF protection, and extracts the authorization code.
+async fn wait_for_callback(listener: TcpListener, expected_state: &str) -> crate::error::Result<String> {
     let (stream, _addr) =
         listener
             .accept()
@@ -159,8 +172,27 @@ async fn wait_for_callback(listener: TcpListener) -> crate::error::Result<String
             message: format!("Failed to read callback request: {e}"),
         })?;
 
-    // Parse code from: GET /callback?code=XXXX HTTP/1.1
-    let code = parse_code_from_request(&request_line)?;
+    // Parse code and state from: GET /callback?code=XXXX&state=YYYY HTTP/1.1
+    let (code, returned_state) = parse_code_and_state_from_request(&request_line)?;
+
+    // Verify state parameter to prevent CSRF attacks (RFC 6749 §10.12)
+    if returned_state.as_deref() != Some(expected_state) {
+        // Send error response to browser before returning error
+        let error_body = "<!DOCTYPE html><html><body><h2>Authorization failed</h2><p>State parameter mismatch — possible CSRF attack.</p></body></html>";
+        let error_response = format!(
+            "HTTP/1.1 400 Bad Request\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            error_body.len(),
+            error_body
+        );
+        let stream = reader.into_inner();
+        let (_, mut writer) = tokio::io::split(stream);
+        let _ = writer.write_all(error_response.as_bytes()).await;
+        let _ = writer.shutdown().await;
+
+        return Err(crate::error::ChoSdkError::AuthRequired {
+            message: "OAuth state parameter mismatch — possible CSRF attack".to_string(),
+        });
+    }
 
     // Send response to browser
     let response_body = "<!DOCTYPE html><html><body><h2>Authorization successful!</h2><p>You can close this tab and return to the terminal.</p></body></html>";
@@ -178,9 +210,11 @@ async fn wait_for_callback(listener: TcpListener) -> crate::error::Result<String
     Ok(code)
 }
 
-/// Extracts the authorization code from an HTTP request line.
-fn parse_code_from_request(request_line: &str) -> crate::error::Result<String> {
-    // Expected format: GET /callback?code=XXXX&... HTTP/1.1
+/// Extracts the authorization code and state parameter from an HTTP request line.
+fn parse_code_and_state_from_request(
+    request_line: &str,
+) -> crate::error::Result<(String, Option<String>)> {
+    // Expected format: GET /callback?code=XXXX&state=YYYY HTTP/1.1
     let path = request_line.split_whitespace().nth(1).ok_or_else(|| {
         crate::error::ChoSdkError::Config {
             message: "Invalid callback request".to_string(),
@@ -196,9 +230,13 @@ fn parse_code_from_request(request_line: &str) -> crate::error::Result<String> {
         });
     }
 
-    extract_query_param(path, "code").ok_or_else(|| crate::error::ChoSdkError::Config {
-        message: "No authorization code in callback".to_string(),
-    })
+    let code =
+        extract_query_param(path, "code").ok_or_else(|| crate::error::ChoSdkError::Config {
+            message: "No authorization code in callback".to_string(),
+        })?;
+    let state = extract_query_param(path, "state");
+
+    Ok((code, state))
 }
 
 /// Extracts a query parameter value from a URL path.
@@ -331,18 +369,35 @@ mod tests {
     }
 
     #[test]
-    fn parse_code_from_valid_request() {
-        let request = "GET /callback?code=abc123&scope=openid HTTP/1.1";
-        let code = parse_code_from_request(request).unwrap();
+    fn parse_code_and_state_from_valid_request() {
+        let request = "GET /callback?code=abc123&state=mystate&scope=openid HTTP/1.1";
+        let (code, state) = parse_code_and_state_from_request(request).unwrap();
         assert_eq!(code, "abc123");
+        assert_eq!(state.as_deref(), Some("mystate"));
+    }
+
+    #[test]
+    fn parse_code_without_state() {
+        let request = "GET /callback?code=abc123&scope=openid HTTP/1.1";
+        let (code, state) = parse_code_and_state_from_request(request).unwrap();
+        assert_eq!(code, "abc123");
+        assert_eq!(state, None);
     }
 
     #[test]
     fn parse_code_from_error_request() {
         let request = "GET /callback?error=access_denied&error_description=User+denied HTTP/1.1";
-        let err = parse_code_from_request(request).unwrap_err();
+        let err = parse_code_and_state_from_request(request).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("access_denied"));
+    }
+
+    #[test]
+    fn generate_state_is_unique() {
+        let a = generate_state();
+        let b = generate_state();
+        assert_ne!(a, b);
+        assert_eq!(a.len(), 32);
     }
 
     #[test]

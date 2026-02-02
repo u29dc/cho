@@ -12,17 +12,18 @@
 		"prepare": "husky",
 		"build--------------------------------": "",
 		"build": "cargo build --workspace --release",
-		"cho": "./target/release/cho",
+		"dev": "cargo run -p cho-cli --",
 		"check--------------------------------": "",
 		"util:format": "cargo fmt --all",
 		"util:lint": "cargo clippy --all-targets --all-features -- -D warnings",
-		"util:test": "cargo test --all",
-		"util:check": "STATUS=0; bun run util:format || STATUS=1; bun run util:lint || STATUS=1; bun run util:test || STATUS=1; exit $STATUS",
+		"util:test": "cargo test --workspace",
+		"util:types": "cargo check --workspace",
+		"util:check": "STATUS=0; bun run util:format || STATUS=1; bun run util:lint || STATUS=1; bun run util:types || STATUS=1; bun run util:test || STATUS=1; exit $STATUS",
 		"util:clean": "cargo clean"
 	},
 	"devDependencies": {
-		"@commitlint/cli": "^20.4.0",
-		"@commitlint/config-conventional": "^20.4.0",
+		"@commitlint/cli": "^20.4.1",
+		"@commitlint/config-conventional": "^20.4.1",
 		"husky": "^9.1.7",
 		"lint-staged": "^16.2.7"
 	}

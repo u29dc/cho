@@ -24,7 +24,13 @@ impl<'a> OrganisationsApi<'a> {
 
         response
             .organisations
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "Organisation".to_string(),
                 id: String::new(),

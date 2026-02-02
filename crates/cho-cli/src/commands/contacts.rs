@@ -1,9 +1,12 @@
-//! Contact commands: list, get, search.
+//! Contact commands: list, get, search, create, update.
+
+use std::path::PathBuf;
 
 use clap::Subcommand;
 use uuid::Uuid;
 
 use cho_sdk::http::request::ListParams;
+use cho_sdk::models::contact::Contact;
 
 use crate::context::CliContext;
 
@@ -25,6 +28,26 @@ pub enum ContactCommands {
     Search {
         /// Search term.
         term: String,
+    },
+    /// Create a new contact from a JSON file.
+    Create {
+        /// Path to JSON file containing the contact data.
+        #[arg(long)]
+        file: PathBuf,
+        /// Idempotency key for safe retries.
+        #[arg(long)]
+        idempotency_key: Option<String>,
+    },
+    /// Update an existing contact from a JSON file.
+    Update {
+        /// Contact ID (UUID) to update.
+        id: Uuid,
+        /// Path to JSON file containing the contact update data.
+        #[arg(long)]
+        file: PathBuf,
+        /// Idempotency key for safe retries.
+        #[arg(long)]
+        idempotency_key: Option<String>,
     },
 }
 
@@ -52,6 +75,37 @@ pub async fn run(cmd: &ContactCommands, ctx: &CliContext) -> cho_sdk::error::Res
             let pagination = ctx.pagination_params();
             let contacts = ctx.client().contacts().search(term, &pagination).await?;
             let output = ctx.format_list_output(&contacts)?;
+            println!("{output}");
+            Ok(())
+        }
+        ContactCommands::Create {
+            file,
+            idempotency_key,
+        } => {
+            ctx.require_writes_allowed()?;
+            let contact: Contact = crate::commands::invoices::read_json_file(file)?;
+            let result = ctx
+                .client()
+                .contacts()
+                .create(&contact, idempotency_key.as_deref())
+                .await?;
+            let output = ctx.format_output(&result)?;
+            println!("{output}");
+            Ok(())
+        }
+        ContactCommands::Update {
+            id,
+            file,
+            idempotency_key,
+        } => {
+            ctx.require_writes_allowed()?;
+            let contact: Contact = crate::commands::invoices::read_json_file(file)?;
+            let result = ctx
+                .client()
+                .contacts()
+                .update(*id, &contact, idempotency_key.as_deref())
+                .await?;
+            let output = ctx.format_output(&result)?;
             println!("{output}");
             Ok(())
         }

@@ -34,7 +34,13 @@ impl<'a> ItemsApi<'a> {
 
         response
             .items
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "Item".to_string(),
                 id: id.to_string(),
@@ -47,7 +53,13 @@ impl<'a> ItemsApi<'a> {
 
         response
             .items
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "Item".to_string(),
                 id: code.to_string(),

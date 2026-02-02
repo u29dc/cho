@@ -57,7 +57,13 @@ impl<'a> RepeatingInvoicesApi<'a> {
 
         response
             .repeating_invoices
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "RepeatingInvoice".to_string(),
                 id: id.to_string(),

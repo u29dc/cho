@@ -215,11 +215,7 @@ impl BlockingClient {
     }
 
     /// Deletes a payment (blocking).
-    pub fn payments_delete(
-        &self,
-        id: Uuid,
-        idempotency_key: Option<&str>,
-    ) -> Result<Payment> {
+    pub fn payments_delete(&self, id: Uuid, idempotency_key: Option<&str>) -> Result<Payment> {
         self.runtime
             .block_on(self.inner.payments().delete(id, idempotency_key))
     }
@@ -262,11 +258,11 @@ impl BlockingClient {
         transaction: &BankTransaction,
         idempotency_key: Option<&str>,
     ) -> Result<BankTransaction> {
-        self.runtime.block_on(
-            self.inner
-                .bank_transactions()
-                .update(id, transaction, idempotency_key),
-        )
+        self.runtime.block_on(self.inner.bank_transactions().update(
+            id,
+            transaction,
+            idempotency_key,
+        ))
     }
 
     // --- Accounts ---
@@ -374,8 +370,7 @@ impl BlockingClient {
 
     /// Gets a single purchase order by ID (blocking).
     pub fn purchase_orders_get(&self, id: Uuid) -> Result<PurchaseOrder> {
-        self.runtime
-            .block_on(self.inner.purchase_orders().get(id))
+        self.runtime.block_on(self.inner.purchase_orders().get(id))
     }
 
     // --- Items ---
@@ -439,8 +434,7 @@ impl BlockingClient {
 
     /// Gets a single manual journal by ID (blocking).
     pub fn manual_journals_get(&self, id: Uuid) -> Result<ManualJournal> {
-        self.runtime
-            .block_on(self.inner.manual_journals().get(id))
+        self.runtime.block_on(self.inner.manual_journals().get(id))
     }
 
     // --- Prepayments ---

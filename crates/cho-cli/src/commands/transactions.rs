@@ -1,9 +1,12 @@
-//! Bank transaction commands: list, get.
+//! Bank transaction commands: list, get, create, update.
+
+use std::path::PathBuf;
 
 use clap::Subcommand;
 use uuid::Uuid;
 
 use cho_sdk::http::request::ListParams;
+use cho_sdk::models::bank_transaction::BankTransaction;
 
 use crate::context::CliContext;
 
@@ -28,6 +31,26 @@ pub enum TransactionCommands {
     Get {
         /// Bank transaction ID (UUID).
         id: Uuid,
+    },
+    /// Create a new bank transaction from a JSON file.
+    Create {
+        /// Path to JSON file containing the bank transaction data.
+        #[arg(long)]
+        file: PathBuf,
+        /// Idempotency key for safe retries.
+        #[arg(long)]
+        idempotency_key: Option<String>,
+    },
+    /// Update an existing bank transaction from a JSON file.
+    Update {
+        /// Bank transaction ID (UUID) to update.
+        id: Uuid,
+        /// Path to JSON file containing the bank transaction update data.
+        #[arg(long)]
+        file: PathBuf,
+        /// Idempotency key for safe retries.
+        #[arg(long)]
+        idempotency_key: Option<String>,
     },
 }
 
@@ -63,6 +86,37 @@ pub async fn run(cmd: &TransactionCommands, ctx: &CliContext) -> cho_sdk::error:
         TransactionCommands::Get { id } => {
             let txn = ctx.client().bank_transactions().get(*id).await?;
             let output = ctx.format_output(&txn)?;
+            println!("{output}");
+            Ok(())
+        }
+        TransactionCommands::Create {
+            file,
+            idempotency_key,
+        } => {
+            ctx.require_writes_allowed()?;
+            let txn: BankTransaction = crate::commands::invoices::read_json_file(file)?;
+            let result = ctx
+                .client()
+                .bank_transactions()
+                .create(&txn, idempotency_key.as_deref())
+                .await?;
+            let output = ctx.format_output(&result)?;
+            println!("{output}");
+            Ok(())
+        }
+        TransactionCommands::Update {
+            id,
+            file,
+            idempotency_key,
+        } => {
+            ctx.require_writes_allowed()?;
+            let txn: BankTransaction = crate::commands::invoices::read_json_file(file)?;
+            let result = ctx
+                .client()
+                .bank_transactions()
+                .update(*id, &txn, idempotency_key.as_deref())
+                .await?;
+            let output = ctx.format_output(&result)?;
             println!("{output}");
             Ok(())
         }

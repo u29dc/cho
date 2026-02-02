@@ -24,8 +24,7 @@ impl<'a> TrackingCategoriesApi<'a> {
     /// tracking categories in a single response.
     pub async fn list(&self, params: &ListParams) -> Result<Vec<TrackingCategory>> {
         let query = params.to_query_pairs();
-        let response: TrackingCategories =
-            self.client.get("TrackingCategories", &query).await?;
+        let response: TrackingCategories = self.client.get("TrackingCategories", &query).await?;
         Ok(response.tracking_categories.unwrap_or_default())
     }
 
@@ -38,7 +37,13 @@ impl<'a> TrackingCategoriesApi<'a> {
 
         response
             .tracking_categories
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "TrackingCategory".to_string(),
                 id: id.to_string(),

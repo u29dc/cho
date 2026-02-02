@@ -4,7 +4,7 @@
 //! `xero-tenant-id`, and `Content-Type` headers, plus optional query
 //! parameters for filtering, ordering, and pagination.
 
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
+use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 
 /// Query parameters for list endpoints.
 #[derive(Debug, Clone, Default)]
@@ -128,11 +128,12 @@ pub fn build_headers(
     );
 
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
 
-    if let Some(since) = if_modified_since {
-        if let Ok(value) = HeaderValue::from_str(since) {
-            headers.insert(reqwest::header::IF_MODIFIED_SINCE, value);
-        }
+    if let Some(since) = if_modified_since
+        && let Ok(value) = HeaderValue::from_str(since)
+    {
+        headers.insert(reqwest::header::IF_MODIFIED_SINCE, value);
     }
 
     headers

@@ -77,12 +77,6 @@ pub struct PkceFlowParams {
     pub scopes: Option<String>,
 }
 
-/// Runs the full PKCE authorization flow:
-/// 1. Generates PKCE verifier/challenge
-/// 2. Starts localhost callback server
-/// 3. Opens browser to Xero authorization URL
-/// 4. Waits for callback with authorization code
-/// 5. Exchanges code for tokens
 /// Generates a random state string for CSRF protection (RFC 6749 §10.12).
 fn generate_state() -> String {
     let mut rng = rand::rng();
@@ -94,6 +88,12 @@ fn generate_state() -> String {
         .collect()
 }
 
+/// Runs the full PKCE authorization flow:
+/// 1. Generates PKCE verifier/challenge
+/// 2. Starts localhost callback server
+/// 3. Opens browser to Xero authorization URL
+/// 4. Waits for callback with authorization code
+/// 5. Exchanges code for tokens
 pub(crate) async fn run_pkce_flow(params: &PkceFlowParams) -> crate::error::Result<TokenResponse> {
     let pkce = PkceChallenge::new();
     let state = generate_state();

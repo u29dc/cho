@@ -132,7 +132,15 @@ impl<'a> InvoicesApi<'a> {
     }
 
     /// Gets a single invoice by invoice number.
+    ///
+    /// The invoice number is sanitized to prevent OData filter injection.
     pub async fn get_by_number(&self, number: &str) -> Result<Invoice> {
+        // Reject characters that could break the OData where filter
+        if number.contains('"') || number.contains('\\') {
+            return Err(crate::error::ChoSdkError::Parse {
+                message: "Invalid invoice number: contains illegal characters (quotes or backslashes)".to_string(),
+            });
+        }
         let params = ListParams::new().with_where(format!("InvoiceNumber==\"{number}\""));
         let query = params.to_query_pairs();
 

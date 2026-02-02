@@ -357,10 +357,11 @@ impl XeroClient {
 
             if !status.is_success() {
                 let body = response.text().await.unwrap_or_default();
+                let validation_errors = extract_validation_errors(&body);
                 return Err(ChoSdkError::ApiError {
                     status: status.as_u16(),
                     message: body,
-                    validation_errors: Vec::new(),
+                    validation_errors,
                 });
             }
 
@@ -389,6 +390,18 @@ impl XeroClient {
         body: &B,
         idempotency_key: Option<&str>,
     ) -> Result<T> {
+        // Validate Idempotency-Key length (Xero max 128 chars per OpenAPI spec)
+        if let Some(key) = idempotency_key
+            && key.len() > 128
+        {
+            return Err(ChoSdkError::Config {
+                message: format!(
+                    "Idempotency-Key exceeds maximum length of 128 characters (got {})",
+                    key.len()
+                ),
+            });
+        }
+
         let max_retries = self.config.max_retries;
         let json_body = serde_json::to_string(body).map_err(|e| ChoSdkError::Parse {
             message: format!("Failed to serialize request body: {e}"),
@@ -645,12 +658,49 @@ fn backoff_delay(attempt: u32) -> std::time::Duration {
     std::time::Duration::from_secs(base)
 }
 
+/// Attempts to extract validation error messages from a Xero API error response.
+///
+/// Xero error responses may contain `ValidationErrors` arrays on resource items,
+/// with each error having a `Message` field.
+fn extract_validation_errors(body: &str) -> Vec<String> {
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(body) else {
+        return Vec::new();
+    };
+
+    let mut errors = Vec::new();
+
+    // Xero embeds ValidationErrors inside resource arrays
+    if let Some(obj) = json.as_object() {
+        for (_key, value) in obj {
+            if let Some(items) = value.as_array() {
+                for item in items {
+                    if let Some(ve) = item.get("ValidationErrors").and_then(|v| v.as_array()) {
+                        for err in ve {
+                            if let Some(msg) = err.get("Message").and_then(|m| m.as_str()) {
+                                errors.push(msg.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    errors
+}
+
 /// Truncates a string to a maximum length, appending "..." if truncated.
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len])
+        // Find a valid UTF-8 boundary at or before max_len
+        let boundary = s
+            .char_indices()
+            .take_while(|(i, _)| *i < max_len)
+            .last()
+            .map_or(0, |(i, ch)| i + ch.len_utf8());
+        format!("{}...", &s[..boundary])
     }
 }
 

@@ -21,6 +21,8 @@ pub enum ErrorCode {
     NetworkError,
     /// Response deserialization failed.
     ParseError,
+    /// Write operations are not allowed.
+    WriteNotAllowed,
     /// Invalid arguments/flags.
     UsageError,
 }
@@ -37,6 +39,7 @@ impl ErrorCode {
             Self::ApiError => "API_ERROR",
             Self::NetworkError => "NETWORK_ERROR",
             Self::ParseError => "PARSE_ERROR",
+            Self::WriteNotAllowed => "WRITE_NOT_ALLOWED",
             Self::UsageError => "USAGE_ERROR",
         }
     }
@@ -65,6 +68,7 @@ impl From<&ChoSdkError> for ErrorCode {
             ChoSdkError::Network(_) => Self::NetworkError,
             ChoSdkError::Parse { .. } => Self::ParseError,
             ChoSdkError::Config { .. } => Self::UsageError,
+            ChoSdkError::WriteNotAllowed { .. } => Self::WriteNotAllowed,
         }
     }
 }

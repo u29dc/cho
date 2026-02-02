@@ -21,6 +21,12 @@ pub struct SdkConfig {
     ///
     /// Defaults to 3.
     pub max_retries: u32,
+
+    /// Whether write operations (PUT/POST) are allowed.
+    ///
+    /// Defaults to `false`. Must be explicitly enabled to prevent
+    /// accidental mutations against the Xero API.
+    pub allow_writes: bool,
 }
 
 impl Default for SdkConfig {
@@ -29,6 +35,7 @@ impl Default for SdkConfig {
             base_url: "https://api.xero.com/api.xro/2.0/".to_owned(),
             timeout: Duration::from_secs(30),
             max_retries: 3,
+            allow_writes: false,
         }
     }
 }
@@ -54,6 +61,14 @@ impl SdkConfig {
     /// Set the maximum number of retries.
     pub fn with_max_retries(mut self, retries: u32) -> Self {
         self.max_retries = retries;
+        self
+    }
+
+    /// Enable or disable write operations (PUT/POST).
+    ///
+    /// Writes are disabled by default to prevent accidental mutations.
+    pub fn with_allow_writes(mut self, allow: bool) -> Self {
+        self.allow_writes = allow;
         self
     }
 }

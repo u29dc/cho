@@ -94,7 +94,7 @@ pub fn check_writes_allowed() -> cho_sdk::error::Result<()> {
     let config_path = cho_sdk::auth::storage::config_dir()?.join("config.toml");
 
     if !config_path.exists() {
-        return Err(cho_sdk::error::ChoSdkError::Config {
+        return Err(cho_sdk::error::ChoSdkError::WriteNotAllowed {
             message: format!(
                 "Write operations are disabled by default. \
                  To enable, add the following to {}:\n\n\
@@ -126,7 +126,7 @@ pub fn check_writes_allowed() -> cho_sdk::error::Result<()> {
     if allowed {
         Ok(())
     } else {
-        Err(cho_sdk::error::ChoSdkError::Config {
+        Err(cho_sdk::error::ChoSdkError::WriteNotAllowed {
             message: format!(
                 "Write operations are not allowed in the current configuration. \
                  To enable, set the following in {}:\n\n\

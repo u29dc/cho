@@ -63,6 +63,13 @@ pub enum ChoSdkError {
         /// Description of the configuration problem.
         message: String,
     },
+
+    /// Write operations are disabled in the SDK configuration.
+    #[error("write operations not allowed: {message}")]
+    WriteNotAllowed {
+        /// Explanation of why writes are blocked.
+        message: String,
+    },
 }
 
 /// Convenience type alias for SDK results.

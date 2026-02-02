@@ -204,27 +204,43 @@ impl XeroClient {
     }
 
     /// Makes a PUT request to a Xero API endpoint with a JSON body.
+    ///
+    /// Returns [`ChoSdkError::WriteNotAllowed`] if writes are disabled in config.
     pub(crate) async fn put<T: DeserializeOwned, B: Serialize>(
         &self,
         path: &str,
         body: &B,
         idempotency_key: Option<&str>,
     ) -> Result<T> {
+        self.check_writes_allowed()?;
         let url = format!("{}{path}", self.config.base_url);
         self.request_with_body(reqwest::Method::PUT, &url, body, idempotency_key)
             .await
     }
 
     /// Makes a POST request to a Xero API endpoint with a JSON body.
+    ///
+    /// Returns [`ChoSdkError::WriteNotAllowed`] if writes are disabled in config.
     pub(crate) async fn post<T: DeserializeOwned, B: Serialize>(
         &self,
         path: &str,
         body: &B,
         idempotency_key: Option<&str>,
     ) -> Result<T> {
+        self.check_writes_allowed()?;
         let url = format!("{}{path}", self.config.base_url);
         self.request_with_body(reqwest::Method::POST, &url, body, idempotency_key)
             .await
+    }
+
+    /// Checks whether write operations are allowed by the SDK configuration.
+    fn check_writes_allowed(&self) -> Result<()> {
+        if !self.config.allow_writes {
+            return Err(ChoSdkError::WriteNotAllowed {
+                message: "Write operations are disabled. Set allow_writes=true in SdkConfig or config file to enable.".to_string(),
+            });
+        }
+        Ok(())
     }
 
     /// Makes a GET request to an absolute URL (e.g., Identity API).

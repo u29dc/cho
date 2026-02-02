@@ -730,6 +730,50 @@ pub enum TaxType {
     Unknown,
 }
 
+// ── Prepayment/Overpayment type enums ──
+
+/// Type of prepayment.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PrepaymentType {
+    /// Receive prepayment.
+    #[serde(rename = "RECEIVE-PREPAYMENT")]
+    ReceivePrepayment,
+    /// Spend prepayment.
+    #[serde(rename = "SPEND-PREPAYMENT")]
+    SpendPrepayment,
+    /// Accounts receivable prepayment.
+    #[serde(rename = "ARPREPAYMENT")]
+    ArPrepayment,
+    /// Accounts payable prepayment.
+    #[serde(rename = "APPREPAYMENT")]
+    ApPrepayment,
+    /// Unknown type (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+/// Type of overpayment.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum OverpaymentType {
+    /// Receive overpayment.
+    #[serde(rename = "RECEIVE-OVERPAYMENT")]
+    ReceiveOverpayment,
+    /// Spend overpayment.
+    #[serde(rename = "SPEND-OVERPAYMENT")]
+    SpendOverpayment,
+    /// Accounts receivable overpayment.
+    #[serde(rename = "AROVERPAYMENT")]
+    ArOverpayment,
+    /// Accounts payable overpayment.
+    #[serde(rename = "APROVERPAYMENT")]
+    ApOverpayment,
+    /// Unknown type (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

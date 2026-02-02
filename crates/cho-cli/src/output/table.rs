@@ -55,6 +55,7 @@ pub fn format_table(columns: &[Column], rows: &[Vec<String>]) -> String {
 }
 
 /// Helper: creates a left-aligned text column.
+#[allow(dead_code)]
 pub fn text_col(header: &'static str) -> Column {
     Column {
         header: header.to_string(),
@@ -73,6 +74,7 @@ pub fn text_col_static(header: &str) -> Column {
 }
 
 /// Helper: creates a right-aligned number column.
+#[allow(dead_code)]
 pub fn num_col(header: &'static str) -> Column {
     Column {
         header: header.to_string(),
@@ -82,6 +84,7 @@ pub fn num_col(header: &'static str) -> Column {
 }
 
 /// Helper: creates a left-aligned column with max width.
+#[allow(dead_code)]
 pub fn text_col_width(header: &'static str, max_width: u16) -> Column {
     Column {
         header: header.to_string(),

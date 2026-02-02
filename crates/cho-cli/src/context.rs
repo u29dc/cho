@@ -160,13 +160,11 @@ impl CliContext {
     /// `[safety] allow_writes = true` in `~/.config/cho/config.toml`.
     ///
     /// This cannot be overridden by CLI flags or environment variables.
-    #[allow(dead_code)]
     pub fn require_writes_allowed(&self) -> cho_sdk::error::Result<()> {
         check_writes_allowed()
     }
 }
 
-#[allow(dead_code)]
 /// Reads the configuration file and checks if `[safety] allow_writes` is true.
 ///
 /// Returns `Ok(())` if writes are allowed, or an error with a helpful message.

@@ -540,7 +540,7 @@ impl XeroClient {
         let mut all_items = Vec::new();
         let mut page: u32 = 1;
         let limit = pagination.limit;
-        let mut last_pagination: Option<crate::models::common::Pagination> = None;
+        let mut last_pagination = None;
 
         loop {
             let params = base_params
@@ -553,7 +553,7 @@ impl XeroClient {
                 .get_with_modified_since(path, &query, base_params.if_modified_since.as_deref())
                 .await?;
             let pag = response.pagination().cloned();
-            last_pagination = pag.clone();
+            last_pagination.clone_from(&pag);
             let items = response.into_items();
 
             let item_count = items.len();

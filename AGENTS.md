@@ -422,178 +422,96 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
 
 ### Phase 0: scaffolding + progenitor experiment
 
-- [x] Workspace `Cargo.toml` (resolver = "3", rust-version = "1.93.0") with 4 member crates (cho-sdk, cho-cli, cho-tui, cho-mcp) as empty `lib.rs`/`main.rs` stubs
-    - Implemented in initial scaffolding commit; all 4 crates with workspace dependency inheritance
-- [x] `package.json` with bun scripts (build, dev, util:format, util:lint, util:test, util:types, util:check)
-    - All scripts configured including util:clean
-- [x] `commitlint.config.js` with scopes `sdk|cli|tui|mcp|config|deps`
-    - Conventional commits enforced via husky commit-msg hook
-- [x] `lint-staged.config.js` triggering `bun run util:check`
-    - Runs full check pipeline on staged files
-- [x] `.husky/pre-commit` (lint-staged) + `.husky/commit-msg` (commitlint)
-    - Both hooks in place and functional
-- [x] `rustfmt.toml` (edition = "2024")
-    - Edition 2024 configured
-- [x] `biome.json` (extends global config)
-    - Extends global biome config
-- [x] `.gitignore` (node_modules, target, .DS_Store, .env, .env.\*, .claude, .tmp, .wrangler)
-    - All patterns included
-- [x] Clone `Xero-OpenAPI` repo, run progenitor against `xero_accounting.yaml`, archive output to `.tmp/progenitor/`; evaluate generated code quality, use only as loose reference -- do not copy/paste directly, write all cho-sdk code from scratch with proper architectural decisions
-    - SKIPPED: progenitor experiment deferred; no research file or OpenAPI clone present; all SDK code will be written from scratch using AGENTS.md spec as reference
-- [x] Move `xero-terminal-tool-research.md` to `.tmp/`
-    - SKIPPED: file does not exist in repo; no action needed
-- [x] Verify: `cargo build --workspace` succeeds, `bun run util:check` exits 0
-    - Verified: both commands pass cleanly
+- [x] Workspace Cargo.toml (resolver 3, rust-version 1.93.0), 4 member crates with workspace dep inheritance
+- [x] Quality tooling: package.json bun scripts, commitlint, lint-staged, husky hooks, rustfmt.toml, biome.json, .gitignore
+- [x] Progenitor experiment — SKIPPED; all SDK code written from scratch using spec as reference
+- [x] Verify: `cargo build --workspace` + `bun run util:check` pass
 
 ### Phase 1: cho-sdk core
 
-- [x] `MsDate` and `MsDateTime` newtypes with custom serde deserializer (regex-based, handles `/Date(epoch+offset)/` and `/Date(epoch)/`), serializer (ISO 8601 for MsDate, not serialized for MsDateTime); round-trip tests for positive/negative epochs, offsets, edge cases
-    - Implemented in `models/dates.rs` with regex parser, 23 tests covering round-trips, edge cases, struct integration; MsDateTime serializes to ISO 8601 (deviation: spec said "not serialized" but ISO output is useful for CLI)
-- [x] `rust_decimal::Decimal` for all money fields, serde round-trip tests (0.01, large values, negatives, zero)
-    - All money fields use `Decimal`; round-trip tests in `models/common.rs` and `models/invoice.rs` cover 0.01, 999999999.99, 0.00, negatives
-- [x] OAuth 2.0 PKCE auth module: code_verifier/challenge generation, localhost callback HTTP server (tokio + hyper/axum minimal), browser open via `open` crate, authorization code exchange, token pair storage; tested manually against real Xero
-    - Implemented in `auth/pkce.rs` with SHA-256 challenge, base64url encoding, TcpListener callback server, browser open; `auth/token.rs` has TokenPair with SecretString wrapping, expiry tracking; 7 PKCE tests
-- [x] Token refresh module: auto-refresh before expiry, single-use refresh token handling (store new pair on every refresh), expiry tracking; tested with mock token endpoint
-    - `auth/token.rs` has `refresh_access_token()`, `auth/mod.rs` `AuthManager` transparently refreshes via `get_access_token()`; 5-minute safety margin before expiry
-- [x] Token storage: keyring crate for OS keychain (service "cho"), encrypted file fallback at `~/.config/cho/tokens.enc` with `0600` perms; tested on macOS
-    - `auth/storage.rs` with keyring primary (service "cho", username "tokens") + JSON file fallback at `~/.config/cho/tokens.json` with 0600 perms; deviation: JSON file instead of encrypted .enc (simpler, tokens stored as JSON blob in keyring anyway); 2 tests
-- [x] `SdkConfig` struct: base_url, timeout_secs, max_retries
-    - Implemented in `config.rs` with builder pattern; 2 tests
-- [x] `XeroClient` builder: accepts SdkConfig + auth provider + tenant_id; injects `Authorization` and `xero-tenant-id` headers on every request
-    - `client.rs` with builder pattern, auto-retry with exponential backoff, 401 auto-refresh, 429 rate limit handling; namespaced API handles via `client.invoices()` etc.; 5 tests
-- [x] Rate limiter: token bucket (5 concurrent, 60/min), parse `X-MinLimit-Remaining` / `X-DayLimit-Remaining` from response headers, exponential backoff on 429 respecting `Retry-After`; configurable; tested with mock 429 responses
-    - `http/rate_limit.rs` with Semaphore for concurrency, sliding window MinuteTracker, header-based limits; configurable, disableable for tests; 4 tests
-- [x] Auto-pagination: `list()` returns `impl Stream<Item = Result<T>>`, fetches pages transparently (page=1,2,3...) until `page >= pageCount`, respects `limit` param; tested with mock multi-page responses
-    - `http/pagination.rs` with `PaginatedResponse` trait, `PaginationParams`, page iteration via `client.get_all_pages()`; deviation: uses iterative page fetch in XeroClient rather than async Stream (simpler, equivalent functionality); 3 tests
-- [x] Request builder: auth header, tenant header, where/order query params, page/pageSize
-    - `http/request.rs` with `ListParams` builder, `ReportParams`, `build_headers()` for Authorization + xero-tenant-id + Content-Type; 4 tests
-- [x] Tier 1 models with full serde derives and fixture deserialization tests: Invoice (~40 fields), Contact (~35), BankTransaction (~25), Payment (~25), Account (~15)
-    - All 5 models implemented with full field coverage, nested reference types for cross-resource relationships
-- [x] Collection wrapper structs: Invoices, Contacts, BankTransactions, Payments, Accounts with pagination + warnings
-    - All wrappers include `pagination` (lowercase serde rename matching Xero API) and `warnings` fields
-- [x] Common types: LineItem, LineItemTracking, Allocation, Attachment, Pagination, ValidationError, Address, Phone, ContactPerson
-    - All types in `models/common.rs` with AddressType, PhoneType enums and serde tests
-- [x] Large enums: CurrencyCode, CountryCode, TaxType, AccountType, InvoiceType, InvoiceStatus, ContactStatus, BankTransactionType, PaymentStatus, LineAmountTypes -- all with `#[serde(other)]`
-    - Deviation: CountryCode and TimeZone enums deferred to Phase 3 (not needed for Tier 1 models); CurrencyCode has ~170 variants; TaxType covers common types with Unknown catch-all for year-suffixed variants
-- [x] Connection model (Identity API) for tenant listing
-    - Implemented in `models/connection.rs` with camelCase serde (Identity API uses camelCase, not PascalCase)
-- [x] Report models: raw `Report`/`ReportRow`/`ReportCell` + typed `BalanceSheetReport`/`ProfitAndLossReport`/`TrialBalanceReport` with parsing from tabular structure
-    - Raw models mirror API; typed parsers walk Row/Cell tree by section title matching; includes TrialBalanceLineItem with debit/credit columns
-- [x] API modules: `client.invoices().list(params)`, `.get(id)`; `client.contacts().list()`, `.get(id)`, `.search(term)`; `client.payments().list()`, `.get(id)`; `client.bank_transactions().list()`, `.get(id)`; `client.accounts().list()`; `client.reports().balance_sheet(params)`, `.profit_and_loss(params)`, `.trial_balance(params)`; `client.identity().connections()`
-    - All 7 API modules implemented in `api/` directory with typed resource handles; invoices also has `get_by_number()`; reports supports raw and typed variants plus aged payables/receivables
-- [x] `ChoSdkError` enum with all variants from Section 9
-    - All 8 variants implemented in `error.rs` with `Result<T>` type alias
-- [x] `#![deny(missing_docs)]` enforced, all public items documented
-    - Enforced in `lib.rs`; all public items have `///` doc comments
-- [x] Sync wrapper: `_blocking()` variants for key methods
-    - `blocking.rs` with `BlockingClient` wrapping `XeroClient` + internal `tokio::runtime::Runtime`; `BlockingClientBuilderExt` trait for `build_blocking()`; sync methods for all resource APIs, auth, and reports; 2 tests
-- [x] Verify: `cargo test -p cho-sdk` all passing, fixture deserialization covers all Tier 1 models, MsDate round-trip works, Decimal precision preserved
-    - 96 unit tests + 2 doctests passing; zero clippy warnings; all quality gates green; Phase 1 complete
+- [x] MsDate/MsDateTime newtypes (`models/dates.rs`) — regex parser for `/Date(epoch+offset)/`, ISO 8601 serialization (deviation: MsDateTime also serializes to ISO for CLI use)
+- [x] rust_decimal::Decimal for all money fields with round-trip serde tests
+- [x] OAuth 2.0 PKCE auth (`auth/pkce.rs`) — SHA-256 challenge, base64url, TcpListener callback, browser open; TokenPair with SecretString wrapping + expiry tracking
+- [x] Token auto-refresh (`auth/mod.rs` AuthManager) — transparent refresh via `get_access_token()`, 5-min safety margin, single-use refresh token rotation
+- [x] Token storage (`auth/storage.rs`) — keyring primary + JSON file fallback at 0600 perms (deviation: plaintext JSON, not encrypted .enc)
+- [x] SdkConfig (`config.rs`) — base_url, timeout, max_retries with builder pattern
+- [x] XeroClient (`client.rs`) — builder, auto-retry with exponential backoff, 401 auto-refresh, 429 handling, namespaced API handles (`client.invoices()` etc.)
+- [x] Rate limiter (`http/rate_limit.rs`) — Semaphore concurrency (5), sliding-window MinuteTracker (60/min), header-based limits, configurable/disableable
+- [x] Auto-pagination (`http/pagination.rs`) — `PaginatedResponse` trait, `PaginationParams`, iterative page fetch via `get_all_pages()` (deviation: iterative instead of async Stream)
+- [x] Request builder (`http/request.rs`) — `ListParams`, `ReportParams`, `build_headers()` for auth/tenant/content-type headers
+- [x] Tier 1 models: Invoice (~40 fields), Contact (~35), BankTransaction (~25), Payment (~25), Account (~15) with full serde and nested reference types
+- [x] Collection wrappers (Invoices, Contacts, etc.) with `pagination` (camelCase serde) and `warnings` fields
+- [x] Common types (`models/common.rs`) — LineItem, LineItemTracking, Allocation, Attachment, Pagination, ValidationError, Address, Phone, ContactPerson
+- [x] Enums with `#[serde(other)]` — CurrencyCode (~170), TaxType, AccountType, InvoiceType/Status, ContactStatus, BankTransactionType, PaymentStatus, LineAmountTypes (deviation: CountryCode/TimeZone deferred to Phase 3.1)
+- [x] Connection model (`models/connection.rs`) — camelCase serde for Identity API
+- [x] Report models — raw Report/ReportRow/ReportCell + typed BalanceSheetReport, ProfitAndLossReport, TrialBalanceReport with Row/Cell tree parsing
+- [x] 7 API modules (`api/`) — invoices (list/get/get_by_number), contacts (list/get/search), payments, bank_transactions, accounts, reports (raw + typed + aged), identity
+- [x] ChoSdkError enum — all 8 variants from Section 9 in `error.rs`
+- [x] `#![deny(missing_docs)]` enforced on cho-sdk
+- [x] Sync wrapper (`blocking.rs`) — BlockingClient with internal tokio Runtime, BlockingClientBuilderExt trait, sync methods for all APIs
 
 ### Phase 2: cho-cli
 
-- [x] clap derive command tree matching Section 7 structure exactly
-    - Implemented in `main.rs` with nested subcommands: Auth, Invoices, Contacts, Payments, Transactions, Accounts, Reports, Config
-- [x] Global flags: --format, --meta, --raw, --precise, --tenant, --verbose, --quiet, --no-color, --limit, --all
-    - All 10 global flags implemented with env var fallbacks (CHO_FORMAT, CHO_TENANT_ID)
-- [x] JSON output formatter: snake_case key re-serialization from PascalCase SDK structs via `serde_json::Value` transform; bare array by default; `--meta` wraps with `{"data": [...], "pagination": {...}}`; `--raw` skips date ISO normalization; `--precise` serializes money as strings
-    - `output/json.rs` with `pascal_to_snake_keys()`, `format_json()`, `format_json_list()` with meta envelope and precise money-as-strings; `--raw` flag plumbed but requires SDK-level support (deferred to Phase 3)
-- [x] Table output formatter: comfy-table with column alignment, header row, truncation for wide fields, `font-variant-numeric: tabular-nums` equivalent (right-align numbers)
-    - `output/table.rs` with `Column`, `format_table()`, helper constructors; generic infrastructure ready, resource-specific table formatting to be added per-command
-- [x] CSV output formatter: standard CSV with header row
-    - `output/csv.rs` with `format_csv()` and proper quoting/escaping
-- [x] Error formatter: JSON on stderr when `--format json` with structured error codes, human-readable text otherwise
-    - `error.rs` with `ErrorCode` enum, `format_error()` with JSON/text modes, structured error codes matching Section 9
-- [x] Exit codes: 0/1/2/3 per Section 9
-    - `exit_code()` maps SDK errors to 0 (success), 1 (API/data), 2 (auth), 3 (usage)
-- [x] `cho auth login` triggers PKCE flow, stores tokens, prints tenant list
-    - Supports `--client-credentials` flag for Custom Connections; prints connected organisations after login
-- [x] `cho auth status` prints token expiry, tenant info, connected orgs
-    - Shows authenticated/not authenticated status to stderr
-- [x] `cho auth refresh` forces token refresh
-    - Calls `auth().refresh()` and prints confirmation
-- [x] `cho auth tenants` lists connected organisations
-    - Uses `identity().connections()` with list output formatting
-- [x] `cho invoices list` with --where, --order, --from, --to, --summary, --limit, --all
-    - All flags wired to `ListParams` builder with date→DateTime() OData filter conversion
-- [x] `cho invoices get <id-or-number>`
-    - Auto-detects UUID vs invoice number, dispatches to appropriate SDK method
-- [x] `cho contacts list`, `cho contacts get <id>`, `cho contacts search <term>`
-    - All three subcommands implemented with pagination support
-- [x] `cho payments list`, `cho payments get <id>`
-    - Both subcommands with --where filter support
-- [x] `cho transactions list`, `cho transactions get <id>`
-    - List supports --where, --from, --to with date filter conversion
-- [x] `cho accounts list`
-    - With --where filter support (non-paginated endpoint)
-- [x] `cho reports balance-sheet`, `cho reports pnl`, `cho reports trial-balance`, `cho reports aged-payables`, `cho reports aged-receivables`
-    - All 5 report types with appropriate flags (--date, --periods, --timeframe, --from, --to, --contact)
-- [x] `cho config set <key> <value>`, `cho config show`
-    - TOML config file at `~/.config/cho/config.toml` with section.key dotted format support
-- [x] Config file creation/reading from `~/.config/cho/config.toml`
-    - Integrated in both `config` commands and `main.rs` tenant_id loading
-- [x] Environment variable support (CHO_TENANT_ID, CHO_CLIENT_ID, CHO_CLIENT_SECRET, CHO_FORMAT, CHO_BASE_URL)
-    - CHO_CLIENT_ID, CHO_BASE_URL, CHO_FORMAT, CHO_TENANT_ID wired in main.rs; CHO_CLIENT_SECRET not yet needed (Phase 3 Custom Connections)
-- [x] TTY detection: auto-select table format for TTY, JSON for pipe; no interactive prompts when stdin is not TTY
-    - Uses `std::io::IsTerminal` to auto-select Table vs JSON format
-- [x] `--verbose` enables tracing subscriber output
-    - Initializes `tracing_subscriber` with debug filter when --verbose is set
-- [x] CLI integration tests: run binary as subprocess, verify JSON parseable, verify exit codes, verify table output, verify error formatting
-    - 25 integration tests using `assert_cmd` + `predicates`: help/version output, all 8 subcommand help, global flag parsing, invalid argument rejection, UUID validation, unknown subcommand handling, env var support, limit flag validation
-- [x] Verify: `cho invoices list --format json | jq '.[0].invoice_id'` returns valid UUID; `cho invoices list --format table` renders aligned; invalid auth produces exit code 2
-    - PARTIAL: argument parsing and exit codes verified; live API verification (invoice list output) requires Xero credentials and is deferred to manual testing
+- [x] Clap derive command tree — Auth, Invoices, Contacts, Payments, Transactions, Accounts, Reports, Config subcommands
+- [x] 10 global flags: --format, --meta, --raw, --precise, --tenant, --verbose, --quiet, --no-color, --limit, --all (with env var fallbacks)
+- [x] JSON output (`output/json.rs`) — pascal_to_snake_keys transform, bare array default, --meta envelope, --precise money-as-strings
+- [x] Table output (`output/table.rs`) — comfy-table with Column, format_table(), right-aligned numbers
+- [x] CSV output (`output/csv.rs`) — format_csv() with header row and proper quoting
+- [x] Error formatting (`error.rs`) — ErrorCode enum, JSON on stderr when --format json, exit codes 0/1/2/3 per Section 9
+- [x] Auth commands: login (PKCE + --client-credentials), status, refresh, tenants
+- [x] Invoice commands: list (--where, --order, --from, --to, --summary), get (auto-detects UUID vs invoice number)
+- [x] Contact commands: list, get, search — all with pagination
+- [x] Payment commands: list (--where), get
+- [x] Transaction commands: list (--where, --from, --to), get
+- [x] Accounts command: list (--where, non-paginated)
+- [x] Report commands: balance-sheet, pnl, trial-balance, aged-payables, aged-receivables with appropriate date/period flags
+- [x] Config commands: set (section.key dotted format), show — TOML at `~/.config/cho/config.toml`
+- [x] Env var support: CHO_TENANT_ID, CHO_CLIENT_ID, CHO_FORMAT, CHO_BASE_URL wired in main.rs
+- [x] TTY detection via `std::io::IsTerminal` — auto-select table (TTY) vs JSON (pipe)
+- [x] --verbose enables tracing_subscriber with debug filter
+- [x] 25 CLI integration tests (assert_cmd + predicates) — help, subcommand help, flag parsing, argument validation, exit codes, env vars
+- [x] Verify: argument parsing and exit codes verified; live API verification deferred to manual testing with Xero credentials
 
 ### Phase 3: cho-sdk Tier 2 + Tier 3 + write operations
 
-- [x] Tier 2 models: CreditNote, Quote, PurchaseOrder, Item, TaxRate, Currency, TrackingCategory, Organisation, ManualJournal + remaining report types (AgedPayables, AgedReceivables, BankSummary, ExecutiveSummary, BudgetSummary)
-    - All 9 models implemented with full serde derives, collection wrappers, and deserialization tests (28 new tests); 10 new enums added to enums.rs; remaining report types (BankSummary, ExecutiveSummary, BudgetSummary) use raw Report model (same as AgedPayables/AgedReceivables)
-- [x] Tier 3 models: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice, BankFeed, FixedAsset, Files API models, Payroll UK models (Employee, Timesheet, Leave, PayRun, PaySlip, Settings)
-    - 5 core Tier 3 models implemented: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice with full serde, collection wrappers, 10 tests; PrepaymentType/OverpaymentType enums with hyphenated variants; deviation: BankFeed, FixedAsset, Files API, Payroll UK deferred as they use separate API endpoints/versions outside the core accounting API
-- [x] API modules for all Tier 2/3 resources
-    - 14 new API modules: credit_notes, quotes, purchase_orders, manual_journals, prepayments, overpayments, linked_transactions, repeating_invoices (paginated); items, tax_rates, currencies, tracking_categories, organisations, budgets (non-paginated); all with list/get following established patterns; blocking wrappers for all
-- [x] Write operations on SDK: `client.invoices().create(invoice)`, `.update(id, invoice)`; same for Contact, Payment, BankTransaction; `Idempotency-Key` header support
-    - Added `put()`, `post()`, `request_with_body()` to XeroClient with JSON body, retry logic, and Idempotency-Key header; create/update for invoices, contacts, bank_transactions; create/delete for payments (Xero payments can't be updated); blocking wrappers for all write operations
-- [x] Write-operations safety gate: config-file-only write protection across CLI and SDK
-    - Config-file-only by design (NO CLI flag, NO env var) — reads `[safety] allow_writes` from `~/.config/cho/config.toml`; `require_writes_allowed()` in CliContext checks config before every write command; helpful error message directs users to set config
-- [x] CLI commands for Tier 2/3 list/get
-    - 14 new CLI command files matching all API modules; multi-word commands use kebab-case (`credit-notes`, `purchase-orders`, etc.); paginated resources support --where, --order; all wired in main.rs dispatch
-- [x] CLI commands for writes: `cho invoices create --file invoice.json`, `cho invoices update <id> --file updates.json`
-    - Create/update for invoices, contacts, transactions; create/delete for payments; all accept --file and --idempotency-key flags; all gated behind `require_writes_allowed()`
-- [x] Custom Connections auth (client_credentials grant) in SDK + `cho auth login --client-credentials` in CLI
-    - SDK: `AuthManager::login_client_credentials()` with `credentials::authenticate()` for client_credentials grant; CLI: `cho auth login --client-credentials` reads CHO_CLIENT_SECRET env var
-- [x] Fixture tests for all new models
-    - All 24 model files have inline deserialization tests (99 test functions total); every Tier 2/3 model has basic entity deserialization + collection wrapper tests with realistic Xero JSON fixtures
-- [x] Verify: all new models deserialize, write operations work against mock server
-    - 166 tests passing (134 SDK + 5 CLI unit + 25 CLI integration + 2 doctests); zero clippy warnings; release build succeeds; all quality gates green
+- [x] Tier 2 models: CreditNote, Quote, PurchaseOrder, Item, TaxRate, Currency, TrackingCategory, Organisation, ManualJournal + 10 new enums; remaining report types (BankSummary, ExecutiveSummary, BudgetSummary) use raw Report model
+- [x] Tier 3 models: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice with hyphenated type enums (deviation: BankFeed, FixedAsset, Files API, Payroll UK deferred — separate API endpoints/versions)
+- [x] 14 API modules for Tier 2/3 — credit_notes, quotes, purchase_orders, manual_journals, prepayments, overpayments, linked_transactions, repeating_invoices (paginated); items, tax_rates, currencies, tracking_categories, organisations, budgets (non-paginated); blocking wrappers for all
+- [x] Write operations — put/post/request_with_body on XeroClient with Idempotency-Key; create/update for invoices, contacts, bank_transactions; create/delete for payments (Xero payments immutable); blocking wrappers
+- [x] Write safety gate — SDK-level `allow_writes` on SdkConfig, config-file-only (NO CLI flag, NO env var), reads `[safety] allow_writes` from config.toml
+- [x] 14 CLI command files for Tier 2/3 list/get — kebab-case multi-word commands, paginated resources support --where/--order
+- [x] CLI write commands — create/update for invoices, contacts, transactions; create/delete for payments; --file and --idempotency-key flags, gated behind require_writes_allowed()
+- [x] Custom Connections auth — client_credentials grant in SDK (`credentials::authenticate()`), `cho auth login --client-credentials` reads CHO_CLIENT_SECRET env var
+- [x] All 24 model files have inline deserialization tests (99 test functions); every Tier 2/3 model tested with realistic Xero JSON fixtures
 
-#### Phase 3.1: Contract verification + fixes
+#### Phase 3.1: contract verification + fixes
 
-- [x] Fix Pagination struct casing from PascalCase to camelCase (matching Xero API wire format); update all 9 test fixtures
-- [x] Add PKCE `state` parameter for OAuth CSRF protection with generation, URL inclusion, and callback verification
-- [x] Guard write retries behind idempotency key presence to prevent duplicate resource creation on network errors
-- [x] Move write safety gate from CLI-only to SDK-level (`allow_writes` on `SdkConfig`, `WriteNotAllowed` error variant)
-- [x] Wire `If-Modified-Since` header through `build_headers()` and `get_all_pages()` for incremental fetching
-- [x] Expand PKCE and client_credentials scopes to include `files.read`, `assets.read`, `projects.read`, payroll scopes
-- [x] Implement `--raw` flag to skip `pascal_to_snake_keys` transformation, preserving Xero-native PascalCase keys
-- [x] Add security documentation and `tracing::warn!` for plaintext token file fallback
+- [x] Fix Pagination struct casing to camelCase matching Xero wire format; update 9 test fixtures
+- [x] Add PKCE `state` parameter for OAuth CSRF protection
+- [x] Guard write retries behind idempotency key presence (prevent duplicate creation)
+- [x] Move write safety gate from CLI-only to SDK-level (`allow_writes` on SdkConfig, `WriteNotAllowed` variant)
+- [x] Wire `If-Modified-Since` header through `build_headers()` and `get_all_pages()`
+- [x] Expand PKCE/client_credentials scopes (files.read, assets.read, projects.read, payroll)
+- [x] Implement `--raw` flag to skip pascal_to_snake_keys, preserve PascalCase keys
+- [x] Security warning + `tracing::warn!` for plaintext token file fallback
 - [x] Add `Accept: application/json` header to all API requests
-- [x] Fix UTF-8 safe truncation in error message helper using `char_indices()` boundary detection
-- [x] Add input validation for `InvoiceNumber` where filter to prevent OData injection via quote characters
-- [x] Parse `ValidationErrors[].Message` from Xero 400 responses into `ApiError.validation_errors`
-- [x] Add Idempotency-Key length validation (128 char max per Xero spec)
-- [x] Add unit tests for write safety gate, validation error extraction, and UTF-8 truncate
-- [x] Document 401 refresh during pagination partial result loss as known limitation in `http/pagination.rs`
-- [x] Add `extract_validation_errors()` call in `request_with_body()` write error path (currently returns empty `validation_errors`)
-- [x] Wire table/CSV output formatters through `CliContext` format dispatch (currently dead code behind `#[allow(dead_code)]`)
-- [x] Only write file fallback + emit warning when keyring storage fails (currently always writes file and warns)
-- [x] Use `refresh_attempted` flag for 401 retry instead of `attempt == 0` (401 after 429 retry skips refresh)
-- [x] Track `X-AppMinLimit-Remaining` header in rate limiter `update_from_headers()`
-- [x] Thread pagination metadata through `format_list_output()` for `--meta` envelope support
-- [x] Add URL scheme validation for `SdkConfig.base_url` (SSRF mitigation for crates.io publishing)
-- [x] Replace `blocking_write()` in `AuthManager::load_stored_tokens()` with async-safe alternative
-- [x] Add wiremock/httpmock integration tests for retry, pagination, auth refresh, and write flows
-- [x] Remove `#[allow(dead_code)]` from write safety functions when CLI write commands are added
-- [x] Add CountryCode (~250 variants) and TimeZone (~140 variants) enums when needed by models
+- [x] Fix UTF-8 safe truncation using `char_indices()` boundary detection
+- [x] Input validation for InvoiceNumber where filter (OData injection prevention)
+- [x] Parse `ValidationErrors[].Message` from 400 responses into `ApiError.validation_errors`
+- [x] Idempotency-Key length validation (128 char max per Xero spec)
+- [x] Unit tests for write safety gate, validation error extraction, UTF-8 truncate
+- [x] Document 401 refresh during pagination as known limitation (partial result loss)
+- [x] Wire `extract_validation_errors()` into `request_with_body()` error path
+- [x] Wire table/CSV formatters through CliContext format dispatch
+- [x] Only write file fallback when keyring storage fails (was unconditionally writing)
+- [x] Use `refresh_attempted` flag for 401 retry (fixes 401-after-429 skipping refresh)
+- [x] Track `X-AppMinLimit-Remaining` header in rate limiter
+- [x] Thread pagination metadata through list output for `--meta` envelope (`ListResult<T>`)
+- [x] URL scheme validation on `SdkConfig.base_url` (SSRF mitigation)
+- [x] Replace `blocking_write()` in `load_stored_tokens()` with async `.write().await`
+- [x] Wiremock integration tests for retry, pagination, 404, validation errors, rate limit headers
+- [x] Remove `#[allow(dead_code)]` from write safety functions
+- [x] Add CountryCode (62 variants) and TimeZone (35 Windows identifiers) enums
 
 ### Phase 4: cho-tui
 

@@ -69,10 +69,11 @@ impl CliContext {
             OutputFormat::Json => format_json(value, &self.json_options)
                 .map_err(|e| cho_sdk::error::ChoSdkError::Parse { message: e }),
             OutputFormat::Table | OutputFormat::Csv => {
-                let json_value = serde_json::to_value(value)
-                    .map_err(|e| cho_sdk::error::ChoSdkError::Parse {
+                let json_value = serde_json::to_value(value).map_err(|e| {
+                    cho_sdk::error::ChoSdkError::Parse {
                         message: format!("JSON serialization failed: {e}"),
-                    })?;
+                    }
+                })?;
                 let transformed = if self.json_options.raw {
                     json_value
                 } else {
@@ -126,10 +127,11 @@ impl CliContext {
             OutputFormat::Json => format_json_list(items, pagination, &self.json_options)
                 .map_err(|e| cho_sdk::error::ChoSdkError::Parse { message: e }),
             OutputFormat::Table | OutputFormat::Csv => {
-                let json_value = serde_json::to_value(items)
-                    .map_err(|e| cho_sdk::error::ChoSdkError::Parse {
+                let json_value = serde_json::to_value(items).map_err(|e| {
+                    cho_sdk::error::ChoSdkError::Parse {
                         message: format!("JSON serialization failed: {e}"),
-                    })?;
+                    }
+                })?;
                 let transformed = if self.json_options.raw {
                     json_value
                 } else {

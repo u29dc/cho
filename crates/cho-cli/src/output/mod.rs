@@ -18,16 +18,17 @@ pub fn value_to_rows(value: &Value) -> (Vec<String>, Vec<Vec<String>>) {
             let headers = if let Some(obj) = arr[0].as_object() {
                 obj.keys().cloned().collect::<Vec<_>>()
             } else {
-                return (vec!["value".to_string()], arr.iter().map(|v| vec![value_display(v)]).collect());
+                return (
+                    vec!["value".to_string()],
+                    arr.iter().map(|v| vec![value_display(v)]).collect(),
+                );
             };
             let rows = arr
                 .iter()
                 .map(|item| {
                     headers
                         .iter()
-                        .map(|h| {
-                            item.get(h).map(value_display).unwrap_or_default()
-                        })
+                        .map(|h| item.get(h).map(value_display).unwrap_or_default())
                         .collect()
                 })
                 .collect();
@@ -35,7 +36,10 @@ pub fn value_to_rows(value: &Value) -> (Vec<String>, Vec<Vec<String>>) {
         }
         Value::Object(obj) => {
             let headers: Vec<String> = obj.keys().cloned().collect();
-            let row: Vec<String> = headers.iter().map(|h| obj.get(h).map(value_display).unwrap_or_default()).collect();
+            let row: Vec<String> = headers
+                .iter()
+                .map(|h| obj.get(h).map(value_display).unwrap_or_default())
+                .collect();
             (headers, vec![row])
         }
         other => (vec!["value".to_string()], vec![vec![value_display(other)]]),

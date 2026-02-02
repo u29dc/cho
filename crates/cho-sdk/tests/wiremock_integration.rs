@@ -60,10 +60,7 @@ async fn get_single_invoice() {
         .await
         .unwrap();
 
-    assert_eq!(
-        invoice.invoice_id.unwrap().to_string(),
-        invoice_id
-    );
+    assert_eq!(invoice.invoice_id.unwrap().to_string(), invoice_id);
     assert_eq!(invoice.invoice_number.as_deref(), Some("INV-001"));
 }
 
@@ -181,9 +178,7 @@ async fn rate_limit_429_retry() {
     // First request returns 429
     Mock::given(method("GET"))
         .and(path("Invoices/00000000-0000-0000-0000-000000000001"))
-        .respond_with(
-            ResponseTemplate::new(429).insert_header("Retry-After", "0"),
-        )
+        .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "0"))
         .up_to_n_times(1)
         .expect(1)
         .mount(&server)
@@ -288,12 +283,9 @@ async fn api_error_with_validation_errors() {
         .build()
         .unwrap();
 
-    let invoice: cho_sdk::models::invoice::Invoice =
-        serde_json::from_str("{}").unwrap();
-    let result: Result<cho_sdk::models::invoice::Invoice, cho_sdk::error::ChoSdkError> = client
-        .invoices()
-        .create(&invoice, None)
-        .await;
+    let invoice: cho_sdk::models::invoice::Invoice = serde_json::from_str("{}").unwrap();
+    let result: Result<cho_sdk::models::invoice::Invoice, cho_sdk::error::ChoSdkError> =
+        client.invoices().create(&invoice, None).await;
 
     assert!(result.is_err());
     if let cho_sdk::error::ChoSdkError::ApiError {

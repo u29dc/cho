@@ -127,7 +127,11 @@ impl<'a> ContactsApi<'a> {
 
     /// Searches contacts by name, email, or other fields using Xero's
     /// built-in search term parameter.
-    pub async fn search(&self, term: &str, pagination: &PaginationParams) -> Result<ListResult<Contact>> {
+    pub async fn search(
+        &self,
+        term: &str,
+        pagination: &PaginationParams,
+    ) -> Result<ListResult<Contact>> {
         let params = ListParams::new().with_search_term(term);
         self.client
             .get_all_pages::<Contacts>("Contacts", &params, pagination)

@@ -118,6 +118,27 @@ impl BlockingClient {
             .block_on(self.inner.invoices().get_by_number(number))
     }
 
+    /// Creates a new invoice (blocking).
+    pub fn invoices_create(
+        &self,
+        invoice: &Invoice,
+        idempotency_key: Option<&str>,
+    ) -> Result<Invoice> {
+        self.runtime
+            .block_on(self.inner.invoices().create(invoice, idempotency_key))
+    }
+
+    /// Updates an existing invoice (blocking).
+    pub fn invoices_update(
+        &self,
+        id: Uuid,
+        invoice: &Invoice,
+        idempotency_key: Option<&str>,
+    ) -> Result<Invoice> {
+        self.runtime
+            .block_on(self.inner.invoices().update(id, invoice, idempotency_key))
+    }
+
     // --- Contacts ---
 
     /// Lists contacts (blocking).
@@ -133,6 +154,27 @@ impl BlockingClient {
     /// Gets a single contact by ID (blocking).
     pub fn contacts_get(&self, id: Uuid) -> Result<Contact> {
         self.runtime.block_on(self.inner.contacts().get(id))
+    }
+
+    /// Creates a new contact (blocking).
+    pub fn contacts_create(
+        &self,
+        contact: &Contact,
+        idempotency_key: Option<&str>,
+    ) -> Result<Contact> {
+        self.runtime
+            .block_on(self.inner.contacts().create(contact, idempotency_key))
+    }
+
+    /// Updates an existing contact (blocking).
+    pub fn contacts_update(
+        &self,
+        id: Uuid,
+        contact: &Contact,
+        idempotency_key: Option<&str>,
+    ) -> Result<Contact> {
+        self.runtime
+            .block_on(self.inner.contacts().update(id, contact, idempotency_key))
     }
 
     /// Searches contacts (blocking).
@@ -162,6 +204,26 @@ impl BlockingClient {
         self.runtime.block_on(self.inner.payments().get(id))
     }
 
+    /// Creates a new payment (blocking).
+    pub fn payments_create(
+        &self,
+        payment: &Payment,
+        idempotency_key: Option<&str>,
+    ) -> Result<Payment> {
+        self.runtime
+            .block_on(self.inner.payments().create(payment, idempotency_key))
+    }
+
+    /// Deletes a payment (blocking).
+    pub fn payments_delete(
+        &self,
+        id: Uuid,
+        idempotency_key: Option<&str>,
+    ) -> Result<Payment> {
+        self.runtime
+            .block_on(self.inner.payments().delete(id, idempotency_key))
+    }
+
     // --- Bank Transactions ---
 
     /// Lists bank transactions (blocking).
@@ -178,6 +240,33 @@ impl BlockingClient {
     pub fn bank_transactions_get(&self, id: Uuid) -> Result<BankTransaction> {
         self.runtime
             .block_on(self.inner.bank_transactions().get(id))
+    }
+
+    /// Creates a new bank transaction (blocking).
+    pub fn bank_transactions_create(
+        &self,
+        transaction: &BankTransaction,
+        idempotency_key: Option<&str>,
+    ) -> Result<BankTransaction> {
+        self.runtime.block_on(
+            self.inner
+                .bank_transactions()
+                .create(transaction, idempotency_key),
+        )
+    }
+
+    /// Updates an existing bank transaction (blocking).
+    pub fn bank_transactions_update(
+        &self,
+        id: Uuid,
+        transaction: &BankTransaction,
+        idempotency_key: Option<&str>,
+    ) -> Result<BankTransaction> {
+        self.runtime.block_on(
+            self.inner
+                .bank_transactions()
+                .update(id, transaction, idempotency_key),
+        )
     }
 
     // --- Accounts ---

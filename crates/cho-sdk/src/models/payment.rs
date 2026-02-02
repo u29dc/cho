@@ -9,7 +9,7 @@ use super::dates::{MsDate, MsDateTime};
 use super::enums::{CurrencyCode, PaymentStatus, PaymentType};
 
 /// A payment in Xero, applied to an invoice, credit note, prepayment, or overpayment.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Payment {
     /// Unique identifier for the payment.

@@ -1,4 +1,4 @@
-//! Bank Transactions API: list and get bank transactions.
+//! Bank Transactions API: list, get, create, and update bank transactions.
 
 use uuid::Uuid;
 
@@ -41,6 +41,61 @@ impl<'a> BankTransactionsApi<'a> {
         self.client
             .get_all_pages::<BankTransactions>("BankTransactions", params, pagination)
             .await
+    }
+
+    /// Creates a new bank transaction.
+    pub async fn create(
+        &self,
+        transaction: &BankTransaction,
+        idempotency_key: Option<&str>,
+    ) -> Result<BankTransaction> {
+        let wrapper = BankTransactions {
+            bank_transactions: Some(vec![transaction.clone()]),
+            pagination: None,
+            warnings: None,
+        };
+
+        let response: BankTransactions = self
+            .client
+            .put("BankTransactions", &wrapper, idempotency_key)
+            .await?;
+
+        response
+            .bank_transactions
+            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .ok_or_else(|| crate::error::ChoSdkError::Parse {
+                message: "No bank transaction returned in create response".to_string(),
+            })
+    }
+
+    /// Updates an existing bank transaction.
+    pub async fn update(
+        &self,
+        id: Uuid,
+        transaction: &BankTransaction,
+        idempotency_key: Option<&str>,
+    ) -> Result<BankTransaction> {
+        let wrapper = BankTransactions {
+            bank_transactions: Some(vec![transaction.clone()]),
+            pagination: None,
+            warnings: None,
+        };
+
+        let response: BankTransactions = self
+            .client
+            .post(
+                &format!("BankTransactions/{id}"),
+                &wrapper,
+                idempotency_key,
+            )
+            .await?;
+
+        response
+            .bank_transactions
+            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .ok_or_else(|| crate::error::ChoSdkError::Parse {
+                message: "No bank transaction returned in update response".to_string(),
+            })
     }
 
     /// Gets a single bank transaction by ID.

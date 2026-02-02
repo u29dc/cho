@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use tracing::{debug, warn};
 
 use crate::auth::AuthManager;
@@ -204,6 +205,30 @@ impl XeroClient {
             .await
     }
 
+    /// Makes a PUT request to a Xero API endpoint with a JSON body.
+    pub(crate) async fn put<T: DeserializeOwned, B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+        idempotency_key: Option<&str>,
+    ) -> Result<T> {
+        let url = format!("{}{path}", self.config.base_url);
+        self.request_with_body(reqwest::Method::PUT, &url, body, idempotency_key)
+            .await
+    }
+
+    /// Makes a POST request to a Xero API endpoint with a JSON body.
+    pub(crate) async fn post<T: DeserializeOwned, B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+        idempotency_key: Option<&str>,
+    ) -> Result<T> {
+        let url = format!("{}{path}", self.config.base_url);
+        self.request_with_body(reqwest::Method::POST, &url, body, idempotency_key)
+            .await
+    }
+
     /// Makes a GET request to an absolute URL (e.g., Identity API).
     pub(crate) async fn get_absolute<T: DeserializeOwned>(
         &self,
@@ -317,6 +342,130 @@ impl XeroClient {
                 message: format!(
                     "Failed to parse response: {e}\nBody: {}",
                     truncate(&body, 500)
+                ),
+            });
+        }
+
+        Err(ChoSdkError::ApiError {
+            status: 0,
+            message: "Max retries exceeded".to_string(),
+            validation_errors: Vec::new(),
+        })
+    }
+
+    /// Core request method with JSON body and retry logic for write operations.
+    async fn request_with_body<T: DeserializeOwned, B: Serialize>(
+        &self,
+        method: reqwest::Method,
+        url: &str,
+        body: &B,
+        idempotency_key: Option<&str>,
+    ) -> Result<T> {
+        let max_retries = self.config.max_retries;
+        let json_body =
+            serde_json::to_string(body).map_err(|e| ChoSdkError::Parse {
+                message: format!("Failed to serialize request body: {e}"),
+            })?;
+
+        for attempt in 0..=max_retries {
+            let guard = self.rate_limiter.acquire().await?;
+
+            let access_token = self.auth.get_access_token().await?;
+            let mut headers = request::build_headers(&access_token, &self.tenant_id);
+
+            // Add Idempotency-Key header if provided
+            if let Some(key) = idempotency_key
+                && let Ok(value) = reqwest::header::HeaderValue::from_str(key)
+            {
+                headers.insert("Idempotency-Key", value);
+            }
+
+            let result = self
+                .http_client
+                .request(method.clone(), url)
+                .headers(headers)
+                .body(json_body.clone())
+                .send()
+                .await;
+
+            let response = match result {
+                Ok(r) => r,
+                Err(e) => {
+                    if attempt < max_retries && is_transient_error(&e) {
+                        let delay = backoff_delay(attempt);
+                        warn!(
+                            "Request failed (attempt {}/{}), retrying in {delay:?}: {e}",
+                            attempt + 1,
+                            max_retries + 1
+                        );
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                    return Err(ChoSdkError::Network(e));
+                }
+            };
+
+            // Update rate limiter with response headers
+            guard.complete(response.headers()).await;
+
+            let status = response.status();
+
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                if attempt < max_retries {
+                    self.rate_limiter
+                        .handle_rate_limited(response.headers())
+                        .await?;
+                    continue;
+                }
+                return Err(ChoSdkError::RateLimited {
+                    retry_after: response
+                        .headers()
+                        .get("Retry-After")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(60),
+                });
+            }
+
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                if attempt == 0 {
+                    debug!("Got 401, attempting token refresh");
+                    match self.auth.refresh().await {
+                        Ok(()) => continue,
+                        Err(_) => {
+                            return Err(ChoSdkError::TokenExpired {
+                                message: "Token expired and refresh failed".to_string(),
+                            });
+                        }
+                    }
+                }
+                return Err(ChoSdkError::TokenExpired {
+                    message: "Authentication failed".to_string(),
+                });
+            }
+
+            if status == reqwest::StatusCode::NOT_FOUND {
+                return Err(ChoSdkError::NotFound {
+                    resource: url.to_string(),
+                    id: String::new(),
+                });
+            }
+
+            if !status.is_success() {
+                let resp_body = response.text().await.unwrap_or_default();
+                return Err(ChoSdkError::ApiError {
+                    status: status.as_u16(),
+                    message: resp_body,
+                    validation_errors: Vec::new(),
+                });
+            }
+
+            // Parse successful response
+            let resp_body = response.text().await.map_err(ChoSdkError::Network)?;
+            return serde_json::from_str::<T>(&resp_body).map_err(|e| ChoSdkError::Parse {
+                message: format!(
+                    "Failed to parse response: {e}\nBody: {}",
+                    truncate(&resp_body, 500)
                 ),
             });
         }

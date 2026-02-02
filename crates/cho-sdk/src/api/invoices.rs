@@ -1,4 +1,4 @@
-//! Invoices API: list and get invoices.
+//! Invoices API: list, get, create, and update invoices.
 
 use uuid::Uuid;
 
@@ -59,6 +59,63 @@ impl<'a> InvoicesApi<'a> {
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "Invoice".to_string(),
                 id: id.to_string(),
+            })
+    }
+
+    /// Creates a new invoice.
+    ///
+    /// Xero uses PUT for creating invoices. The invoice is sent as the body
+    /// and the response contains the created invoice with server-assigned fields.
+    pub async fn create(
+        &self,
+        invoice: &Invoice,
+        idempotency_key: Option<&str>,
+    ) -> Result<Invoice> {
+        let wrapper = Invoices {
+            invoices: Some(vec![invoice.clone()]),
+            pagination: None,
+            warnings: None,
+        };
+
+        let response: Invoices = self
+            .client
+            .put("Invoices", &wrapper, idempotency_key)
+            .await?;
+
+        response
+            .invoices
+            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .ok_or_else(|| crate::error::ChoSdkError::Parse {
+                message: "No invoice returned in create response".to_string(),
+            })
+    }
+
+    /// Updates an existing invoice.
+    ///
+    /// Xero uses POST for updating invoices. The invoice must include the
+    /// `invoice_id` field to identify which invoice to update.
+    pub async fn update(
+        &self,
+        id: Uuid,
+        invoice: &Invoice,
+        idempotency_key: Option<&str>,
+    ) -> Result<Invoice> {
+        let wrapper = Invoices {
+            invoices: Some(vec![invoice.clone()]),
+            pagination: None,
+            warnings: None,
+        };
+
+        let response: Invoices = self
+            .client
+            .post(&format!("Invoices/{id}"), &wrapper, idempotency_key)
+            .await?;
+
+        response
+            .invoices
+            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .ok_or_else(|| crate::error::ChoSdkError::Parse {
+                message: "No invoice returned in update response".to_string(),
             })
     }
 

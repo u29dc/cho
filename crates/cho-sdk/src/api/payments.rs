@@ -1,4 +1,4 @@
-//! Payments API: list and get payments.
+//! Payments API: list, get, and create payments.
 
 use uuid::Uuid;
 
@@ -41,6 +41,66 @@ impl<'a> PaymentsApi<'a> {
         self.client
             .get_all_pages::<Payments>("Payments", params, pagination)
             .await
+    }
+
+    /// Creates a new payment.
+    ///
+    /// Payments in Xero are create-only (cannot be updated, only deleted).
+    pub async fn create(
+        &self,
+        payment: &Payment,
+        idempotency_key: Option<&str>,
+    ) -> Result<Payment> {
+        let wrapper = Payments {
+            payments: Some(vec![payment.clone()]),
+            pagination: None,
+            warnings: None,
+        };
+
+        let response: Payments = self
+            .client
+            .put("Payments", &wrapper, idempotency_key)
+            .await?;
+
+        response
+            .payments
+            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .ok_or_else(|| crate::error::ChoSdkError::Parse {
+                message: "No payment returned in create response".to_string(),
+            })
+    }
+
+    /// Deletes a payment (sets status to DELETED).
+    ///
+    /// Xero payments cannot be updated, only deleted by POSTing with
+    /// `Status: "DELETED"`.
+    pub async fn delete(
+        &self,
+        id: Uuid,
+        idempotency_key: Option<&str>,
+    ) -> Result<Payment> {
+        let payment = Payment {
+            status: Some(crate::models::enums::PaymentStatus::Deleted),
+            ..Default::default()
+        };
+
+        let wrapper = Payments {
+            payments: Some(vec![payment]),
+            pagination: None,
+            warnings: None,
+        };
+
+        let response: Payments = self
+            .client
+            .post(&format!("Payments/{id}"), &wrapper, idempotency_key)
+            .await?;
+
+        response
+            .payments
+            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .ok_or_else(|| crate::error::ChoSdkError::Parse {
+                message: "No payment returned in delete response".to_string(),
+            })
     }
 
     /// Gets a single payment by ID.

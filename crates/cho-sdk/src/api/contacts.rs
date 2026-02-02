@@ -1,4 +1,4 @@
-//! Contacts API: list, get, and search contacts.
+//! Contacts API: list, get, search, create, and update contacts.
 
 use uuid::Uuid;
 
@@ -59,6 +59,57 @@ impl<'a> ContactsApi<'a> {
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "Contact".to_string(),
                 id: id.to_string(),
+            })
+    }
+
+    /// Creates a new contact.
+    pub async fn create(
+        &self,
+        contact: &Contact,
+        idempotency_key: Option<&str>,
+    ) -> Result<Contact> {
+        let wrapper = Contacts {
+            contacts: Some(vec![contact.clone()]),
+            pagination: None,
+            warnings: None,
+        };
+
+        let response: Contacts = self
+            .client
+            .put("Contacts", &wrapper, idempotency_key)
+            .await?;
+
+        response
+            .contacts
+            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .ok_or_else(|| crate::error::ChoSdkError::Parse {
+                message: "No contact returned in create response".to_string(),
+            })
+    }
+
+    /// Updates an existing contact.
+    pub async fn update(
+        &self,
+        id: Uuid,
+        contact: &Contact,
+        idempotency_key: Option<&str>,
+    ) -> Result<Contact> {
+        let wrapper = Contacts {
+            contacts: Some(vec![contact.clone()]),
+            pagination: None,
+            warnings: None,
+        };
+
+        let response: Contacts = self
+            .client
+            .post(&format!("Contacts/{id}"), &wrapper, idempotency_key)
+            .await?;
+
+        response
+            .contacts
+            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .ok_or_else(|| crate::error::ChoSdkError::Parse {
+                message: "No contact returned in update response".to_string(),
             })
     }
 

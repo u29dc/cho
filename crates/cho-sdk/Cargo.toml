@@ -18,3 +18,8 @@ secrecy = { workspace = true }
 tracing = { workspace = true }
 regex = { workspace = true }
 open = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+rand = { workspace = true }
+futures-core = { workspace = true }
+async-stream = { workspace = true }

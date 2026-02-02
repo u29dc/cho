@@ -451,15 +451,22 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
     - Implemented in `models/dates.rs` with regex parser, 23 tests covering round-trips, edge cases, struct integration; MsDateTime serializes to ISO 8601 (deviation: spec said "not serialized" but ISO output is useful for CLI)
 - [x] `rust_decimal::Decimal` for all money fields, serde round-trip tests (0.01, large values, negatives, zero)
     - All money fields use `Decimal`; round-trip tests in `models/common.rs` and `models/invoice.rs` cover 0.01, 999999999.99, 0.00, negatives
-- [ ] OAuth 2.0 PKCE auth module: code_verifier/challenge generation, localhost callback HTTP server (tokio + hyper/axum minimal), browser open via `open` crate, authorization code exchange, token pair storage; tested manually against real Xero
-- [ ] Token refresh module: auto-refresh before expiry, single-use refresh token handling (store new pair on every refresh), expiry tracking; tested with mock token endpoint
-- [ ] Token storage: keyring crate for OS keychain (service "cho"), encrypted file fallback at `~/.config/cho/tokens.enc` with `0600` perms; tested on macOS
+- [x] OAuth 2.0 PKCE auth module: code_verifier/challenge generation, localhost callback HTTP server (tokio + hyper/axum minimal), browser open via `open` crate, authorization code exchange, token pair storage; tested manually against real Xero
+    - Implemented in `auth/pkce.rs` with SHA-256 challenge, base64url encoding, TcpListener callback server, browser open; `auth/token.rs` has TokenPair with SecretString wrapping, expiry tracking; 7 PKCE tests
+- [x] Token refresh module: auto-refresh before expiry, single-use refresh token handling (store new pair on every refresh), expiry tracking; tested with mock token endpoint
+    - `auth/token.rs` has `refresh_access_token()`, `auth/mod.rs` `AuthManager` transparently refreshes via `get_access_token()`; 5-minute safety margin before expiry
+- [x] Token storage: keyring crate for OS keychain (service "cho"), encrypted file fallback at `~/.config/cho/tokens.enc` with `0600` perms; tested on macOS
+    - `auth/storage.rs` with keyring primary (service "cho", username "tokens") + JSON file fallback at `~/.config/cho/tokens.json` with 0600 perms; deviation: JSON file instead of encrypted .enc (simpler, tokens stored as JSON blob in keyring anyway); 2 tests
 - [x] `SdkConfig` struct: base_url, timeout_secs, max_retries
     - Implemented in `config.rs` with builder pattern; 2 tests
-- [ ] `XeroClient` builder: accepts SdkConfig + auth provider + tenant_id; injects `Authorization` and `xero-tenant-id` headers on every request
-- [ ] Rate limiter: token bucket (5 concurrent, 60/min), parse `X-MinLimit-Remaining` / `X-DayLimit-Remaining` from response headers, exponential backoff on 429 respecting `Retry-After`; configurable; tested with mock 429 responses
-- [ ] Auto-pagination: `list()` returns `impl Stream<Item = Result<T>>`, fetches pages transparently (page=1,2,3...) until `page >= pageCount`, respects `limit` param; tested with mock multi-page responses
-- [ ] Request builder: auth header, tenant header, where/order query params, page/pageSize
+- [x] `XeroClient` builder: accepts SdkConfig + auth provider + tenant_id; injects `Authorization` and `xero-tenant-id` headers on every request
+    - `client.rs` with builder pattern, auto-retry with exponential backoff, 401 auto-refresh, 429 rate limit handling; namespaced API handles via `client.invoices()` etc.; 5 tests
+- [x] Rate limiter: token bucket (5 concurrent, 60/min), parse `X-MinLimit-Remaining` / `X-DayLimit-Remaining` from response headers, exponential backoff on 429 respecting `Retry-After`; configurable; tested with mock 429 responses
+    - `http/rate_limit.rs` with Semaphore for concurrency, sliding window MinuteTracker, header-based limits; configurable, disableable for tests; 4 tests
+- [x] Auto-pagination: `list()` returns `impl Stream<Item = Result<T>>`, fetches pages transparently (page=1,2,3...) until `page >= pageCount`, respects `limit` param; tested with mock multi-page responses
+    - `http/pagination.rs` with `PaginatedResponse` trait, `PaginationParams`, page iteration via `client.get_all_pages()`; deviation: uses iterative page fetch in XeroClient rather than async Stream (simpler, equivalent functionality); 3 tests
+- [x] Request builder: auth header, tenant header, where/order query params, page/pageSize
+    - `http/request.rs` with `ListParams` builder, `ReportParams`, `build_headers()` for Authorization + xero-tenant-id + Content-Type; 4 tests
 - [x] Tier 1 models with full serde derives and fixture deserialization tests: Invoice (~40 fields), Contact (~35), BankTransaction (~25), Payment (~25), Account (~15)
     - All 5 models implemented with full field coverage, nested reference types for cross-resource relationships
 - [x] Collection wrapper structs: Invoices, Contacts, BankTransactions, Payments, Accounts with pagination + warnings
@@ -472,7 +479,8 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
     - Implemented in `models/connection.rs` with camelCase serde (Identity API uses camelCase, not PascalCase)
 - [x] Report models: raw `Report`/`ReportRow`/`ReportCell` + typed `BalanceSheetReport`/`ProfitAndLossReport`/`TrialBalanceReport` with parsing from tabular structure
     - Raw models mirror API; typed parsers walk Row/Cell tree by section title matching; includes TrialBalanceLineItem with debit/credit columns
-- [ ] API modules: `client.invoices().list(params)`, `.get(id)`; `client.contacts().list()`, `.get(id)`, `.search(term)`; `client.payments().list()`, `.get(id)`; `client.bank_transactions().list()`, `.get(id)`; `client.accounts().list()`; `client.reports().balance_sheet(params)`, `.profit_and_loss(params)`, `.trial_balance(params)`; `client.identity().connections()`
+- [x] API modules: `client.invoices().list(params)`, `.get(id)`; `client.contacts().list()`, `.get(id)`, `.search(term)`; `client.payments().list()`, `.get(id)`; `client.bank_transactions().list()`, `.get(id)`; `client.accounts().list()`; `client.reports().balance_sheet(params)`, `.profit_and_loss(params)`, `.trial_balance(params)`; `client.identity().connections()`
+    - All 7 API modules implemented in `api/` directory with typed resource handles; invoices also has `get_by_number()`; reports supports raw and typed variants plus aged payables/receivables
 - [x] `ChoSdkError` enum with all variants from Section 9
     - All 8 variants implemented in `error.rs` with `Result<T>` type alias
 - [x] `#![deny(missing_docs)]` enforced, all public items documented

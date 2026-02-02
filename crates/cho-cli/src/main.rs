@@ -113,6 +113,84 @@ enum Commands {
         #[command(subcommand)]
         command: commands::config::ConfigCommands,
     },
+    /// Credit note operations.
+    #[command(name = "credit-notes")]
+    CreditNotes {
+        #[command(subcommand)]
+        command: commands::credit_notes::CreditNoteCommands,
+    },
+    /// Quote operations.
+    Quotes {
+        #[command(subcommand)]
+        command: commands::quotes::QuoteCommands,
+    },
+    /// Purchase order operations.
+    #[command(name = "purchase-orders")]
+    PurchaseOrders {
+        #[command(subcommand)]
+        command: commands::purchase_orders::PurchaseOrderCommands,
+    },
+    /// Item operations.
+    Items {
+        #[command(subcommand)]
+        command: commands::items::ItemCommands,
+    },
+    /// Tax rate operations.
+    #[command(name = "tax-rates")]
+    TaxRates {
+        #[command(subcommand)]
+        command: commands::tax_rates::TaxRateCommands,
+    },
+    /// Currency operations.
+    Currencies {
+        #[command(subcommand)]
+        command: commands::currencies::CurrencyCommands,
+    },
+    /// Tracking category operations.
+    #[command(name = "tracking-categories")]
+    TrackingCategories {
+        #[command(subcommand)]
+        command: commands::tracking_categories::TrackingCategoryCommands,
+    },
+    /// Organisation operations.
+    #[command(name = "organisation")]
+    Organisation {
+        #[command(subcommand)]
+        command: commands::organisations::OrganisationCommands,
+    },
+    /// Manual journal operations.
+    #[command(name = "manual-journals")]
+    ManualJournals {
+        #[command(subcommand)]
+        command: commands::manual_journals::ManualJournalCommands,
+    },
+    /// Prepayment operations.
+    Prepayments {
+        #[command(subcommand)]
+        command: commands::prepayments::PrepaymentCommands,
+    },
+    /// Overpayment operations.
+    Overpayments {
+        #[command(subcommand)]
+        command: commands::overpayments::OverpaymentCommands,
+    },
+    /// Linked transaction operations.
+    #[command(name = "linked-transactions")]
+    LinkedTransactions {
+        #[command(subcommand)]
+        command: commands::linked_transactions::LinkedTransactionCommands,
+    },
+    /// Budget operations.
+    Budgets {
+        #[command(subcommand)]
+        command: commands::budgets::BudgetCommands,
+    },
+    /// Repeating invoice operations.
+    #[command(name = "repeating-invoices")]
+    RepeatingInvoices {
+        #[command(subcommand)]
+        command: commands::repeating_invoices::RepeatingInvoiceCommands,
+    },
 }
 
 #[tokio::main]
@@ -183,6 +261,30 @@ async fn main() {
         Commands::Accounts { command } => commands::accounts::run(command, &ctx).await,
         Commands::Reports { command } => commands::reports::run(command, &ctx).await,
         Commands::Config { command } => commands::config::run(command, &ctx).await,
+        Commands::CreditNotes { command } => commands::credit_notes::run(command, &ctx).await,
+        Commands::Quotes { command } => commands::quotes::run(command, &ctx).await,
+        Commands::PurchaseOrders { command } => {
+            commands::purchase_orders::run(command, &ctx).await
+        }
+        Commands::Items { command } => commands::items::run(command, &ctx).await,
+        Commands::TaxRates { command } => commands::tax_rates::run(command, &ctx).await,
+        Commands::Currencies { command } => commands::currencies::run(command, &ctx).await,
+        Commands::TrackingCategories { command } => {
+            commands::tracking_categories::run(command, &ctx).await
+        }
+        Commands::Organisation { command } => commands::organisations::run(command, &ctx).await,
+        Commands::ManualJournals { command } => {
+            commands::manual_journals::run(command, &ctx).await
+        }
+        Commands::Prepayments { command } => commands::prepayments::run(command, &ctx).await,
+        Commands::Overpayments { command } => commands::overpayments::run(command, &ctx).await,
+        Commands::LinkedTransactions { command } => {
+            commands::linked_transactions::run(command, &ctx).await
+        }
+        Commands::Budgets { command } => commands::budgets::run(command, &ctx).await,
+        Commands::RepeatingInvoices { command } => {
+            commands::repeating_invoices::run(command, &ctx).await
+        }
     };
 
     if let Err(e) = result {

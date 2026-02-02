@@ -6,6 +6,7 @@
 //! - `format: date` → ISO `YYYY-MM-DD` → plain [`NaiveDate`] (handled by chrono's default serde)
 
 use std::fmt;
+use std::sync::LazyLock;
 
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use regex::Regex;
@@ -13,6 +14,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 /// Regex pattern matching Xero MS Date format: `/Date(epoch_ms)/ or /Date(epoch_ms+offset)/`
 const MS_DATE_PATTERN: &str = r"/Date\((-?\d+)(\+\d{4})?\)/";
+
+/// Compiled regex for MS Date parsing, compiled once via [`LazyLock`].
+static MS_DATE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(MS_DATE_PATTERN).expect("invalid MS_DATE_PATTERN regex"));
 
 /// A date newtype wrapping [`NaiveDate`] that deserializes from Xero's
 /// `/Date(epoch_ms+offset)/` format and serializes to `YYYY-MM-DD`.
@@ -93,8 +98,7 @@ impl From<MsDateTime> for DateTime<Utc> {
 ///
 /// Accepts formats: `/Date(1539993600000+0000)/` and `/Date(1573755038314)/`
 fn parse_ms_date_epoch(s: &str) -> Option<i64> {
-    let re = Regex::new(MS_DATE_PATTERN).ok()?;
-    let caps = re.captures(s)?;
+    let caps = MS_DATE_RE.captures(s)?;
     caps.get(1)?.as_str().parse::<i64>().ok()
 }
 
@@ -117,7 +121,8 @@ impl<'de> Deserialize<'de> for MsDate {
 
         // Try MS Date format first: /Date(epoch_ms+offset)/
         if let Some(epoch_ms) = parse_ms_date_epoch(&s) {
-            let epoch_secs = epoch_ms / 1000;
+            // Use div_euclid to correctly handle negative epochs (e.g., -500ms → secs=-1)
+            let epoch_secs = epoch_ms.div_euclid(1000);
             let dt = Utc
                 .timestamp_opt(epoch_secs, 0)
                 .single()
@@ -151,8 +156,10 @@ impl<'de> Deserialize<'de> for MsDateTime {
 
         // Try MS Date format: /Date(epoch_ms)/
         if let Some(epoch_ms) = parse_ms_date_epoch(&s) {
-            let epoch_secs = epoch_ms / 1000;
-            let nanos = ((epoch_ms % 1000) * 1_000_000) as u32;
+            // Use div_euclid/rem_euclid to correctly handle negative epochs
+            // e.g., -500ms → secs=-1, nanos=500_000_000
+            let epoch_secs = epoch_ms.div_euclid(1000);
+            let nanos = (epoch_ms.rem_euclid(1000) * 1_000_000) as u32;
             let dt = Utc
                 .timestamp_opt(epoch_secs, nanos)
                 .single()
@@ -283,6 +290,15 @@ mod tests {
         let dt: MsDateTime = serde_json::from_str(json).unwrap();
         assert_eq!(dt.0.timestamp(), -1);
         assert_eq!(dt.0.timestamp_subsec_millis(), 0);
+    }
+
+    #[test]
+    fn ms_datetime_deserialize_negative_fractional_epoch() {
+        // -500ms = 1969-12-31T23:59:59.500Z (secs=-1, nanos=500_000_000)
+        let json = r#""/Date(-500)/""#;
+        let dt: MsDateTime = serde_json::from_str(json).unwrap();
+        assert_eq!(dt.0.timestamp(), -1);
+        assert_eq!(dt.0.timestamp_subsec_millis(), 500);
     }
 
     #[test]

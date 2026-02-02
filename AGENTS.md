@@ -590,7 +590,7 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
 - [x] Track `X-AppMinLimit-Remaining` header in rate limiter `update_from_headers()`
 - [x] Thread pagination metadata through `format_list_output()` for `--meta` envelope support
 - [x] Add URL scheme validation for `SdkConfig.base_url` (SSRF mitigation for crates.io publishing)
-- [ ] Replace `blocking_write()` in `AuthManager::load_stored_tokens()` with async-safe alternative
+- [x] Replace `blocking_write()` in `AuthManager::load_stored_tokens()` with async-safe alternative
 - [ ] Add wiremock/httpmock integration tests for retry, pagination, auth refresh, and write flows
 - [ ] Remove `#[allow(dead_code)]` from write safety functions when CLI write commands are added
 - [ ] Add CountryCode (~250 variants) and TimeZone (~140 variants) enums when needed by models

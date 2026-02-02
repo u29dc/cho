@@ -54,16 +54,14 @@ impl AuthManager {
     }
 
     /// Attempts to load tokens from storage.
-    pub fn load_stored_tokens(&self) -> crate::error::Result<bool> {
+    pub async fn load_stored_tokens(&self) -> crate::error::Result<bool> {
         if let Some(stored) = storage::load_tokens()? {
             if stored.is_expired() && stored.refresh_token.is_none() {
                 debug!("Stored tokens expired with no refresh token");
                 return Ok(false);
             }
             let pair = TokenPair::from_stored(&stored);
-            // We can't set the RwLock synchronously from an async context,
-            // but this is called during initialization, so blocking is fine.
-            let mut guard = self.token.blocking_write();
+            let mut guard = self.token.write().await;
             *guard = Some(pair);
             Ok(true)
         } else {

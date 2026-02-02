@@ -232,7 +232,7 @@ async fn main() {
 
     let auth = AuthManager::new(client_id);
     // Try to load stored tokens
-    let _ = auth.load_stored_tokens();
+    let _ = auth.load_stored_tokens().await;
 
     let client = match XeroClient::builder()
         .config(config)

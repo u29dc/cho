@@ -81,7 +81,13 @@ impl<'a> ContactsApi<'a> {
 
         response
             .contacts
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::Parse {
                 message: "No contact returned in create response".to_string(),
             })
@@ -107,7 +113,13 @@ impl<'a> ContactsApi<'a> {
 
         response
             .contacts
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::Parse {
                 message: "No contact returned in update response".to_string(),
             })

@@ -6,8 +6,8 @@
 
 use std::sync::Arc;
 
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tracing::{debug, warn};
 
 use crate::auth::AuthManager;
@@ -186,9 +186,7 @@ impl XeroClient {
     }
 
     /// Returns the Repeating Invoices API handle.
-    pub fn repeating_invoices(
-        &self,
-    ) -> crate::api::repeating_invoices::RepeatingInvoicesApi<'_> {
+    pub fn repeating_invoices(&self) -> crate::api::repeating_invoices::RepeatingInvoicesApi<'_> {
         crate::api::repeating_invoices::RepeatingInvoicesApi::new(self)
     }
 
@@ -362,10 +360,9 @@ impl XeroClient {
         idempotency_key: Option<&str>,
     ) -> Result<T> {
         let max_retries = self.config.max_retries;
-        let json_body =
-            serde_json::to_string(body).map_err(|e| ChoSdkError::Parse {
-                message: format!("Failed to serialize request body: {e}"),
-            })?;
+        let json_body = serde_json::to_string(body).map_err(|e| ChoSdkError::Parse {
+            message: format!("Failed to serialize request body: {e}"),
+        })?;
 
         for attempt in 0..=max_retries {
             let guard = self.rate_limiter.acquire().await?;

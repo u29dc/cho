@@ -110,12 +110,11 @@ pub fn check_writes_allowed() -> cho_sdk::error::Result<()> {
             message: format!("Failed to read config: {e}"),
         })?;
 
-    let table: toml::Table =
-        content
-            .parse()
-            .map_err(|e| cho_sdk::error::ChoSdkError::Config {
-                message: format!("Failed to parse config: {e}"),
-            })?;
+    let table: toml::Table = content
+        .parse()
+        .map_err(|e| cho_sdk::error::ChoSdkError::Config {
+            message: format!("Failed to parse config: {e}"),
+        })?;
 
     let allowed = table
         .get("safety")

@@ -45,12 +45,20 @@ impl<'a> PurchaseOrdersApi<'a> {
 
     /// Gets a single purchase order by ID.
     pub async fn get(&self, id: Uuid) -> Result<PurchaseOrder> {
-        let response: PurchaseOrders =
-            self.client.get(&format!("PurchaseOrders/{id}"), &[]).await?;
+        let response: PurchaseOrders = self
+            .client
+            .get(&format!("PurchaseOrders/{id}"), &[])
+            .await?;
 
         response
             .purchase_orders
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "PurchaseOrder".to_string(),
                 id: id.to_string(),

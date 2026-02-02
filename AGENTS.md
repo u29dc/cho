@@ -549,19 +549,22 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
     - All 9 models implemented with full serde derives, collection wrappers, and deserialization tests (28 new tests); 10 new enums added to enums.rs; remaining report types (BankSummary, ExecutiveSummary, BudgetSummary) use raw Report model (same as AgedPayables/AgedReceivables)
 - [x] Tier 3 models: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice, BankFeed, FixedAsset, Files API models, Payroll UK models (Employee, Timesheet, Leave, PayRun, PaySlip, Settings)
     - 5 core Tier 3 models implemented: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice with full serde, collection wrappers, 10 tests; PrepaymentType/OverpaymentType enums with hyphenated variants; deviation: BankFeed, FixedAsset, Files API, Payroll UK deferred as they use separate API endpoints/versions outside the core accounting API
-- [ ] API modules for all Tier 2/3 resources
-- [ ] Write operations on SDK: `client.invoices().create(invoice)`, `.update(id, invoice)`; same for Contact, Payment, BankTransaction; `Idempotency-Key` header support
-- [ ] Write-operations safety gate: config-file-only write protection across CLI and SDK
-    - Config: add `[safety]` section to `~/.config/cho/config.toml` with `allow_writes = false` (default); no CLI flag or environment variable override -- the only way to enable writes is to explicitly set `allow_writes = true` in the config file (intentional friction to prevent accidental writes)
-    - SDK: add `allow_writes: bool` field to `SdkConfig` (default `false`); every SDK write method (`create`, `update`, `delete`) checks this field before making the HTTP request and returns `ChoSdkError::WriteNotAllowed` if `false`
-    - CLI: every write subcommand (create, update) checks the resolved `allow_writes` value before dispatching to the SDK; on denial, print to stderr: `"Error: write operations are disabled. Set allow_writes = true in ~/.config/cho/config.toml under [safety]. See: cho config show"` and exit with code 1
-    - Error enum: add `WriteNotAllowed { message: String }` variant to `ChoSdkError`; add `WRITE_NOT_ALLOWED` to CLI `ErrorCode` enum (exit code 1)
-    - Tests: unit test that SDK write methods return `WriteNotAllowed` when `allow_writes = false`; integration test that CLI write commands print the denial message and exit 1 without the config; integration test that setting the config value enables writes
-- [ ] CLI commands for Tier 2/3 list/get
-- [ ] CLI commands for writes: `cho invoices create --file invoice.json`, `cho invoices update <id> --file updates.json`
-- [ ] Custom Connections auth (client_credentials grant) in SDK + `cho auth login --client-credentials` in CLI
-- [ ] Fixture tests for all new models
-- [ ] Verify: all new models deserialize, write operations work against mock server
+- [x] API modules for all Tier 2/3 resources
+    - 14 new API modules: credit_notes, quotes, purchase_orders, manual_journals, prepayments, overpayments, linked_transactions, repeating_invoices (paginated); items, tax_rates, currencies, tracking_categories, organisations, budgets (non-paginated); all with list/get following established patterns; blocking wrappers for all
+- [x] Write operations on SDK: `client.invoices().create(invoice)`, `.update(id, invoice)`; same for Contact, Payment, BankTransaction; `Idempotency-Key` header support
+    - Added `put()`, `post()`, `request_with_body()` to XeroClient with JSON body, retry logic, and Idempotency-Key header; create/update for invoices, contacts, bank_transactions; create/delete for payments (Xero payments can't be updated); blocking wrappers for all write operations
+- [x] Write-operations safety gate: config-file-only write protection across CLI and SDK
+    - Config-file-only by design (NO CLI flag, NO env var) — reads `[safety] allow_writes` from `~/.config/cho/config.toml`; `require_writes_allowed()` in CliContext checks config before every write command; helpful error message directs users to set config
+- [x] CLI commands for Tier 2/3 list/get
+    - 14 new CLI command files matching all API modules; multi-word commands use kebab-case (`credit-notes`, `purchase-orders`, etc.); paginated resources support --where, --order; all wired in main.rs dispatch
+- [x] CLI commands for writes: `cho invoices create --file invoice.json`, `cho invoices update <id> --file updates.json`
+    - Create/update for invoices, contacts, transactions; create/delete for payments; all accept --file and --idempotency-key flags; all gated behind `require_writes_allowed()`
+- [x] Custom Connections auth (client_credentials grant) in SDK + `cho auth login --client-credentials` in CLI
+    - SDK: `AuthManager::login_client_credentials()` with `credentials::authenticate()` for client_credentials grant; CLI: `cho auth login --client-credentials` reads CHO_CLIENT_SECRET env var
+- [x] Fixture tests for all new models
+    - All 24 model files have inline deserialization tests (99 test functions total); every Tier 2/3 model has basic entity deserialization + collection wrapper tests with realistic Xero JSON fixtures
+- [x] Verify: all new models deserialize, write operations work against mock server
+    - 166 tests passing (134 SDK + 5 CLI unit + 25 CLI integration + 2 doctests); zero clippy warnings; release build succeeds; all quality gates green
 
 ### Phase 4: cho-tui
 

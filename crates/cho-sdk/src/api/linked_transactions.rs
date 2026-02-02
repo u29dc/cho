@@ -52,7 +52,13 @@ impl<'a> LinkedTransactionsApi<'a> {
 
         response
             .linked_transactions
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "LinkedTransaction".to_string(),
                 id: id.to_string(),

@@ -45,12 +45,17 @@ impl<'a> PrepaymentsApi<'a> {
 
     /// Gets a single prepayment by ID.
     pub async fn get(&self, id: Uuid) -> Result<Prepayment> {
-        let response: Prepayments =
-            self.client.get(&format!("Prepayments/{id}"), &[]).await?;
+        let response: Prepayments = self.client.get(&format!("Prepayments/{id}"), &[]).await?;
 
         response
             .prepayments
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "Prepayment".to_string(),
                 id: id.to_string(),

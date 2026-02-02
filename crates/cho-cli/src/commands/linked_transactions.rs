@@ -28,10 +28,7 @@ pub enum LinkedTransactionCommands {
 }
 
 /// Runs a linked transaction subcommand.
-pub async fn run(
-    cmd: &LinkedTransactionCommands,
-    ctx: &CliContext,
-) -> cho_sdk::error::Result<()> {
+pub async fn run(cmd: &LinkedTransactionCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
     match cmd {
         LinkedTransactionCommands::List { r#where, order } => {
             let mut params = ListParams::new();

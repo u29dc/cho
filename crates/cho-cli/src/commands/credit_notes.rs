@@ -39,7 +39,11 @@ pub async fn run(cmd: &CreditNoteCommands, ctx: &CliContext) -> cho_sdk::error::
                 params = params.with_order(o.clone());
             }
             let pagination = ctx.pagination_params();
-            let items = ctx.client().credit_notes().list(&params, &pagination).await?;
+            let items = ctx
+                .client()
+                .credit_notes()
+                .list(&params, &pagination)
+                .await?;
             let output = ctx.format_list_output(&items)?;
             println!("{output}");
             Ok(())

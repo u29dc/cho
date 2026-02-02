@@ -62,7 +62,13 @@ impl<'a> BankTransactionsApi<'a> {
 
         response
             .bank_transactions
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::Parse {
                 message: "No bank transaction returned in create response".to_string(),
             })
@@ -83,16 +89,18 @@ impl<'a> BankTransactionsApi<'a> {
 
         let response: BankTransactions = self
             .client
-            .post(
-                &format!("BankTransactions/{id}"),
-                &wrapper,
-                idempotency_key,
-            )
+            .post(&format!("BankTransactions/{id}"), &wrapper, idempotency_key)
             .await?;
 
         response
             .bank_transactions
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::Parse {
                 message: "No bank transaction returned in update response".to_string(),
             })

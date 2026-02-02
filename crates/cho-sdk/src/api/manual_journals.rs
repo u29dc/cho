@@ -45,12 +45,20 @@ impl<'a> ManualJournalsApi<'a> {
 
     /// Gets a single manual journal by ID.
     pub async fn get(&self, id: Uuid) -> Result<ManualJournal> {
-        let response: ManualJournals =
-            self.client.get(&format!("ManualJournals/{id}"), &[]).await?;
+        let response: ManualJournals = self
+            .client
+            .get(&format!("ManualJournals/{id}"), &[])
+            .await?;
 
         response
             .manual_journals
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "ManualJournal".to_string(),
                 id: id.to_string(),

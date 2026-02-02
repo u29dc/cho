@@ -28,10 +28,7 @@ pub enum RepeatingInvoiceCommands {
 }
 
 /// Runs a repeating invoice subcommand.
-pub async fn run(
-    cmd: &RepeatingInvoiceCommands,
-    ctx: &CliContext,
-) -> cho_sdk::error::Result<()> {
+pub async fn run(cmd: &RepeatingInvoiceCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
     match cmd {
         RepeatingInvoiceCommands::List { r#where, order } => {
             let mut params = ListParams::new();

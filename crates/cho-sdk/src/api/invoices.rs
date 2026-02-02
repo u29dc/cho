@@ -84,7 +84,13 @@ impl<'a> InvoicesApi<'a> {
 
         response
             .invoices
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::Parse {
                 message: "No invoice returned in create response".to_string(),
             })
@@ -113,7 +119,13 @@ impl<'a> InvoicesApi<'a> {
 
         response
             .invoices
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::Parse {
                 message: "No invoice returned in update response".to_string(),
             })

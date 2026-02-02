@@ -45,12 +45,17 @@ impl<'a> OverpaymentsApi<'a> {
 
     /// Gets a single overpayment by ID.
     pub async fn get(&self, id: Uuid) -> Result<Overpayment> {
-        let response: Overpayments =
-            self.client.get(&format!("Overpayments/{id}"), &[]).await?;
+        let response: Overpayments = self.client.get(&format!("Overpayments/{id}"), &[]).await?;
 
         response
             .overpayments
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "Overpayment".to_string(),
                 id: id.to_string(),

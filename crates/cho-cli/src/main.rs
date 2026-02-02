@@ -263,9 +263,7 @@ async fn main() {
         Commands::Config { command } => commands::config::run(command, &ctx).await,
         Commands::CreditNotes { command } => commands::credit_notes::run(command, &ctx).await,
         Commands::Quotes { command } => commands::quotes::run(command, &ctx).await,
-        Commands::PurchaseOrders { command } => {
-            commands::purchase_orders::run(command, &ctx).await
-        }
+        Commands::PurchaseOrders { command } => commands::purchase_orders::run(command, &ctx).await,
         Commands::Items { command } => commands::items::run(command, &ctx).await,
         Commands::TaxRates { command } => commands::tax_rates::run(command, &ctx).await,
         Commands::Currencies { command } => commands::currencies::run(command, &ctx).await,
@@ -273,9 +271,7 @@ async fn main() {
             commands::tracking_categories::run(command, &ctx).await
         }
         Commands::Organisation { command } => commands::organisations::run(command, &ctx).await,
-        Commands::ManualJournals { command } => {
-            commands::manual_journals::run(command, &ctx).await
-        }
+        Commands::ManualJournals { command } => commands::manual_journals::run(command, &ctx).await,
         Commands::Prepayments { command } => commands::prepayments::run(command, &ctx).await,
         Commands::Overpayments { command } => commands::overpayments::run(command, &ctx).await,
         Commands::LinkedTransactions { command } => {

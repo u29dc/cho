@@ -49,7 +49,13 @@ impl<'a> QuotesApi<'a> {
 
         response
             .quotes
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::NotFound {
                 resource: "Quote".to_string(),
                 id: id.to_string(),

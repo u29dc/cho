@@ -64,7 +64,13 @@ impl<'a> PaymentsApi<'a> {
 
         response
             .payments
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::Parse {
                 message: "No payment returned in create response".to_string(),
             })
@@ -74,11 +80,7 @@ impl<'a> PaymentsApi<'a> {
     ///
     /// Xero payments cannot be updated, only deleted by POSTing with
     /// `Status: "DELETED"`.
-    pub async fn delete(
-        &self,
-        id: Uuid,
-        idempotency_key: Option<&str>,
-    ) -> Result<Payment> {
+    pub async fn delete(&self, id: Uuid, idempotency_key: Option<&str>) -> Result<Payment> {
         let payment = Payment {
             status: Some(crate::models::enums::PaymentStatus::Deleted),
             ..Default::default()
@@ -97,7 +99,13 @@ impl<'a> PaymentsApi<'a> {
 
         response
             .payments
-            .and_then(|mut v| if v.is_empty() { None } else { Some(v.remove(0)) })
+            .and_then(|mut v| {
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.remove(0))
+                }
+            })
             .ok_or_else(|| crate::error::ChoSdkError::Parse {
                 message: "No payment returned in delete response".to_string(),
             })

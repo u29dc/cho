@@ -262,6 +262,235 @@ pub enum AccountStatus {
     Unknown,
 }
 
+// ── Credit Note enums ──
+
+/// Type of credit note.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CreditNoteType {
+    /// Accounts payable credit (supplier credit).
+    #[serde(rename = "ACCPAYCREDIT")]
+    AccPayCredit,
+    /// Accounts receivable credit (customer credit).
+    #[serde(rename = "ACCRECCREDIT")]
+    AccRecCredit,
+    /// Unknown type (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+/// Status of a credit note.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum CreditNoteStatus {
+    /// Draft credit note.
+    Draft,
+    /// Submitted for approval.
+    Submitted,
+    /// Approved credit note.
+    Authorised,
+    /// Fully paid/allocated credit note.
+    Paid,
+    /// Voided credit note.
+    Voided,
+    /// Deleted credit note.
+    Deleted,
+    /// Unknown status (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+// ── Quote enums ──
+
+/// Status of a quote.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum QuoteStatus {
+    /// Draft quote.
+    Draft,
+    /// Sent to contact.
+    Sent,
+    /// Declined by contact.
+    Declined,
+    /// Accepted by contact.
+    Accepted,
+    /// Converted to invoice.
+    Invoiced,
+    /// Deleted quote.
+    Deleted,
+    /// Unknown status (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+// ── Purchase Order enums ──
+
+/// Type of purchase order.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PurchaseOrderType {
+    /// Standard purchase order.
+    #[serde(rename = "PURCHASEORDER")]
+    PurchaseOrder,
+    /// Unknown type (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+/// Status of a purchase order.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PurchaseOrderStatus {
+    /// Draft purchase order.
+    Draft,
+    /// Submitted for approval.
+    Submitted,
+    /// Approved purchase order.
+    Authorised,
+    /// Billed (converted to bill).
+    Billed,
+    /// Deleted purchase order.
+    Deleted,
+    /// Unknown status (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+// ── Tax Rate enums ──
+
+/// Status of a tax rate.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TaxRateStatus {
+    /// Active tax rate.
+    Active,
+    /// Deleted tax rate.
+    Deleted,
+    /// Archived tax rate.
+    Archived,
+    /// Unknown status (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+// ── Tracking Category enums ──
+
+/// Status of a tracking category.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TrackingCategoryStatus {
+    /// Active tracking category.
+    Active,
+    /// Archived tracking category.
+    Archived,
+    /// Deleted tracking category.
+    Deleted,
+    /// Unknown status (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+/// Status of a tracking option.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum TrackingOptionStatus {
+    /// Active tracking option.
+    Active,
+    /// Archived tracking option.
+    Archived,
+    /// Deleted tracking option.
+    Deleted,
+    /// Unknown status (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+// ── Manual Journal enums ──
+
+/// Status of a manual journal.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ManualJournalStatus {
+    /// Draft journal.
+    Draft,
+    /// Posted journal.
+    Posted,
+    /// Deleted journal.
+    Deleted,
+    /// Voided journal.
+    Voided,
+    /// Unknown status (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+// ── Organisation enums ──
+
+/// Type of organisation.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum OrganisationType {
+    /// Company.
+    Company,
+    /// Charity.
+    Charity,
+    /// Club or society.
+    #[serde(rename = "CLUBSOCIETY")]
+    ClubSociety,
+    /// Partnership.
+    Partnership,
+    /// Practice.
+    Practice,
+    /// Person.
+    Person,
+    /// Sole trader.
+    #[serde(rename = "SOLETRADER")]
+    SoleTrader,
+    /// Trust.
+    Trust,
+    /// Unknown type (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+/// Xero subscription class of an organisation.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum OrganisationClass {
+    /// Demo organisation.
+    Demo,
+    /// Trial organisation.
+    Trial,
+    /// Starter plan.
+    Starter,
+    /// Standard plan.
+    Standard,
+    /// Premium plan.
+    Premium,
+    /// Premium 20 plan.
+    #[serde(rename = "PREMIUM_20")]
+    Premium20,
+    /// Premium 50 plan.
+    #[serde(rename = "PREMIUM_50")]
+    Premium50,
+    /// Premium 100 plan.
+    #[serde(rename = "PREMIUM_100")]
+    Premium100,
+    /// Ledger plan.
+    Ledger,
+    /// GST cashbook.
+    #[serde(rename = "GST_CASHBOOK")]
+    GstCashbook,
+    /// Non-GST cashbook.
+    #[serde(rename = "NON_GST_CASHBOOK")]
+    NonGstCashbook,
+    /// Ultimate plan.
+    Ultimate,
+    /// Unknown class (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
 // ── Currency Code (ISO 4217, ~170 variants) ──
 
 /// ISO 4217 currency codes used by Xero.
@@ -635,6 +864,158 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<ContactStatus>(r#""GDPRREQUEST""#).unwrap(),
             ContactStatus::GdprRequest
+        );
+    }
+
+    #[test]
+    fn credit_note_type_serde() {
+        assert_eq!(
+            serde_json::from_str::<CreditNoteType>(r#""ACCPAYCREDIT""#).unwrap(),
+            CreditNoteType::AccPayCredit
+        );
+        assert_eq!(
+            serde_json::from_str::<CreditNoteType>(r#""ACCRECCREDIT""#).unwrap(),
+            CreditNoteType::AccRecCredit
+        );
+        assert_eq!(
+            serde_json::from_str::<CreditNoteType>(r#""SOMETHING""#).unwrap(),
+            CreditNoteType::Unknown
+        );
+    }
+
+    #[test]
+    fn credit_note_status_serde() {
+        assert_eq!(
+            serde_json::from_str::<CreditNoteStatus>(r#""DRAFT""#).unwrap(),
+            CreditNoteStatus::Draft
+        );
+        assert_eq!(
+            serde_json::from_str::<CreditNoteStatus>(r#""AUTHORISED""#).unwrap(),
+            CreditNoteStatus::Authorised
+        );
+        assert_eq!(
+            serde_json::from_str::<CreditNoteStatus>(r#""PAID""#).unwrap(),
+            CreditNoteStatus::Paid
+        );
+        assert_eq!(
+            serde_json::from_str::<CreditNoteStatus>(r#""VOIDED""#).unwrap(),
+            CreditNoteStatus::Voided
+        );
+    }
+
+    #[test]
+    fn quote_status_serde() {
+        assert_eq!(
+            serde_json::from_str::<QuoteStatus>(r#""DRAFT""#).unwrap(),
+            QuoteStatus::Draft
+        );
+        assert_eq!(
+            serde_json::from_str::<QuoteStatus>(r#""SENT""#).unwrap(),
+            QuoteStatus::Sent
+        );
+        assert_eq!(
+            serde_json::from_str::<QuoteStatus>(r#""ACCEPTED""#).unwrap(),
+            QuoteStatus::Accepted
+        );
+        assert_eq!(
+            serde_json::from_str::<QuoteStatus>(r#""INVOICED""#).unwrap(),
+            QuoteStatus::Invoiced
+        );
+    }
+
+    #[test]
+    fn purchase_order_status_serde() {
+        assert_eq!(
+            serde_json::from_str::<PurchaseOrderStatus>(r#""DRAFT""#).unwrap(),
+            PurchaseOrderStatus::Draft
+        );
+        assert_eq!(
+            serde_json::from_str::<PurchaseOrderStatus>(r#""BILLED""#).unwrap(),
+            PurchaseOrderStatus::Billed
+        );
+        assert_eq!(
+            serde_json::from_str::<PurchaseOrderType>(r#""PURCHASEORDER""#).unwrap(),
+            PurchaseOrderType::PurchaseOrder
+        );
+    }
+
+    #[test]
+    fn tax_rate_status_serde() {
+        assert_eq!(
+            serde_json::from_str::<TaxRateStatus>(r#""ACTIVE""#).unwrap(),
+            TaxRateStatus::Active
+        );
+        assert_eq!(
+            serde_json::from_str::<TaxRateStatus>(r#""DELETED""#).unwrap(),
+            TaxRateStatus::Deleted
+        );
+        assert_eq!(
+            serde_json::from_str::<TaxRateStatus>(r#""ARCHIVED""#).unwrap(),
+            TaxRateStatus::Archived
+        );
+    }
+
+    #[test]
+    fn tracking_category_status_serde() {
+        assert_eq!(
+            serde_json::from_str::<TrackingCategoryStatus>(r#""ACTIVE""#).unwrap(),
+            TrackingCategoryStatus::Active
+        );
+        assert_eq!(
+            serde_json::from_str::<TrackingCategoryStatus>(r#""ARCHIVED""#).unwrap(),
+            TrackingCategoryStatus::Archived
+        );
+    }
+
+    #[test]
+    fn manual_journal_status_serde() {
+        assert_eq!(
+            serde_json::from_str::<ManualJournalStatus>(r#""DRAFT""#).unwrap(),
+            ManualJournalStatus::Draft
+        );
+        assert_eq!(
+            serde_json::from_str::<ManualJournalStatus>(r#""POSTED""#).unwrap(),
+            ManualJournalStatus::Posted
+        );
+        assert_eq!(
+            serde_json::from_str::<ManualJournalStatus>(r#""VOIDED""#).unwrap(),
+            ManualJournalStatus::Voided
+        );
+    }
+
+    #[test]
+    fn organisation_type_serde() {
+        assert_eq!(
+            serde_json::from_str::<OrganisationType>(r#""COMPANY""#).unwrap(),
+            OrganisationType::Company
+        );
+        assert_eq!(
+            serde_json::from_str::<OrganisationType>(r#""SOLETRADER""#).unwrap(),
+            OrganisationType::SoleTrader
+        );
+        assert_eq!(
+            serde_json::from_str::<OrganisationType>(r#""CLUBSOCIETY""#).unwrap(),
+            OrganisationType::ClubSociety
+        );
+    }
+
+    #[test]
+    fn organisation_class_serde() {
+        assert_eq!(
+            serde_json::from_str::<OrganisationClass>(r#""DEMO""#).unwrap(),
+            OrganisationClass::Demo
+        );
+        assert_eq!(
+            serde_json::from_str::<OrganisationClass>(r#""PREMIUM_20""#).unwrap(),
+            OrganisationClass::Premium20
+        );
+        assert_eq!(
+            serde_json::from_str::<OrganisationClass>(r#""GST_CASHBOOK""#).unwrap(),
+            OrganisationClass::GstCashbook
+        );
+        assert_eq!(
+            serde_json::from_str::<OrganisationClass>(r#""SOMETHING_NEW""#).unwrap(),
+            OrganisationClass::Unknown
         );
     }
 

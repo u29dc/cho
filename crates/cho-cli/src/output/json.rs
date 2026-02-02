@@ -12,20 +12,29 @@ use serde_json::Value;
 pub struct JsonOptions {
     /// Wrap output in `{"data": [...], "pagination": {...}}` envelope.
     pub meta: bool,
-    /// Preserve raw Xero date format (skip ISO normalization).
-    /// Note: raw date preservation requires SDK-level support (Phase 3).
-    #[allow(dead_code)]
+    /// When true, skip key transformation (preserve PascalCase Xero-native keys).
+    ///
+    /// Note: raw MS date (`/Date(epoch)/`) preservation would require SDK-level
+    /// changes to serialize dates in their original format. Currently `--raw`
+    /// preserves PascalCase keys but dates are still ISO 8601.
     pub raw: bool,
     /// Serialize money as strings instead of numbers.
     pub precise: bool,
 }
 
-/// Formats a serializable value as snake_case JSON.
+/// Formats a serializable value as JSON.
+///
+/// By default, converts PascalCase keys to snake_case. When `raw` is true,
+/// preserves Xero-native PascalCase keys.
 pub fn format_json<T: Serialize>(value: &T, options: &JsonOptions) -> Result<String, String> {
     let json_value =
         serde_json::to_value(value).map_err(|e| format!("JSON serialization failed: {e}"))?;
 
-    let transformed = pascal_to_snake_keys(json_value);
+    let transformed = if options.raw {
+        json_value
+    } else {
+        pascal_to_snake_keys(json_value)
+    };
 
     let output = if options.precise {
         money_to_strings(transformed)
@@ -45,7 +54,11 @@ pub fn format_json_list<T: Serialize>(
     let json_value =
         serde_json::to_value(items).map_err(|e| format!("JSON serialization failed: {e}"))?;
 
-    let transformed = pascal_to_snake_keys(json_value);
+    let transformed = if options.raw {
+        json_value
+    } else {
+        pascal_to_snake_keys(json_value)
+    };
 
     let output = if options.precise {
         money_to_strings(transformed)
@@ -57,7 +70,12 @@ pub fn format_json_list<T: Serialize>(
         let mut envelope = serde_json::Map::new();
         envelope.insert("data".to_string(), output);
         if let Some(pag) = pagination {
-            envelope.insert("pagination".to_string(), pascal_to_snake_keys(pag.clone()));
+            let pag_value = if options.raw {
+                pag.clone()
+            } else {
+                pascal_to_snake_keys(pag.clone())
+            };
+            envelope.insert("pagination".to_string(), pag_value);
         }
         serde_json::to_string_pretty(&Value::Object(envelope))
             .map_err(|e| format!("JSON formatting failed: {e}"))

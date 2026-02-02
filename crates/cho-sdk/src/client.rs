@@ -13,7 +13,7 @@ use tracing::{debug, warn};
 use crate::auth::AuthManager;
 use crate::config::SdkConfig;
 use crate::error::{ChoSdkError, Result};
-use crate::http::pagination::{PaginatedResponse, PaginationParams, has_more_pages};
+use crate::http::pagination::{ListResult, PaginatedResponse, PaginationParams, has_more_pages};
 use crate::http::rate_limit::{RateLimitConfig, RateLimiter};
 use crate::http::request::{self, ListParams};
 
@@ -528,15 +528,19 @@ impl XeroClient {
     }
 
     /// Fetches all pages of a paginated endpoint, respecting the item limit.
+    ///
+    /// Returns a [`ListResult`] containing the collected items and the
+    /// pagination metadata from the last page fetched.
     pub(crate) async fn get_all_pages<R: PaginatedResponse>(
         &self,
         path: &str,
         base_params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<R::Item>> {
+    ) -> Result<ListResult<R::Item>> {
         let mut all_items = Vec::new();
         let mut page: u32 = 1;
         let limit = pagination.limit;
+        let mut last_pagination = None;
 
         loop {
             let params = base_params
@@ -549,6 +553,7 @@ impl XeroClient {
                 .get_with_modified_since(path, &query, base_params.if_modified_since.as_deref())
                 .await?;
             let pag = response.pagination().cloned();
+            last_pagination = pag.clone();
             let items = response.into_items();
 
             let item_count = items.len();
@@ -568,7 +573,10 @@ impl XeroClient {
             page += 1;
         }
 
-        Ok(all_items)
+        Ok(ListResult {
+            items: all_items,
+            pagination: last_pagination,
+        })
     }
 }
 

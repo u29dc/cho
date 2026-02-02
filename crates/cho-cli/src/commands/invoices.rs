@@ -98,7 +98,7 @@ pub async fn run(cmd: &InvoiceCommands, ctx: &CliContext) -> cho_sdk::error::Res
 
             let pagination = ctx.pagination_params();
             let invoices = ctx.client().invoices().list(&params, &pagination).await?;
-            let output = ctx.format_list_output(&invoices)?;
+            let output = ctx.format_paginated_output(&invoices)?;
             println!("{output}");
             Ok(())
         }

@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::client::XeroClient;
 use crate::error::Result;
-use crate::http::pagination::{PaginatedResponse, PaginationParams};
+use crate::http::pagination::{ListResult, PaginatedResponse, PaginationParams};
 use crate::http::request::ListParams;
 use crate::models::bank_transaction::{BankTransaction, BankTransactions};
 use crate::models::common::Pagination;
@@ -37,7 +37,7 @@ impl<'a> BankTransactionsApi<'a> {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<BankTransaction>> {
+    ) -> Result<ListResult<BankTransaction>> {
         self.client
             .get_all_pages::<BankTransactions>("BankTransactions", params, pagination)
             .await

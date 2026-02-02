@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::client::XeroClient;
 use crate::error::Result;
-use crate::http::pagination::{PaginatedResponse, PaginationParams};
+use crate::http::pagination::{ListResult, PaginatedResponse, PaginationParams};
 use crate::http::request::ListParams;
 use crate::models::common::Pagination;
 use crate::models::manual_journal::{ManualJournal, ManualJournals};
@@ -37,7 +37,7 @@ impl<'a> ManualJournalsApi<'a> {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<ManualJournal>> {
+    ) -> Result<ListResult<ManualJournal>> {
         self.client
             .get_all_pages::<ManualJournals>("ManualJournals", params, pagination)
             .await

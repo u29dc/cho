@@ -1,7 +1,7 @@
 //! CLI execution context: client, formatting options, and global state.
 
 use cho_sdk::client::XeroClient;
-use cho_sdk::http::pagination::PaginationParams;
+use cho_sdk::http::pagination::{ListResult, PaginationParams};
 use serde::Serialize;
 
 use crate::output::OutputFormat;
@@ -97,10 +97,33 @@ impl CliContext {
         }
     }
 
-    /// Formats a list of items, optionally wrapping with `--meta` envelope.
+    /// Formats a paginated list result, threading pagination metadata through
+    /// the `--meta` envelope when enabled.
+    pub fn format_paginated_output<T: Serialize>(
+        &self,
+        result: &ListResult<T>,
+    ) -> cho_sdk::error::Result<String> {
+        let pagination_json = result
+            .pagination
+            .as_ref()
+            .and_then(|p| serde_json::to_value(p).ok());
+
+        self.format_list_inner(&result.items, pagination_json.as_ref())
+    }
+
+    /// Formats a non-paginated list of items.
     pub fn format_list_output<T: Serialize>(&self, items: &[T]) -> cho_sdk::error::Result<String> {
+        self.format_list_inner(items, None)
+    }
+
+    /// Inner list formatting with optional pagination metadata.
+    fn format_list_inner<T: Serialize>(
+        &self,
+        items: &[T],
+        pagination: Option<&serde_json::Value>,
+    ) -> cho_sdk::error::Result<String> {
         match self.format {
-            OutputFormat::Json => format_json_list(items, None, &self.json_options)
+            OutputFormat::Json => format_json_list(items, pagination, &self.json_options)
                 .map_err(|e| cho_sdk::error::ChoSdkError::Parse { message: e }),
             OutputFormat::Table | OutputFormat::Csv => {
                 let json_value = serde_json::to_value(items)

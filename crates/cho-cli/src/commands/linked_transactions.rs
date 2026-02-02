@@ -44,7 +44,7 @@ pub async fn run(cmd: &LinkedTransactionCommands, ctx: &CliContext) -> cho_sdk::
                 .linked_transactions()
                 .list(&params, &pagination)
                 .await?;
-            let output = ctx.format_list_output(&items)?;
+            let output = ctx.format_paginated_output(&items)?;
             println!("{output}");
             Ok(())
         }

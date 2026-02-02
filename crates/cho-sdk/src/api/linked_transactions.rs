@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::client::XeroClient;
 use crate::error::Result;
-use crate::http::pagination::{PaginatedResponse, PaginationParams};
+use crate::http::pagination::{ListResult, PaginatedResponse, PaginationParams};
 use crate::http::request::ListParams;
 use crate::models::common::Pagination;
 use crate::models::linked_transaction::{LinkedTransaction, LinkedTransactions};
@@ -37,7 +37,7 @@ impl<'a> LinkedTransactionsApi<'a> {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<LinkedTransaction>> {
+    ) -> Result<ListResult<LinkedTransaction>> {
         self.client
             .get_all_pages::<LinkedTransactions>("LinkedTransactions", params, pagination)
             .await

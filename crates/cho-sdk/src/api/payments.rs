@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::client::XeroClient;
 use crate::error::Result;
-use crate::http::pagination::{PaginatedResponse, PaginationParams};
+use crate::http::pagination::{ListResult, PaginatedResponse, PaginationParams};
 use crate::http::request::ListParams;
 use crate::models::common::Pagination;
 use crate::models::payment::{Payment, Payments};
@@ -37,7 +37,7 @@ impl<'a> PaymentsApi<'a> {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<Payment>> {
+    ) -> Result<ListResult<Payment>> {
         self.client
             .get_all_pages::<Payments>("Payments", params, pagination)
             .await

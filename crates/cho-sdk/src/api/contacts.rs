@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::client::XeroClient;
 use crate::error::Result;
-use crate::http::pagination::{PaginatedResponse, PaginationParams};
+use crate::http::pagination::{ListResult, PaginatedResponse, PaginationParams};
 use crate::http::request::ListParams;
 use crate::models::common::Pagination;
 use crate::models::contact::{Contact, Contacts};
@@ -37,7 +37,7 @@ impl<'a> ContactsApi<'a> {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<Contact>> {
+    ) -> Result<ListResult<Contact>> {
         self.client
             .get_all_pages::<Contacts>("Contacts", params, pagination)
             .await
@@ -127,7 +127,7 @@ impl<'a> ContactsApi<'a> {
 
     /// Searches contacts by name, email, or other fields using Xero's
     /// built-in search term parameter.
-    pub async fn search(&self, term: &str, pagination: &PaginationParams) -> Result<Vec<Contact>> {
+    pub async fn search(&self, term: &str, pagination: &PaginationParams) -> Result<ListResult<Contact>> {
         let params = ListParams::new().with_search_term(term);
         self.client
             .get_all_pages::<Contacts>("Contacts", &params, pagination)

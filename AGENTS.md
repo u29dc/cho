@@ -588,7 +588,7 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
 - [x] Only write file fallback + emit warning when keyring storage fails (currently always writes file and warns)
 - [x] Use `refresh_attempted` flag for 401 retry instead of `attempt == 0` (401 after 429 retry skips refresh)
 - [x] Track `X-AppMinLimit-Remaining` header in rate limiter `update_from_headers()`
-- [ ] Thread pagination metadata through `format_list_output()` for `--meta` envelope support
+- [x] Thread pagination metadata through `format_list_output()` for `--meta` envelope support
 - [ ] Add URL scheme validation for `SdkConfig.base_url` (SSRF mitigation for crates.io publishing)
 - [ ] Replace `blocking_write()` in `AuthManager::load_stored_tokens()` with async-safe alternative
 - [ ] Add wiremock/httpmock integration tests for retry, pagination, auth refresh, and write flows

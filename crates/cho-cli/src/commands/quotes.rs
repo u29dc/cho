@@ -40,7 +40,7 @@ pub async fn run(cmd: &QuoteCommands, ctx: &CliContext) -> cho_sdk::error::Resul
             }
             let pagination = ctx.pagination_params();
             let items = ctx.client().quotes().list(&params, &pagination).await?;
-            let output = ctx.format_list_output(&items)?;
+            let output = ctx.format_paginated_output(&items)?;
             println!("{output}");
             Ok(())
         }

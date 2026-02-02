@@ -68,6 +68,16 @@ pub trait PaginatedResponse: DeserializeOwned {
     fn pagination(&self) -> Option<&Pagination>;
 }
 
+/// Result of a paginated list operation, containing items and optional pagination metadata.
+#[derive(Debug)]
+pub struct ListResult<T> {
+    /// The collected items.
+    pub items: Vec<T>,
+
+    /// Pagination metadata from the last page fetched.
+    pub pagination: Option<Pagination>,
+}
+
 /// A single page result from the API.
 #[derive(Debug)]
 pub struct PageResult<T> {

@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use crate::client::{XeroClient, XeroClientBuilder};
 use crate::error::Result;
-use crate::http::pagination::PaginationParams;
+use crate::http::pagination::{ListResult, PaginationParams};
 use crate::http::request::{ListParams, ReportParams};
 use crate::models::account::Account;
 use crate::models::bank_transaction::BankTransaction;
@@ -102,7 +102,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<Invoice>> {
+    ) -> Result<ListResult<Invoice>> {
         self.runtime
             .block_on(self.inner.invoices().list(params, pagination))
     }
@@ -146,7 +146,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<Contact>> {
+    ) -> Result<ListResult<Contact>> {
         self.runtime
             .block_on(self.inner.contacts().list(params, pagination))
     }
@@ -182,7 +182,7 @@ impl BlockingClient {
         &self,
         term: &str,
         pagination: &PaginationParams,
-    ) -> Result<Vec<Contact>> {
+    ) -> Result<ListResult<Contact>> {
         self.runtime
             .block_on(self.inner.contacts().search(term, pagination))
     }
@@ -194,7 +194,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<Payment>> {
+    ) -> Result<ListResult<Payment>> {
         self.runtime
             .block_on(self.inner.payments().list(params, pagination))
     }
@@ -227,7 +227,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<BankTransaction>> {
+    ) -> Result<ListResult<BankTransaction>> {
         self.runtime
             .block_on(self.inner.bank_transactions().list(params, pagination))
     }
@@ -329,7 +329,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<CreditNote>> {
+    ) -> Result<ListResult<CreditNote>> {
         self.runtime
             .block_on(self.inner.credit_notes().list(params, pagination))
     }
@@ -346,7 +346,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<Quote>> {
+    ) -> Result<ListResult<Quote>> {
         self.runtime
             .block_on(self.inner.quotes().list(params, pagination))
     }
@@ -363,7 +363,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<PurchaseOrder>> {
+    ) -> Result<ListResult<PurchaseOrder>> {
         self.runtime
             .block_on(self.inner.purchase_orders().list(params, pagination))
     }
@@ -427,7 +427,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<ManualJournal>> {
+    ) -> Result<ListResult<ManualJournal>> {
         self.runtime
             .block_on(self.inner.manual_journals().list(params, pagination))
     }
@@ -444,7 +444,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<Prepayment>> {
+    ) -> Result<ListResult<Prepayment>> {
         self.runtime
             .block_on(self.inner.prepayments().list(params, pagination))
     }
@@ -461,7 +461,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<Overpayment>> {
+    ) -> Result<ListResult<Overpayment>> {
         self.runtime
             .block_on(self.inner.overpayments().list(params, pagination))
     }
@@ -478,7 +478,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<LinkedTransaction>> {
+    ) -> Result<ListResult<LinkedTransaction>> {
         self.runtime
             .block_on(self.inner.linked_transactions().list(params, pagination))
     }
@@ -508,7 +508,7 @@ impl BlockingClient {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<RepeatingInvoice>> {
+    ) -> Result<ListResult<RepeatingInvoice>> {
         self.runtime
             .block_on(self.inner.repeating_invoices().list(params, pagination))
     }

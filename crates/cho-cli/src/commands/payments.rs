@@ -53,7 +53,7 @@ pub async fn run(cmd: &PaymentCommands, ctx: &CliContext) -> cho_sdk::error::Res
             }
             let pagination = ctx.pagination_params();
             let payments = ctx.client().payments().list(&params, &pagination).await?;
-            let output = ctx.format_list_output(&payments)?;
+            let output = ctx.format_paginated_output(&payments)?;
             println!("{output}");
             Ok(())
         }

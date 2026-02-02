@@ -44,7 +44,7 @@ pub async fn run(cmd: &RepeatingInvoiceCommands, ctx: &CliContext) -> cho_sdk::e
                 .repeating_invoices()
                 .list(&params, &pagination)
                 .await?;
-            let output = ctx.format_list_output(&items)?;
+            let output = ctx.format_paginated_output(&items)?;
             println!("{output}");
             Ok(())
         }

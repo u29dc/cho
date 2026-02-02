@@ -44,7 +44,7 @@ pub async fn run(cmd: &OverpaymentCommands, ctx: &CliContext) -> cho_sdk::error:
                 .overpayments()
                 .list(&params, &pagination)
                 .await?;
-            let output = ctx.format_list_output(&items)?;
+            let output = ctx.format_paginated_output(&items)?;
             println!("{output}");
             Ok(())
         }

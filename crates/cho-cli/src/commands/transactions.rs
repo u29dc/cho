@@ -79,7 +79,7 @@ pub async fn run(cmd: &TransactionCommands, ctx: &CliContext) -> cho_sdk::error:
                 .bank_transactions()
                 .list(&params, &pagination)
                 .await?;
-            let output = ctx.format_list_output(&txns)?;
+            let output = ctx.format_paginated_output(&txns)?;
             println!("{output}");
             Ok(())
         }

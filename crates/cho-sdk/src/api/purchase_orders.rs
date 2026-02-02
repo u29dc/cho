@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::client::XeroClient;
 use crate::error::Result;
-use crate::http::pagination::{PaginatedResponse, PaginationParams};
+use crate::http::pagination::{ListResult, PaginatedResponse, PaginationParams};
 use crate::http::request::ListParams;
 use crate::models::common::Pagination;
 use crate::models::purchase_order::{PurchaseOrder, PurchaseOrders};
@@ -37,7 +37,7 @@ impl<'a> PurchaseOrdersApi<'a> {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<PurchaseOrder>> {
+    ) -> Result<ListResult<PurchaseOrder>> {
         self.client
             .get_all_pages::<PurchaseOrders>("PurchaseOrders", params, pagination)
             .await

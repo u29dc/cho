@@ -61,7 +61,7 @@ pub async fn run(cmd: &ContactCommands, ctx: &CliContext) -> cho_sdk::error::Res
             }
             let pagination = ctx.pagination_params();
             let contacts = ctx.client().contacts().list(&params, &pagination).await?;
-            let output = ctx.format_list_output(&contacts)?;
+            let output = ctx.format_paginated_output(&contacts)?;
             println!("{output}");
             Ok(())
         }
@@ -74,7 +74,7 @@ pub async fn run(cmd: &ContactCommands, ctx: &CliContext) -> cho_sdk::error::Res
         ContactCommands::Search { term } => {
             let pagination = ctx.pagination_params();
             let contacts = ctx.client().contacts().search(term, &pagination).await?;
-            let output = ctx.format_list_output(&contacts)?;
+            let output = ctx.format_paginated_output(&contacts)?;
             println!("{output}");
             Ok(())
         }

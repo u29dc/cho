@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::client::XeroClient;
 use crate::error::Result;
-use crate::http::pagination::{PaginatedResponse, PaginationParams};
+use crate::http::pagination::{ListResult, PaginatedResponse, PaginationParams};
 use crate::http::request::ListParams;
 use crate::models::common::Pagination;
 use crate::models::quote::{Quote, Quotes};
@@ -37,7 +37,7 @@ impl<'a> QuotesApi<'a> {
         &self,
         params: &ListParams,
         pagination: &PaginationParams,
-    ) -> Result<Vec<Quote>> {
+    ) -> Result<ListResult<Quote>> {
         self.client
             .get_all_pages::<Quotes>("Quotes", params, pagination)
             .await

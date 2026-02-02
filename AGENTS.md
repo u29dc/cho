@@ -551,6 +551,13 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
     - 5 core Tier 3 models implemented: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice with full serde, collection wrappers, 10 tests; PrepaymentType/OverpaymentType enums with hyphenated variants; deviation: BankFeed, FixedAsset, Files API, Payroll UK deferred as they use separate API endpoints/versions outside the core accounting API
 - [ ] API modules for all Tier 2/3 resources
 - [ ] Write operations on SDK: `client.invoices().create(invoice)`, `.update(id, invoice)`; same for Contact, Payment, BankTransaction; `Idempotency-Key` header support
+- [ ] Write-operations safety gate: config-driven write protection across CLI and SDK
+    - Config: add `[safety]` section to `~/.config/cho/config.toml` with `allow_writes = false` (default); env var override `CHO_ALLOW_WRITES=true`; CLI flag `--allow-writes` as highest-precedence override
+    - Precedence: `--allow-writes` flag > `CHO_ALLOW_WRITES` env var > `config.toml [safety] allow_writes` > default `false`
+    - SDK: add `allow_writes: bool` field to `SdkConfig` (default `false`); every SDK write method (`create`, `update`, `delete`) checks this field before making the HTTP request and returns `ChoSdkError::WriteNotAllowed` if `false`
+    - CLI: every write subcommand (create, update) checks the resolved `allow_writes` value before dispatching to the SDK; on denial, print to stderr: `"Error: write operations are disabled. Set allow_writes = true in ~/.config/cho/config.toml under [safety], or pass --allow-writes, or set CHO_ALLOW_WRITES=true. See: cho config show"` and exit with code 1
+    - Error enum: add `WriteNotAllowed { message: String }` variant to `ChoSdkError`; add `WRITE_NOT_ALLOWED` to CLI `ErrorCode` enum (exit code 1)
+    - Tests: unit test that SDK write methods return `WriteNotAllowed` when `allow_writes = false`; integration test that CLI write commands print the denial message and exit 1 without the flag; integration test that the flag/env/config each independently enable writes
 - [ ] CLI commands for Tier 2/3 list/get
 - [ ] CLI commands for writes: `cho invoices create --file invoice.json`, `cho invoices update <id> --file updates.json`
 - [ ] Custom Connections auth (client_credentials grant) in SDK + `cho auth login --client-credentials` in CLI

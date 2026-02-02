@@ -15,11 +15,25 @@ use crate::http::pagination::PaginationParams;
 use crate::http::request::{ListParams, ReportParams};
 use crate::models::account::Account;
 use crate::models::bank_transaction::BankTransaction;
+use crate::models::budget::Budget;
 use crate::models::connection::Connection;
 use crate::models::contact::Contact;
+use crate::models::credit_note::CreditNote;
+use crate::models::currency::Currency;
 use crate::models::invoice::Invoice;
+use crate::models::item::Item;
+use crate::models::linked_transaction::LinkedTransaction;
+use crate::models::manual_journal::ManualJournal;
+use crate::models::organisation::Organisation;
+use crate::models::overpayment::Overpayment;
 use crate::models::payment::Payment;
+use crate::models::prepayment::Prepayment;
+use crate::models::purchase_order::PurchaseOrder;
+use crate::models::quote::Quote;
+use crate::models::repeating_invoice::RepeatingInvoice;
 use crate::models::report::{BalanceSheetReport, ProfitAndLossReport, Report, TrialBalanceReport};
+use crate::models::tax_rate::TaxRate;
+use crate::models::tracking_category::TrackingCategory;
 
 /// A synchronous wrapper around [`XeroClient`].
 ///
@@ -221,6 +235,205 @@ impl BlockingClient {
     pub fn reports_aged_receivables(&self, params: &ReportParams) -> Result<Report> {
         self.runtime
             .block_on(self.inner.reports().aged_receivables(params))
+    }
+
+    // --- Credit Notes ---
+
+    /// Lists credit notes (blocking).
+    pub fn credit_notes_list(
+        &self,
+        params: &ListParams,
+        pagination: &PaginationParams,
+    ) -> Result<Vec<CreditNote>> {
+        self.runtime
+            .block_on(self.inner.credit_notes().list(params, pagination))
+    }
+
+    /// Gets a single credit note by ID (blocking).
+    pub fn credit_notes_get(&self, id: Uuid) -> Result<CreditNote> {
+        self.runtime.block_on(self.inner.credit_notes().get(id))
+    }
+
+    // --- Quotes ---
+
+    /// Lists quotes (blocking).
+    pub fn quotes_list(
+        &self,
+        params: &ListParams,
+        pagination: &PaginationParams,
+    ) -> Result<Vec<Quote>> {
+        self.runtime
+            .block_on(self.inner.quotes().list(params, pagination))
+    }
+
+    /// Gets a single quote by ID (blocking).
+    pub fn quotes_get(&self, id: Uuid) -> Result<Quote> {
+        self.runtime.block_on(self.inner.quotes().get(id))
+    }
+
+    // --- Purchase Orders ---
+
+    /// Lists purchase orders (blocking).
+    pub fn purchase_orders_list(
+        &self,
+        params: &ListParams,
+        pagination: &PaginationParams,
+    ) -> Result<Vec<PurchaseOrder>> {
+        self.runtime
+            .block_on(self.inner.purchase_orders().list(params, pagination))
+    }
+
+    /// Gets a single purchase order by ID (blocking).
+    pub fn purchase_orders_get(&self, id: Uuid) -> Result<PurchaseOrder> {
+        self.runtime
+            .block_on(self.inner.purchase_orders().get(id))
+    }
+
+    // --- Items ---
+
+    /// Lists items (blocking).
+    pub fn items_list(&self, params: &ListParams) -> Result<Vec<Item>> {
+        self.runtime.block_on(self.inner.items().list(params))
+    }
+
+    /// Gets a single item by ID (blocking).
+    pub fn items_get(&self, id: Uuid) -> Result<Item> {
+        self.runtime.block_on(self.inner.items().get(id))
+    }
+
+    // --- Tax Rates ---
+
+    /// Lists tax rates (blocking).
+    pub fn tax_rates_list(&self, params: &ListParams) -> Result<Vec<TaxRate>> {
+        self.runtime.block_on(self.inner.tax_rates().list(params))
+    }
+
+    // --- Currencies ---
+
+    /// Lists currencies (blocking).
+    pub fn currencies_list(&self, params: &ListParams) -> Result<Vec<Currency>> {
+        self.runtime.block_on(self.inner.currencies().list(params))
+    }
+
+    // --- Tracking Categories ---
+
+    /// Lists tracking categories (blocking).
+    pub fn tracking_categories_list(&self, params: &ListParams) -> Result<Vec<TrackingCategory>> {
+        self.runtime
+            .block_on(self.inner.tracking_categories().list(params))
+    }
+
+    /// Gets a single tracking category by ID (blocking).
+    pub fn tracking_categories_get(&self, id: Uuid) -> Result<TrackingCategory> {
+        self.runtime
+            .block_on(self.inner.tracking_categories().get(id))
+    }
+
+    // --- Organisations ---
+
+    /// Gets the organisation details (blocking).
+    pub fn organisations_get(&self) -> Result<Organisation> {
+        self.runtime.block_on(self.inner.organisations().get())
+    }
+
+    // --- Manual Journals ---
+
+    /// Lists manual journals (blocking).
+    pub fn manual_journals_list(
+        &self,
+        params: &ListParams,
+        pagination: &PaginationParams,
+    ) -> Result<Vec<ManualJournal>> {
+        self.runtime
+            .block_on(self.inner.manual_journals().list(params, pagination))
+    }
+
+    /// Gets a single manual journal by ID (blocking).
+    pub fn manual_journals_get(&self, id: Uuid) -> Result<ManualJournal> {
+        self.runtime
+            .block_on(self.inner.manual_journals().get(id))
+    }
+
+    // --- Prepayments ---
+
+    /// Lists prepayments (blocking).
+    pub fn prepayments_list(
+        &self,
+        params: &ListParams,
+        pagination: &PaginationParams,
+    ) -> Result<Vec<Prepayment>> {
+        self.runtime
+            .block_on(self.inner.prepayments().list(params, pagination))
+    }
+
+    /// Gets a single prepayment by ID (blocking).
+    pub fn prepayments_get(&self, id: Uuid) -> Result<Prepayment> {
+        self.runtime.block_on(self.inner.prepayments().get(id))
+    }
+
+    // --- Overpayments ---
+
+    /// Lists overpayments (blocking).
+    pub fn overpayments_list(
+        &self,
+        params: &ListParams,
+        pagination: &PaginationParams,
+    ) -> Result<Vec<Overpayment>> {
+        self.runtime
+            .block_on(self.inner.overpayments().list(params, pagination))
+    }
+
+    /// Gets a single overpayment by ID (blocking).
+    pub fn overpayments_get(&self, id: Uuid) -> Result<Overpayment> {
+        self.runtime.block_on(self.inner.overpayments().get(id))
+    }
+
+    // --- Linked Transactions ---
+
+    /// Lists linked transactions (blocking).
+    pub fn linked_transactions_list(
+        &self,
+        params: &ListParams,
+        pagination: &PaginationParams,
+    ) -> Result<Vec<LinkedTransaction>> {
+        self.runtime
+            .block_on(self.inner.linked_transactions().list(params, pagination))
+    }
+
+    /// Gets a single linked transaction by ID (blocking).
+    pub fn linked_transactions_get(&self, id: Uuid) -> Result<LinkedTransaction> {
+        self.runtime
+            .block_on(self.inner.linked_transactions().get(id))
+    }
+
+    // --- Budgets ---
+
+    /// Lists budgets (blocking).
+    pub fn budgets_list(&self, params: &ListParams) -> Result<Vec<Budget>> {
+        self.runtime.block_on(self.inner.budgets().list(params))
+    }
+
+    /// Gets a single budget by ID (blocking).
+    pub fn budgets_get(&self, id: Uuid) -> Result<Budget> {
+        self.runtime.block_on(self.inner.budgets().get(id))
+    }
+
+    // --- Repeating Invoices ---
+
+    /// Lists repeating invoices (blocking).
+    pub fn repeating_invoices_list(
+        &self,
+        params: &ListParams,
+        pagination: &PaginationParams,
+    ) -> Result<Vec<RepeatingInvoice>> {
+        self.runtime
+            .block_on(self.inner.repeating_invoices().list(params, pagination))
+    }
+
+    /// Gets a single repeating invoice by ID (blocking).
+    pub fn repeating_invoices_get(&self, id: Uuid) -> Result<RepeatingInvoice> {
+        self.runtime
+            .block_on(self.inner.repeating_invoices().get(id))
     }
 
     // --- Identity ---

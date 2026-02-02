@@ -115,6 +115,82 @@ impl XeroClient {
         crate::api::identity::IdentityApi::new(self)
     }
 
+    /// Returns the Credit Notes API handle.
+    pub fn credit_notes(&self) -> crate::api::credit_notes::CreditNotesApi<'_> {
+        crate::api::credit_notes::CreditNotesApi::new(self)
+    }
+
+    /// Returns the Quotes API handle.
+    pub fn quotes(&self) -> crate::api::quotes::QuotesApi<'_> {
+        crate::api::quotes::QuotesApi::new(self)
+    }
+
+    /// Returns the Purchase Orders API handle.
+    pub fn purchase_orders(&self) -> crate::api::purchase_orders::PurchaseOrdersApi<'_> {
+        crate::api::purchase_orders::PurchaseOrdersApi::new(self)
+    }
+
+    /// Returns the Items API handle.
+    pub fn items(&self) -> crate::api::items::ItemsApi<'_> {
+        crate::api::items::ItemsApi::new(self)
+    }
+
+    /// Returns the Tax Rates API handle.
+    pub fn tax_rates(&self) -> crate::api::tax_rates::TaxRatesApi<'_> {
+        crate::api::tax_rates::TaxRatesApi::new(self)
+    }
+
+    /// Returns the Currencies API handle.
+    pub fn currencies(&self) -> crate::api::currencies::CurrenciesApi<'_> {
+        crate::api::currencies::CurrenciesApi::new(self)
+    }
+
+    /// Returns the Tracking Categories API handle.
+    pub fn tracking_categories(
+        &self,
+    ) -> crate::api::tracking_categories::TrackingCategoriesApi<'_> {
+        crate::api::tracking_categories::TrackingCategoriesApi::new(self)
+    }
+
+    /// Returns the Organisations API handle.
+    pub fn organisations(&self) -> crate::api::organisations::OrganisationsApi<'_> {
+        crate::api::organisations::OrganisationsApi::new(self)
+    }
+
+    /// Returns the Manual Journals API handle.
+    pub fn manual_journals(&self) -> crate::api::manual_journals::ManualJournalsApi<'_> {
+        crate::api::manual_journals::ManualJournalsApi::new(self)
+    }
+
+    /// Returns the Prepayments API handle.
+    pub fn prepayments(&self) -> crate::api::prepayments::PrepaymentsApi<'_> {
+        crate::api::prepayments::PrepaymentsApi::new(self)
+    }
+
+    /// Returns the Overpayments API handle.
+    pub fn overpayments(&self) -> crate::api::overpayments::OverpaymentsApi<'_> {
+        crate::api::overpayments::OverpaymentsApi::new(self)
+    }
+
+    /// Returns the Linked Transactions API handle.
+    pub fn linked_transactions(
+        &self,
+    ) -> crate::api::linked_transactions::LinkedTransactionsApi<'_> {
+        crate::api::linked_transactions::LinkedTransactionsApi::new(self)
+    }
+
+    /// Returns the Budgets API handle.
+    pub fn budgets(&self) -> crate::api::budgets::BudgetsApi<'_> {
+        crate::api::budgets::BudgetsApi::new(self)
+    }
+
+    /// Returns the Repeating Invoices API handle.
+    pub fn repeating_invoices(
+        &self,
+    ) -> crate::api::repeating_invoices::RepeatingInvoicesApi<'_> {
+        crate::api::repeating_invoices::RepeatingInvoicesApi::new(self)
+    }
+
     // --- Internal request methods ---
 
     /// Makes a GET request to a Xero API endpoint with query parameters.

@@ -5,8 +5,9 @@
 //! - **Per-minute limit**: 60 calls per minute per app+org connection.
 //! - **Daily limit**: 5,000 calls per day per app+org connection.
 //!
-//! Also tracks `X-MinLimit-Remaining` and `X-DayLimit-Remaining` response
-//! headers to pre-emptively delay when approaching limits.
+//! Also tracks `X-MinLimit-Remaining`, `X-DayLimit-Remaining`, and
+//! `X-AppMinLimit-Remaining` response headers to pre-emptively delay when
+//! approaching limits.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -51,6 +52,9 @@ struct HeaderLimits {
 
     /// Remaining requests today (from `X-DayLimit-Remaining`).
     day_remaining: Option<u32>,
+
+    /// Remaining app-wide requests this minute (from `X-AppMinLimit-Remaining`).
+    app_min_remaining: Option<u32>,
 }
 
 /// Per-minute request tracker using a sliding window.
@@ -157,6 +161,12 @@ impl RateLimiter {
                 debug!("Xero X-MinLimit-Remaining is {remaining}, throttling");
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
+            if let Some(remaining) = limits.app_min_remaining
+                && remaining <= 5
+            {
+                debug!("Xero X-AppMinLimit-Remaining is {remaining}, throttling");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
             if let Some(remaining) = limits.day_remaining
                 && remaining <= 10
             {
@@ -207,6 +217,12 @@ impl RateLimiter {
             && let Ok(s) = val.to_str()
         {
             limits.day_remaining = s.parse().ok();
+        }
+
+        if let Some(val) = headers.get("X-AppMinLimit-Remaining")
+            && let Ok(s) = val.to_str()
+        {
+            limits.app_min_remaining = s.parse().ok();
         }
     }
 
@@ -285,10 +301,12 @@ mod tests {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("X-MinLimit-Remaining", "10".parse().unwrap());
         headers.insert("X-DayLimit-Remaining", "4500".parse().unwrap());
+        headers.insert("X-AppMinLimit-Remaining", "9500".parse().unwrap());
         limiter.update_from_headers(&headers).await;
 
         let limits = limiter.header_limits.read().await;
         assert_eq!(limits.min_remaining, Some(10));
         assert_eq!(limits.day_remaining, Some(4500));
+        assert_eq!(limits.app_min_remaining, Some(9500));
     }
 }

@@ -279,8 +279,7 @@ impl XeroClient {
             let guard = self.rate_limiter.acquire().await?;
 
             let access_token = self.auth.get_access_token().await?;
-            let headers =
-                request::build_headers(&access_token, &self.tenant_id, if_modified_since);
+            let headers = request::build_headers(&access_token, &self.tenant_id, if_modified_since);
 
             let result = self
                 .http_client
@@ -433,8 +432,9 @@ impl XeroClient {
                 Err(e) => {
                     // Only retry write operations when an idempotency key is provided,
                     // to prevent duplicate mutations on transient network errors.
-                    let can_retry =
-                        attempt < max_retries && is_transient_error(&e) && idempotency_key.is_some();
+                    let can_retry = attempt < max_retries
+                        && is_transient_error(&e)
+                        && idempotency_key.is_some();
                     if can_retry {
                         let delay = backoff_delay(attempt);
                         warn!(
@@ -540,11 +540,7 @@ impl XeroClient {
             let query = params.to_query_pairs();
 
             let response: R = self
-                .get_with_modified_since(
-                    path,
-                    &query,
-                    base_params.if_modified_since.as_deref(),
-                )
+                .get_with_modified_since(path, &query, base_params.if_modified_since.as_deref())
                 .await?;
             let pag = response.pagination().cloned();
             let items = response.into_items();

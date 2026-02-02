@@ -154,7 +154,10 @@ pub(crate) async fn run_pkce_flow(params: &PkceFlowParams) -> crate::error::Resu
 
 /// Waits for the OAuth callback on the localhost server, verifies the state
 /// parameter for CSRF protection, and extracts the authorization code.
-async fn wait_for_callback(listener: TcpListener, expected_state: &str) -> crate::error::Result<String> {
+async fn wait_for_callback(
+    listener: TcpListener,
+    expected_state: &str,
+) -> crate::error::Result<String> {
     let (stream, _addr) =
         listener
             .accept()

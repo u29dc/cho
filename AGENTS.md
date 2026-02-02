@@ -485,8 +485,10 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
     - All 8 variants implemented in `error.rs` with `Result<T>` type alias
 - [x] `#![deny(missing_docs)]` enforced, all public items documented
     - Enforced in `lib.rs`; all public items have `///` doc comments
-- [ ] Sync wrapper: `_blocking()` variants for key methods
-- [ ] Verify: `cargo test -p cho-sdk` all passing, fixture deserialization covers all Tier 1 models, MsDate round-trip works, Decimal precision preserved
+- [x] Sync wrapper: `_blocking()` variants for key methods
+    - `blocking.rs` with `BlockingClient` wrapping `XeroClient` + internal `tokio::runtime::Runtime`; `BlockingClientBuilderExt` trait for `build_blocking()`; sync methods for all resource APIs, auth, and reports; 2 tests
+- [x] Verify: `cargo test -p cho-sdk` all passing, fixture deserialization covers all Tier 1 models, MsDate round-trip works, Decimal precision preserved
+    - 96 unit tests + 2 doctests passing; zero clippy warnings; all quality gates green; Phase 1 complete
 
 ### Phase 2: cho-cli
 

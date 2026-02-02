@@ -15,6 +15,7 @@
 
 pub mod api;
 pub mod auth;
+pub mod blocking;
 pub mod client;
 pub mod config;
 pub mod error;

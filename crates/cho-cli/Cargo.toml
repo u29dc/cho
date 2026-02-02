@@ -1,0 +1,20 @@
+[package]
+name = "cho-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "cho"
+path = "src/main.rs"
+
+[dependencies]
+cho-sdk = { path = "../cho-sdk" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+comfy-table = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "cho-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "cho-mcp"
+path = "src/main.rs"
+
+[dependencies]
+cho-sdk = { path = "../cho-sdk" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }

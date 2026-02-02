@@ -1,0 +1,16 @@
+[package]
+name = "cho-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "cho-tui"
+path = "src/main.rs"
+
+[dependencies]
+cho-sdk = { path = "../cho-sdk" }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }

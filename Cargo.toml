@@ -1,0 +1,57 @@
+[workspace]
+members = ["crates/cho-sdk", "crates/cho-cli", "crates/cho-tui", "crates/cho-mcp"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93.0"
+license = "MIT"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.45.0", features = ["full"] }
+
+# HTTP client
+reqwest = { version = "0.12.15", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# Serialization
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+toml = "0.8.20"
+
+# CLI
+clap = { version = "4.5.56", features = ["derive", "env"] }
+
+# TUI
+ratatui = "0.30.0"
+crossterm = "0.29.0"
+
+# Money and precision
+rust_decimal = { version = "1.37.1", features = ["serde-with-str"] }
+
+# Dates
+chrono = { version = "0.4.41", features = ["serde"] }
+
+# UUIDs
+uuid = { version = "1.20.0", features = ["v4", "serde"] }
+
+# Errors
+thiserror = "2.0.18"
+
+# Token storage
+keyring = "3.6.1"
+secrecy = "0.10.3"
+
+# Table output
+comfy-table = "7.1.4"
+
+# Logging
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+
+# Regex (MS date parsing)
+regex = "1.11.1"
+
+# Browser open (PKCE auth)
+open = "5.3.2"

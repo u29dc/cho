@@ -583,6 +583,17 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
 - [x] Add Idempotency-Key length validation (128 char max per Xero spec)
 - [x] Add unit tests for write safety gate, validation error extraction, and UTF-8 truncate
 - [x] Document 401 refresh during pagination partial result loss as known limitation in `http/pagination.rs`
+- [ ] Add `extract_validation_errors()` call in `request_with_body()` write error path (currently returns empty `validation_errors`)
+- [ ] Wire table/CSV output formatters through `CliContext` format dispatch (currently dead code behind `#[allow(dead_code)]`)
+- [ ] Only write file fallback + emit warning when keyring storage fails (currently always writes file and warns)
+- [ ] Use `refresh_attempted` flag for 401 retry instead of `attempt == 0` (401 after 429 retry skips refresh)
+- [ ] Track `X-AppMinLimit-Remaining` header in rate limiter `update_from_headers()`
+- [ ] Thread pagination metadata through `format_list_output()` for `--meta` envelope support
+- [ ] Add URL scheme validation for `SdkConfig.base_url` (SSRF mitigation for crates.io publishing)
+- [ ] Replace `blocking_write()` in `AuthManager::load_stored_tokens()` with async-safe alternative
+- [ ] Add wiremock/httpmock integration tests for retry, pagination, auth refresh, and write flows
+- [ ] Remove `#[allow(dead_code)]` from write safety functions when CLI write commands are added
+- [ ] Add CountryCode (~250 variants) and TimeZone (~140 variants) enums when needed by models
 
 ### Phase 4: cho-tui
 

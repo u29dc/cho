@@ -280,7 +280,8 @@ impl XeroClient {
             let guard = self.rate_limiter.acquire().await?;
 
             let access_token = self.auth.get_access_token().await?;
-            let headers = request::build_headers(&access_token, &self.tenant_id, if_modified_since);
+            let headers =
+                request::build_headers(&access_token, &self.tenant_id, if_modified_since)?;
 
             let result = self
                 .http_client
@@ -357,7 +358,13 @@ impl XeroClient {
             }
 
             if !status.is_success() {
-                let body = response.text().await.unwrap_or_default();
+                let body = match response.text().await {
+                    Ok(t) => t,
+                    Err(e) => {
+                        warn!("Failed to read error response body: {e}");
+                        String::new()
+                    }
+                };
                 let validation_errors = extract_validation_errors(&body);
                 return Err(ChoSdkError::ApiError {
                     status: status.as_u16(),
@@ -413,7 +420,7 @@ impl XeroClient {
             let guard = self.rate_limiter.acquire().await?;
 
             let access_token = self.auth.get_access_token().await?;
-            let mut headers = request::build_headers(&access_token, &self.tenant_id, None);
+            let mut headers = request::build_headers(&access_token, &self.tenant_id, None)?;
 
             // Add Idempotency-Key header if provided
             if let Some(key) = idempotency_key
@@ -458,7 +465,9 @@ impl XeroClient {
             let status = response.status();
 
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                if attempt < max_retries {
+                // Only retry 429 on write operations when an idempotency key is
+                // provided, to prevent duplicate mutations.
+                if attempt < max_retries && idempotency_key.is_some() {
                     self.rate_limiter
                         .handle_rate_limited(response.headers())
                         .await?;
@@ -501,7 +510,13 @@ impl XeroClient {
             }
 
             if !status.is_success() {
-                let resp_body = response.text().await.unwrap_or_default();
+                let resp_body = match response.text().await {
+                    Ok(t) => t,
+                    Err(e) => {
+                        warn!("Failed to read error response body: {e}");
+                        String::new()
+                    }
+                };
                 let validation_errors = extract_validation_errors(&resp_body);
                 return Err(ChoSdkError::ApiError {
                     status: status.as_u16(),

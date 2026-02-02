@@ -19,7 +19,8 @@
 		"util:lint": "cargo clippy --all-targets --all-features -- -D warnings",
 		"util:test": "cargo test --workspace",
 		"util:types": "cargo check --workspace",
-		"util:check": "STATUS=0; bun run util:format || STATUS=1; bun run util:lint || STATUS=1; bun run util:types || STATUS=1; bun run util:test || STATUS=1; exit $STATUS",
+		"util:audit": "cargo audit",
+		"util:check": "STATUS=0; bun run util:format || STATUS=1; bun run util:lint || STATUS=1; bun run util:types || STATUS=1; bun run util:test || STATUS=1; bun run util:audit || STATUS=1; exit $STATUS",
 		"util:clean": "cargo clean"
 	},
 	"devDependencies": {

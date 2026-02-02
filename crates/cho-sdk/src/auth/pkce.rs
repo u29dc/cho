@@ -159,9 +159,14 @@ async fn wait_for_callback(
     expected_state: &str,
 ) -> crate::error::Result<String> {
     let (stream, _addr) =
-        listener
-            .accept()
+        tokio::time::timeout(std::time::Duration::from_secs(300), listener.accept())
             .await
+            .map_err(|_| {
+                crate::error::ChoSdkError::AuthRequired {
+        message: "Timed out waiting for browser callback (300s). Please re-run the login command."
+            .to_string(),
+    }
+            })?
             .map_err(|e| crate::error::ChoSdkError::Config {
                 message: format!("Callback server accept failed: {e}"),
             })?;
@@ -174,6 +179,20 @@ async fn wait_for_callback(
         .map_err(|e| crate::error::ChoSdkError::Config {
             message: format!("Failed to read callback request: {e}"),
         })?;
+
+    // Read and discard remaining HTTP headers (empty line terminates headers)
+    let mut header_line = String::new();
+    loop {
+        header_line.clear();
+        match reader.read_line(&mut header_line).await {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {
+                if header_line.trim().is_empty() {
+                    break;
+                }
+            }
+        }
+    }
 
     // Parse code and state from: GET /callback?code=XXXX&state=YYYY HTTP/1.1
     let (code, returned_state) = parse_code_and_state_from_request(&request_line)?;

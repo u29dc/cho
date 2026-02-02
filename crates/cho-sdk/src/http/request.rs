@@ -109,22 +109,30 @@ impl ListParams {
 /// Builds the standard headers for a Xero API request.
 ///
 /// If `if_modified_since` is provided, adds the `If-Modified-Since` header.
+///
+/// Returns an error if the access token or tenant ID contain non-ASCII
+/// characters that cannot be represented in an HTTP header value.
 pub fn build_headers(
     access_token: &str,
     tenant_id: &str,
     if_modified_since: Option<&str>,
-) -> HeaderMap {
+) -> crate::error::Result<HeaderMap> {
     let mut headers = HeaderMap::new();
 
     headers.insert(
         AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {access_token}"))
-            .expect("valid authorization header"),
+        HeaderValue::from_str(&format!("Bearer {access_token}")).map_err(|e| {
+            crate::error::ChoSdkError::Config {
+                message: format!("Invalid access token for HTTP header: {e}"),
+            }
+        })?,
     );
 
     headers.insert(
         "xero-tenant-id",
-        HeaderValue::from_str(tenant_id).expect("valid tenant ID header"),
+        HeaderValue::from_str(tenant_id).map_err(|e| crate::error::ChoSdkError::Config {
+            message: format!("Invalid tenant ID for HTTP header: {e}"),
+        })?,
     );
 
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -136,7 +144,7 @@ pub fn build_headers(
         headers.insert(reqwest::header::IF_MODIFIED_SINCE, value);
     }
 
-    headers
+    Ok(headers)
 }
 
 /// Report-specific query parameters.
@@ -234,7 +242,7 @@ mod tests {
 
     #[test]
     fn build_headers_contains_required() {
-        let headers = build_headers("test_token", "tenant-123", None);
+        let headers = build_headers("test_token", "tenant-123", None).unwrap();
         assert!(headers.get(AUTHORIZATION).is_some());
         assert!(headers.get("xero-tenant-id").is_some());
         assert!(headers.get(CONTENT_TYPE).is_some());
@@ -248,7 +256,8 @@ mod tests {
 
     #[test]
     fn build_headers_with_if_modified_since() {
-        let headers = build_headers("test_token", "tenant-123", Some("2024-01-01T00:00:00Z"));
+        let headers =
+            build_headers("test_token", "tenant-123", Some("2024-01-01T00:00:00Z")).unwrap();
         assert!(headers.get(reqwest::header::IF_MODIFIED_SINCE).is_some());
         let since = headers
             .get(reqwest::header::IF_MODIFIED_SINCE)
@@ -256,6 +265,19 @@ mod tests {
             .to_str()
             .unwrap();
         assert_eq!(since, "2024-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn build_headers_rejects_invalid_token() {
+        // HeaderValue rejects control characters like newlines
+        let result = build_headers("token\ninjection", "tenant-123", None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_headers_rejects_invalid_tenant() {
+        let result = build_headers("valid_token", "tenant\r\nid", None);
+        assert!(result.is_err());
     }
 
     #[test]

@@ -165,10 +165,10 @@ fn token_file_path() -> crate::error::Result<PathBuf> {
 fn dirs_path() -> crate::error::Result<PathBuf> {
     let base = std::env::var("XDG_CONFIG_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-            PathBuf::from(home).join(".config")
-        });
+        .or_else(|_| std::env::var("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .map_err(|_| crate::error::ChoSdkError::Config {
+            message: "Neither XDG_CONFIG_HOME nor HOME environment variable is set".to_string(),
+        })?;
 
     let dir = base.join("cho");
 

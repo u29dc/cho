@@ -134,7 +134,7 @@ cho is a Rust workspace (cho-sdk, cho-cli, cho-tui, cho-mcp) exposing the Xero a
 |---|---|---|
 | Language | Rust 2024 edition | rust-version = "1.93.0" |
 | Async | tokio 1.x | multi-threaded; sync wrapper via block_on |
-| HTTP | reqwest 0.13+ | rustls TLS, async, connection pooling |
+| HTTP | reqwest 0.12+ | rustls TLS, async, connection pooling |
 | Serde | serde 1.x + serde_json 1.x | PascalCase wire, snake_case CLI output |
 | CLI | clap 4.x (derive) | nested subcommands, env var fallbacks |
 | TUI | ratatui 0.30+ / crossterm 0.29+ | cho-tui crate |

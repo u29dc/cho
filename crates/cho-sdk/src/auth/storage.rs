@@ -69,13 +69,14 @@ pub(crate) fn store_tokens(tokens: &StoredTokens) -> crate::error::Result<()> {
     match store_to_keyring(&json) {
         Ok(()) => {
             debug!("Stored tokens in OS keychain");
+            return Ok(());
         }
         Err(e) => {
-            debug!("Keychain storage failed: {e}, using file fallback only");
+            debug!("Keychain storage failed: {e}, using file fallback");
         }
     }
 
-    // Always write file fallback
+    // File fallback only when keyring is unavailable
     store_to_file(&json)?;
     warn!(
         "Tokens stored as plaintext JSON at ~/.config/cho/tokens.json (0600 permissions). \

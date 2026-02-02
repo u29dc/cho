@@ -540,7 +540,7 @@ impl XeroClient {
         let mut all_items = Vec::new();
         let mut page: u32 = 1;
         let limit = pagination.limit;
-        let mut last_pagination = None;
+        let mut last_pagination: Option<crate::models::common::Pagination> = None;
 
         loop {
             let params = base_params

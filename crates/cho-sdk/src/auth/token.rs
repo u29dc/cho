@@ -91,6 +91,19 @@ pub struct TokenPair {
 }
 
 impl TokenPair {
+    /// Creates a token pair for testing purposes.
+    ///
+    /// The token will be valid for the specified number of seconds.
+    pub fn for_testing(access_token: &str, expires_in_secs: u64) -> Self {
+        let lifetime = Duration::from_secs(expires_in_secs);
+        Self {
+            access_token: SecretString::from(access_token.to_string()),
+            refresh_token: None,
+            expires_at: Instant::now() + lifetime,
+            expires_in: lifetime,
+        }
+    }
+
     /// Creates a new token pair from a token endpoint response.
     pub(crate) fn from_response(response: &TokenResponse) -> Self {
         let lifetime = response

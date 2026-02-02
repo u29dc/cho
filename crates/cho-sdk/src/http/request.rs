@@ -107,7 +107,13 @@ impl ListParams {
 }
 
 /// Builds the standard headers for a Xero API request.
-pub fn build_headers(access_token: &str, tenant_id: &str) -> HeaderMap {
+///
+/// If `if_modified_since` is provided, adds the `If-Modified-Since` header.
+pub fn build_headers(
+    access_token: &str,
+    tenant_id: &str,
+    if_modified_since: Option<&str>,
+) -> HeaderMap {
     let mut headers = HeaderMap::new();
 
     headers.insert(
@@ -122,6 +128,12 @@ pub fn build_headers(access_token: &str, tenant_id: &str) -> HeaderMap {
     );
 
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+    if let Some(since) = if_modified_since {
+        if let Ok(value) = HeaderValue::from_str(since) {
+            headers.insert(reqwest::header::IF_MODIFIED_SINCE, value);
+        }
+    }
 
     headers
 }
@@ -221,7 +233,7 @@ mod tests {
 
     #[test]
     fn build_headers_contains_required() {
-        let headers = build_headers("test_token", "tenant-123");
+        let headers = build_headers("test_token", "tenant-123", None);
         assert!(headers.get(AUTHORIZATION).is_some());
         assert!(headers.get("xero-tenant-id").is_some());
         assert!(headers.get(CONTENT_TYPE).is_some());
@@ -231,6 +243,18 @@ mod tests {
 
         let tenant = headers.get("xero-tenant-id").unwrap().to_str().unwrap();
         assert_eq!(tenant, "tenant-123");
+    }
+
+    #[test]
+    fn build_headers_with_if_modified_since() {
+        let headers = build_headers("test_token", "tenant-123", Some("2024-01-01T00:00:00Z"));
+        assert!(headers.get(reqwest::header::IF_MODIFIED_SINCE).is_some());
+        let since = headers
+            .get(reqwest::header::IF_MODIFIED_SINCE)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert_eq!(since, "2024-01-01T00:00:00Z");
     }
 
     #[test]

@@ -199,7 +199,19 @@ impl XeroClient {
         query: &[(&str, String)],
     ) -> Result<T> {
         let url = format!("{}{path}", self.config.base_url);
-        self.request_with_retry(reqwest::Method::GET, &url, query)
+        self.request_with_retry(reqwest::Method::GET, &url, query, None)
+            .await
+    }
+
+    /// Makes a GET request with an optional `If-Modified-Since` header.
+    pub(crate) async fn get_with_modified_since<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        if_modified_since: Option<&str>,
+    ) -> Result<T> {
+        let url = format!("{}{path}", self.config.base_url);
+        self.request_with_retry(reqwest::Method::GET, &url, query, if_modified_since)
             .await
     }
 
@@ -249,7 +261,7 @@ impl XeroClient {
         url: &str,
         query: &[(&str, String)],
     ) -> Result<T> {
-        self.request_with_retry(reqwest::Method::GET, url, query)
+        self.request_with_retry(reqwest::Method::GET, url, query, None)
             .await
     }
 
@@ -259,6 +271,7 @@ impl XeroClient {
         method: reqwest::Method,
         url: &str,
         query: &[(&str, String)],
+        if_modified_since: Option<&str>,
     ) -> Result<T> {
         let max_retries = self.config.max_retries;
 
@@ -266,7 +279,8 @@ impl XeroClient {
             let guard = self.rate_limiter.acquire().await?;
 
             let access_token = self.auth.get_access_token().await?;
-            let headers = request::build_headers(&access_token, &self.tenant_id);
+            let headers =
+                request::build_headers(&access_token, &self.tenant_id, if_modified_since);
 
             let result = self
                 .http_client
@@ -384,7 +398,7 @@ impl XeroClient {
             let guard = self.rate_limiter.acquire().await?;
 
             let access_token = self.auth.get_access_token().await?;
-            let mut headers = request::build_headers(&access_token, &self.tenant_id);
+            let mut headers = request::build_headers(&access_token, &self.tenant_id, None);
 
             // Add Idempotency-Key header if provided
             if let Some(key) = idempotency_key
@@ -512,7 +526,13 @@ impl XeroClient {
                 .with_page_size(pagination.page_size);
             let query = params.to_query_pairs();
 
-            let response: R = self.get(path, &query).await?;
+            let response: R = self
+                .get_with_modified_since(
+                    path,
+                    &query,
+                    base_params.if_modified_since.as_deref(),
+                )
+                .await?;
             let pag = response.pagination().cloned();
             let items = response.into_items();
 

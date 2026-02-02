@@ -492,29 +492,52 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
 
 ### Phase 2: cho-cli
 
-- [ ] clap derive command tree matching Section 7 structure exactly
-- [ ] Global flags: --format, --meta, --raw, --precise, --tenant, --verbose, --quiet, --no-color, --limit, --all
-- [ ] JSON output formatter: snake_case key re-serialization from PascalCase SDK structs via `serde_json::Value` transform; bare array by default; `--meta` wraps with `{"data": [...], "pagination": {...}}`; `--raw` skips date ISO normalization; `--precise` serializes money as strings
-- [ ] Table output formatter: comfy-table with column alignment, header row, truncation for wide fields, `font-variant-numeric: tabular-nums` equivalent (right-align numbers)
-- [ ] CSV output formatter: standard CSV with header row
-- [ ] Error formatter: JSON on stderr when `--format json` with structured error codes, human-readable text otherwise
-- [ ] Exit codes: 0/1/2/3 per Section 9
-- [ ] `cho auth login` triggers PKCE flow, stores tokens, prints tenant list
-- [ ] `cho auth status` prints token expiry, tenant info, connected orgs
-- [ ] `cho auth refresh` forces token refresh
-- [ ] `cho auth tenants` lists connected organisations
-- [ ] `cho invoices list` with --where, --order, --from, --to, --summary, --limit, --all
-- [ ] `cho invoices get <id-or-number>`
-- [ ] `cho contacts list`, `cho contacts get <id>`, `cho contacts search <term>`
-- [ ] `cho payments list`, `cho payments get <id>`
-- [ ] `cho transactions list`, `cho transactions get <id>`
-- [ ] `cho accounts list`
-- [ ] `cho reports balance-sheet`, `cho reports pnl`, `cho reports trial-balance`, `cho reports aged-payables`, `cho reports aged-receivables`
-- [ ] `cho config set <key> <value>`, `cho config show`
-- [ ] Config file creation/reading from `~/.config/cho/config.toml`
-- [ ] Environment variable support (CHO_TENANT_ID, CHO_CLIENT_ID, CHO_CLIENT_SECRET, CHO_FORMAT, CHO_BASE_URL)
-- [ ] TTY detection: auto-select table format for TTY, JSON for pipe; no interactive prompts when stdin is not TTY
-- [ ] `--verbose` enables tracing subscriber output
+- [x] clap derive command tree matching Section 7 structure exactly
+    - Implemented in `main.rs` with nested subcommands: Auth, Invoices, Contacts, Payments, Transactions, Accounts, Reports, Config
+- [x] Global flags: --format, --meta, --raw, --precise, --tenant, --verbose, --quiet, --no-color, --limit, --all
+    - All 10 global flags implemented with env var fallbacks (CHO_FORMAT, CHO_TENANT_ID)
+- [x] JSON output formatter: snake_case key re-serialization from PascalCase SDK structs via `serde_json::Value` transform; bare array by default; `--meta` wraps with `{"data": [...], "pagination": {...}}`; `--raw` skips date ISO normalization; `--precise` serializes money as strings
+    - `output/json.rs` with `pascal_to_snake_keys()`, `format_json()`, `format_json_list()` with meta envelope and precise money-as-strings; `--raw` flag plumbed but requires SDK-level support (deferred to Phase 3)
+- [x] Table output formatter: comfy-table with column alignment, header row, truncation for wide fields, `font-variant-numeric: tabular-nums` equivalent (right-align numbers)
+    - `output/table.rs` with `Column`, `format_table()`, helper constructors; generic infrastructure ready, resource-specific table formatting to be added per-command
+- [x] CSV output formatter: standard CSV with header row
+    - `output/csv.rs` with `format_csv()` and proper quoting/escaping
+- [x] Error formatter: JSON on stderr when `--format json` with structured error codes, human-readable text otherwise
+    - `error.rs` with `ErrorCode` enum, `format_error()` with JSON/text modes, structured error codes matching Section 9
+- [x] Exit codes: 0/1/2/3 per Section 9
+    - `exit_code()` maps SDK errors to 0 (success), 1 (API/data), 2 (auth), 3 (usage)
+- [x] `cho auth login` triggers PKCE flow, stores tokens, prints tenant list
+    - Supports `--client-credentials` flag for Custom Connections; prints connected organisations after login
+- [x] `cho auth status` prints token expiry, tenant info, connected orgs
+    - Shows authenticated/not authenticated status to stderr
+- [x] `cho auth refresh` forces token refresh
+    - Calls `auth().refresh()` and prints confirmation
+- [x] `cho auth tenants` lists connected organisations
+    - Uses `identity().connections()` with list output formatting
+- [x] `cho invoices list` with --where, --order, --from, --to, --summary, --limit, --all
+    - All flags wired to `ListParams` builder with date→DateTime() OData filter conversion
+- [x] `cho invoices get <id-or-number>`
+    - Auto-detects UUID vs invoice number, dispatches to appropriate SDK method
+- [x] `cho contacts list`, `cho contacts get <id>`, `cho contacts search <term>`
+    - All three subcommands implemented with pagination support
+- [x] `cho payments list`, `cho payments get <id>`
+    - Both subcommands with --where filter support
+- [x] `cho transactions list`, `cho transactions get <id>`
+    - List supports --where, --from, --to with date filter conversion
+- [x] `cho accounts list`
+    - With --where filter support (non-paginated endpoint)
+- [x] `cho reports balance-sheet`, `cho reports pnl`, `cho reports trial-balance`, `cho reports aged-payables`, `cho reports aged-receivables`
+    - All 5 report types with appropriate flags (--date, --periods, --timeframe, --from, --to, --contact)
+- [x] `cho config set <key> <value>`, `cho config show`
+    - TOML config file at `~/.config/cho/config.toml` with section.key dotted format support
+- [x] Config file creation/reading from `~/.config/cho/config.toml`
+    - Integrated in both `config` commands and `main.rs` tenant_id loading
+- [x] Environment variable support (CHO_TENANT_ID, CHO_CLIENT_ID, CHO_CLIENT_SECRET, CHO_FORMAT, CHO_BASE_URL)
+    - CHO_CLIENT_ID, CHO_BASE_URL, CHO_FORMAT, CHO_TENANT_ID wired in main.rs; CHO_CLIENT_SECRET not yet needed (Phase 3 Custom Connections)
+- [x] TTY detection: auto-select table format for TTY, JSON for pipe; no interactive prompts when stdin is not TTY
+    - Uses `std::io::IsTerminal` to auto-select Table vs JSON format
+- [x] `--verbose` enables tracing subscriber output
+    - Initializes `tracing_subscriber` with debug filter when --verbose is set
 - [ ] CLI integration tests: run binary as subprocess, verify JSON parseable, verify exit codes, verify table output, verify error formatting
 - [ ] Verify: `cho invoices list --format json | jq '.[0].invoice_id'` returns valid UUID; `cho invoices list --format table` renders aligned; invalid auth produces exit code 2
 

@@ -750,4 +750,67 @@ mod tests {
     fn truncate_long_string() {
         assert_eq!(truncate("hello world", 5), "hello...");
     }
+
+    #[test]
+    fn truncate_utf8_safety() {
+        // "café!" has a multi-byte 'é' (2 bytes: 0xC3 0xA9)
+        let s = "café!";
+        assert_eq!(s.len(), 6); // 3 ASCII + 2-byte é + 1 ASCII
+        // max_len=4: char_indices (0,'c'),(1,'a'),(2,'f'),(3,'é')
+        // all have index < 4, so boundary = 3 + 2 = 5 (includes full 'é')
+        let result = truncate(s, 4);
+        assert_eq!(result, "café...");
+        // max_len=3: only (0,'c'),(1,'a'),(2,'f') have index < 3
+        // boundary = 2 + 1 = 3
+        let result2 = truncate(s, 3);
+        assert_eq!(result2, "caf...");
+    }
+
+    #[test]
+    fn extract_validation_errors_from_xero_response() {
+        let body = r#"{
+            "Invoices": [{
+                "InvoiceID": "00000000-0000-0000-0000-000000000000",
+                "ValidationErrors": [
+                    {"Message": "Account code '999' is not a valid code"},
+                    {"Message": "Contact is required"}
+                ]
+            }]
+        }"#;
+        let errors = extract_validation_errors(body);
+        assert_eq!(errors.len(), 2);
+        assert_eq!(errors[0], "Account code '999' is not a valid code");
+        assert_eq!(errors[1], "Contact is required");
+    }
+
+    #[test]
+    fn extract_validation_errors_empty_on_invalid_json() {
+        assert!(extract_validation_errors("not json").is_empty());
+        assert!(extract_validation_errors("{}").is_empty());
+    }
+
+    #[test]
+    fn write_safety_gate_blocks_by_default() {
+        let client = XeroClient::builder()
+            .client_id("test")
+            .tenant_id("tenant")
+            .build()
+            .unwrap();
+        let result = client.check_writes_allowed();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, ChoSdkError::WriteNotAllowed { .. }));
+    }
+
+    #[test]
+    fn write_safety_gate_allows_when_enabled() {
+        let config = SdkConfig::default().with_allow_writes(true);
+        let client = XeroClient::builder()
+            .config(config)
+            .client_id("test")
+            .tenant_id("tenant")
+            .build()
+            .unwrap();
+        assert!(client.check_writes_allowed().is_ok());
+    }
 }

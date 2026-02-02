@@ -11,30 +11,30 @@ Hard rules (must follow):
 - Work iteratively and self-correct using command output. Prefer TDD where it fits: tests -> implementation -> refactor.
 - Commit frequently: small, scoped, descriptive commits that comply with the project's commit rules.
 - Verification discipline:
-  - After each meaningful step, run the project's utility checks (formatting, linting, tests) and fix failures immediately.
-  - After the item is complete, run the full build (and any standard verification command the project defines) and confirm success.
+    - After each meaningfully big change, you MUST run `bun run util:check` and `bun run build`. Fix all failures immediately before continuing.
+    - After the item is complete, run both commands again and confirm success.
 
 What to do (loop):
 
 1. Read `AGENTS.md` Roadmap (Section 13).
 2. Select the single highest-priority incomplete item.
 3. Implement it incrementally (prefer TDD where applicable).
-4. Run utility checks after each meaningful change; debug/fix until all pass.
-5. When complete, run the full build; fix any issues until clean.
+4. After each meaningfully big change, run `bun run util:check` and `bun run build`; debug/fix until both pass.
+5. When the item is complete, run `bun run util:check` and `bun run build` one final time; fix any issues until clean.
 6. Mark the item complete exactly as `AGENTS.md` specifies (check the checkbox, add a sub-bullet with implementation notes and any deviations).
-7. Repeat from step 2.
+7. Repeat from step 1.
 
 Blocked-item policy (do NOT ask):
 
 - If the current highest-priority item cannot be completed (missing requirements, external dependency, ambiguous spec, non-reproducible failure, etc.):
-  - Add a concise "BLOCKED" note directly beneath that specific item in `AGENTS.md`, including:
-    - What is blocked (1 sentence)
-    - Why (root cause / constraint)
-    - What you tried (brief)
-    - Exact next steps to unblock (actionable, ordered)
-    - Relevant file paths / commands / short error snippets (as needed)
-  - Mark the item as blocked in-place (do not mark it done).
-  - Immediately move on to the next highest-priority remaining non-blocked item.
+    - Add a concise "BLOCKED" note directly beneath that specific item in `AGENTS.md`, including:
+        - What is blocked (1 sentence)
+        - Why (root cause / constraint)
+        - What you tried (brief)
+        - Exact next steps to unblock (actionable, ordered)
+        - Relevant file paths / commands / short error snippets (as needed)
+    - Mark the item as blocked in-place (do not mark it done).
+    - Immediately move on to the next highest-priority remaining non-blocked item.
 
 Stop condition:
 

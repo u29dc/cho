@@ -497,10 +497,11 @@ impl XeroClient {
 
             if !status.is_success() {
                 let resp_body = response.text().await.unwrap_or_default();
+                let validation_errors = extract_validation_errors(&resp_body);
                 return Err(ChoSdkError::ApiError {
                     status: status.as_u16(),
                     message: resp_body,
-                    validation_errors: Vec::new(),
+                    validation_errors,
                 });
             }
 

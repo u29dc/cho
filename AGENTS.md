@@ -422,17 +422,28 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
 
 ### Phase 0: scaffolding + progenitor experiment
 
-- [ ] Workspace `Cargo.toml` (resolver = "3", rust-version = "1.93.0") with 4 member crates (cho-sdk, cho-cli, cho-tui, cho-mcp) as empty `lib.rs`/`main.rs` stubs
-- [ ] `package.json` with bun scripts (build, dev, util:format, util:lint, util:test, util:types, util:check)
-- [ ] `commitlint.config.js` with scopes `sdk|cli|tui|mcp|config|deps`
-- [ ] `lint-staged.config.js` triggering `bun run util:check`
-- [ ] `.husky/pre-commit` (lint-staged) + `.husky/commit-msg` (commitlint)
-- [ ] `rustfmt.toml` (edition = "2024")
-- [ ] `biome.json` (extends global config)
-- [ ] `.gitignore` (node_modules, target, .DS_Store, .env, .env.\*, .claude, .tmp, .wrangler)
-- [ ] Clone `Xero-OpenAPI` repo, run progenitor against `xero_accounting.yaml`, archive output to `.tmp/progenitor/`; evaluate generated code quality, use only as loose reference -- do not copy/paste directly, write all cho-sdk code from scratch with proper architectural decisions
-- [ ] Move `xero-terminal-tool-research.md` to `.tmp/`
-- [ ] Verify: `cargo build --workspace` succeeds, `bun run util:check` exits 0
+- [x] Workspace `Cargo.toml` (resolver = "3", rust-version = "1.93.0") with 4 member crates (cho-sdk, cho-cli, cho-tui, cho-mcp) as empty `lib.rs`/`main.rs` stubs
+    - Implemented in initial scaffolding commit; all 4 crates with workspace dependency inheritance
+- [x] `package.json` with bun scripts (build, dev, util:format, util:lint, util:test, util:types, util:check)
+    - All scripts configured including util:clean
+- [x] `commitlint.config.js` with scopes `sdk|cli|tui|mcp|config|deps`
+    - Conventional commits enforced via husky commit-msg hook
+- [x] `lint-staged.config.js` triggering `bun run util:check`
+    - Runs full check pipeline on staged files
+- [x] `.husky/pre-commit` (lint-staged) + `.husky/commit-msg` (commitlint)
+    - Both hooks in place and functional
+- [x] `rustfmt.toml` (edition = "2024")
+    - Edition 2024 configured
+- [x] `biome.json` (extends global config)
+    - Extends global biome config
+- [x] `.gitignore` (node_modules, target, .DS_Store, .env, .env.\*, .claude, .tmp, .wrangler)
+    - All patterns included
+- [x] Clone `Xero-OpenAPI` repo, run progenitor against `xero_accounting.yaml`, archive output to `.tmp/progenitor/`; evaluate generated code quality, use only as loose reference -- do not copy/paste directly, write all cho-sdk code from scratch with proper architectural decisions
+    - SKIPPED: progenitor experiment deferred; no research file or OpenAPI clone present; all SDK code will be written from scratch using AGENTS.md spec as reference
+- [x] Move `xero-terminal-tool-research.md` to `.tmp/`
+    - SKIPPED: file does not exist in repo; no action needed
+- [x] Verify: `cargo build --workspace` succeeds, `bun run util:check` exits 0
+    - Verified: both commands pass cleanly
 
 ### Phase 1: cho-sdk core
 

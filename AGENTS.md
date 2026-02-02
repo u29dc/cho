@@ -566,54 +566,23 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
 - [x] Verify: all new models deserialize, write operations work against mock server
     - 166 tests passing (134 SDK + 5 CLI unit + 25 CLI integration + 2 doctests); zero clippy warnings; release build succeeds; all quality gates green
 
-### Phase 3.1: Contract verification + fixes
+#### Phase 3.1: Contract verification + fixes
 
-Findings from a read-only review comparing the codebase against Xero developer docs, the Xero OpenAPI spec (`github.com/XeroAPI/Xero-OpenAPI`, `xero_accounting.yaml`), and the CLAUDE.md spec. Each item includes the problem, evidence, assumptions, and required fix.
-
-- [x] **CRITICAL: Pagination struct uses wrong casing** — `Pagination` struct in `models/common.rs:14` uses `#[serde(rename_all = "PascalCase")]`, expecting keys like `Page`, `PageSize`, `PageCount`, `ItemCount`. However, the Xero API returns pagination with **camelCase** keys: `page`, `pageSize`, `pageCount`, `itemCount` (verified in OpenAPI spec `xero_accounting.yaml` lines 1270-1273, multiple endpoint examples). This means all pagination fields silently deserialize as `None`, causing `has_more_pages()` in `http/pagination.rs:75` to always return `false`. **Every paginated endpoint only fetches page 1.** The test fixture at `models/invoice.rs:324` uses PascalCase pagination keys, masking the bug.
-    - Changed `Pagination` to `#[serde(rename_all = "camelCase")]`. Updated all 9 test fixtures across invoice, contact, payment, bank_transaction, quote, credit_note, manual_journal, purchase_order, and common models to use camelCase pagination keys.
-
-- [x] **HIGH: Missing PKCE `state` parameter (OAuth CSRF)** — The PKCE flow in `auth/pkce.rs:107-113` constructs the authorization URL without a `state` parameter and does not verify `state` in the callback at `auth/pkce.rs:182-202`. The OAuth 2.0 spec (RFC 6749 §10.12) and Xero docs recommend `state` to prevent CSRF attacks where an attacker could inject their own authorization code into the callback. Assumption: since the callback server only runs on localhost and accepts a single connection, the attack surface is reduced but not eliminated (e.g., open browser tab on shared machine).
-    - Added `generate_state()` function producing 32-char random string, included `&state={state}` in auth URL, verify state in callback via renamed `parse_code_and_state_from_request()`, return error page and `AuthRequired` error on mismatch. Added 4 tests.
-
-- [x] **HIGH: Write retries without idempotency guard** — `request_with_body()` in `client.rs:367-475` retries write requests (PUT create, POST update) on transient network errors and 429 rate limits up to `max_retries` times, regardless of whether an `Idempotency-Key` is provided. If a PUT create succeeds on the server but the response fails to arrive (network timeout), the retry will create a duplicate resource. The `Idempotency-Key` header at `client.rs:374-378` is optional. Assumption: Xero honors `Idempotency-Key` and deduplicates, but only when the header is actually present.
-    - Network error retries in `request_with_body()` now require `idempotency_key.is_some()`. Rate-limit (429) retries remain unconditional as the request was rejected, not processed.
-
-- [x] **HIGH: Write safety gate is CLI-only, not SDK-level** — The CLAUDE.md spec (Section 13, Phase 3) requires: "SDK: add `allow_writes: bool` field to `SdkConfig` (default `false`); every SDK write method checks this field and returns `ChoSdkError::WriteNotAllowed`". Currently, the write gate exists only in the CLI layer at `context.rs:84-139` via `check_writes_allowed()`. The SDK error enum in `error.rs` has no `WriteNotAllowed` variant. Any direct SDK consumer (cho-tui, cho-mcp, or third-party code) can perform writes without any safety check.
-    - Added `allow_writes: bool` to `SdkConfig` (default `false`), `WriteNotAllowed` variant to `ChoSdkError`, `check_writes_allowed()` method called at start of `put()` and `post()`, `with_allow_writes()` builder method, `WRITE_NOT_ALLOWED` CLI error code, and 2 unit tests.
-
-- [x] **MEDIUM: `If-Modified-Since` header defined but never sent** — `ListParams` in `http/request.rs:25` has an `if_modified_since: Option<String>` field, but it is never included in `to_query_pairs()` (it's a header, not a query param) and never injected into request headers in `build_headers()` at `http/request.rs:110` or `request_with_retry()` at `client.rs:253`. The Xero API supports this header on ~20 endpoints for incremental fetching. Assumption: the field was added with the intent to implement later but was never wired up.
-    - Added optional `if_modified_since` param to `build_headers()`, new `get_with_modified_since()` client method, wired through from `get_all_pages()` using `base_params.if_modified_since`. Added test.
-
-- [x] **MEDIUM: PKCE scopes too narrow** — `auth/pkce.rs:21` defines `DEFAULT_SCOPES` as `"openid offline_access accounting.transactions.read accounting.contacts.read accounting.settings.read accounting.reports.read accounting.journals.read"`. The spec in CLAUDE.md Section 5 lists additional required scopes: `files.read`, `assets.read`, `projects.read`, `payroll.employees`, `payroll.timesheets`, `payroll.settings`. Users who attempt to use deferred APIs (Files, Assets, Projects, Payroll) will receive 403 errors with no indication the scope is the issue. The `client_credentials` scopes at `auth/credentials.rs:25` have the same gap.
-    - Added `files.read assets.read projects.read payroll.employees payroll.timesheets payroll.settings` to both PKCE and client_credentials `DEFAULT_SCOPES`.
-
-- [x] **MEDIUM: `--raw` flag is dead code** — The `--raw` global flag is parsed at `main.rs:38` and stored in `JsonOptions.raw` at `output/json.rs:17` (with `#[allow(dead_code)]`), but it is never checked during output formatting. The SDK always deserializes `/Date(epoch)/` into typed `MsDate`/`MsDateTime` structs, losing the original wire format. Raw preservation would require a fundamentally different approach (deserialize to `serde_json::Value` instead of typed structs, or capture raw response body). Assumption: implementing this properly is Phase 4+ scope.
-    - Implemented `--raw` to skip `pascal_to_snake_keys` transformation, preserving Xero-native PascalCase keys. Removed `#[allow(dead_code)]`. Full raw MS date (`/Date(epoch)/`) preservation documented as a known limitation requiring SDK-level changes.
-
-- [x] **MEDIUM: Token file fallback stores plaintext secrets** — `auth/storage.rs:190-210` writes tokens as plaintext JSON to `~/.config/cho/tokens.json` with 0600 permissions. The CLAUDE.md spec (Section 8) calls for "encrypted file fallback at `~/.config/cho/tokens.enc`". While 0600 prevents other-user access, any process running as the same user can read the tokens. Assumption: the encrypted approach was deferred for simplicity; keyring is the primary backend and the file is a fallback.
-    - Added module-level security documentation explaining the plaintext fallback risk, the deviation from the spec, and recommendation to use OS keychain. Added `tracing::warn!` when file fallback is used for storage.
-
-- [x] **LOW: No `Accept: application/json` header** — `build_headers()` in `http/request.rs:110-127` sets `Authorization`, `xero-tenant-id`, and `Content-Type: application/json`, but does not set `Accept: application/json`. Most Xero endpoints default to JSON, but some may return XML without an explicit Accept header. Assumption: reqwest may add a default Accept header, but explicit is safer for API contract compliance.
-    - Added `Accept: application/json` header to `build_headers()`.
-
-- [x] **LOW: `truncate()` can split multi-byte UTF-8** — `truncate()` at `client.rs:609-615` slices at byte position `max_len` with `&s[..max_len]`. If `max_len` falls in the middle of a multi-byte UTF-8 character (e.g., in error messages containing non-ASCII text), this will panic at runtime. Assumption: most Xero API error messages are ASCII, but this is not guaranteed for localised org names.
-    - Replaced `&s[..max_len]` with `char_indices().take_while()` to find a safe UTF-8 boundary. Added test with multi-byte "café!" string.
-
-- [x] **LOW: `InvoiceNumber` where filter vulnerable to OData injection** — `get_by_number()` at `api/invoices.rs:136` builds a where clause: `InvoiceNumber==\"{number}\"`. If `number` contains a double-quote character, the OData filter expression breaks and could produce unexpected query behavior. Assumption: invoice numbers are typically alphanumeric, but user input should be sanitized.
-    - Added input validation that rejects invoice numbers containing `"` or `\` characters with a clear `Parse` error.
-
-- [x] **LOW: Validation errors not parsed from Xero 400 responses** — When Xero returns a 400 response with validation errors, the response body contains structured JSON with a `ValidationErrors` array. `request_with_retry()` at `client.rs:328-335` and `request_with_body()` at `client.rs:451-458` capture the body as a raw string in `ApiError.message` but leave `validation_errors: Vec<String>` empty. The CLI error code mapping at `error.rs:61-63` checks `!validation_errors.is_empty()` to distinguish `VALIDATION_ERROR` from `API_ERROR`, so validation errors are never surfaced with the correct error code.
-    - Added `extract_validation_errors()` helper that parses response JSON for `ValidationErrors[].Message` fields. Both error paths now populate `validation_errors` in `ApiError`. Added 2 tests.
-
-- [x] **LOW: No Idempotency-Key length validation** — Xero specifies a maximum of 128 characters for the `Idempotency-Key` header (confirmed in OpenAPI spec `xero_accounting.yaml` idempotencyKey parameter description: "128 character max"). The SDK at `client.rs:374-378` passes the key through without length validation. Assumption: Xero likely rejects keys > 128 chars, but the error message would be opaque.
-    - Added pre-flight validation at the start of `request_with_body()` that returns `Config` error if key exceeds 128 chars.
-
-- [x] **INFO: No mock HTTP tests for write operations** — Write methods (create, update, delete) in `api/invoices.rs`, `api/contacts.rs`, `api/payments.rs`, `api/bank_transactions.rs` have no test coverage against mock HTTP servers. All existing SDK tests (99 functions) are unit-level serde deserialization tests. The `crates/cho-sdk/tests/` directory does not exist. Assumption: write operations were added late in Phase 3 and tests were deferred.
-    - Added unit tests for write safety gate (block/allow), validation error extraction, and UTF-8 truncate. Full httpmock/wiremock integration tests deferred to Phase 4 (requires adding dev-dependency).
-
-- [x] **INFO: 401 refresh during pagination loses partial results** — During `get_all_pages()` at `client.rs:478-517`, if a 401 occurs on page N (N > 1), the refresh+retry logic in `request_with_retry()` at `client.rs:303-318` may succeed, but if it fails, all items from pages 1 to N-1 are discarded (the function returns `Err`). Assumption: this is an edge case that only occurs when tokens expire mid-pagination (within 5 minutes of the refresh margin), but it should be documented.
-    - Added module-level documentation to `http/pagination.rs` explaining the limitation and recommending callers ensure sufficient token lifetime or handle `TokenExpired` to resume from the last page.
+- [x] Fix Pagination struct casing from PascalCase to camelCase (matching Xero API wire format); update all 9 test fixtures
+- [x] Add PKCE `state` parameter for OAuth CSRF protection with generation, URL inclusion, and callback verification
+- [x] Guard write retries behind idempotency key presence to prevent duplicate resource creation on network errors
+- [x] Move write safety gate from CLI-only to SDK-level (`allow_writes` on `SdkConfig`, `WriteNotAllowed` error variant)
+- [x] Wire `If-Modified-Since` header through `build_headers()` and `get_all_pages()` for incremental fetching
+- [x] Expand PKCE and client_credentials scopes to include `files.read`, `assets.read`, `projects.read`, payroll scopes
+- [x] Implement `--raw` flag to skip `pascal_to_snake_keys` transformation, preserving Xero-native PascalCase keys
+- [x] Add security documentation and `tracing::warn!` for plaintext token file fallback
+- [x] Add `Accept: application/json` header to all API requests
+- [x] Fix UTF-8 safe truncation in error message helper using `char_indices()` boundary detection
+- [x] Add input validation for `InvoiceNumber` where filter to prevent OData injection via quote characters
+- [x] Parse `ValidationErrors[].Message` from Xero 400 responses into `ApiError.validation_errors`
+- [x] Add Idempotency-Key length validation (128 char max per Xero spec)
+- [x] Add unit tests for write safety gate, validation error extraction, and UTF-8 truncate
+- [x] Document 401 refresh during pagination partial result loss as known limitation in `http/pagination.rs`
 
 ### Phase 4: cho-tui
 

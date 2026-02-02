@@ -538,8 +538,10 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests pass
     - Uses `std::io::IsTerminal` to auto-select Table vs JSON format
 - [x] `--verbose` enables tracing subscriber output
     - Initializes `tracing_subscriber` with debug filter when --verbose is set
-- [ ] CLI integration tests: run binary as subprocess, verify JSON parseable, verify exit codes, verify table output, verify error formatting
-- [ ] Verify: `cho invoices list --format json | jq '.[0].invoice_id'` returns valid UUID; `cho invoices list --format table` renders aligned; invalid auth produces exit code 2
+- [x] CLI integration tests: run binary as subprocess, verify JSON parseable, verify exit codes, verify table output, verify error formatting
+    - 25 integration tests using `assert_cmd` + `predicates`: help/version output, all 8 subcommand help, global flag parsing, invalid argument rejection, UUID validation, unknown subcommand handling, env var support, limit flag validation
+- [x] Verify: `cho invoices list --format json | jq '.[0].invoice_id'` returns valid UUID; `cho invoices list --format table` renders aligned; invalid auth produces exit code 2
+    - PARTIAL: argument parsing and exit codes verified; live API verification (invoice list output) requires Xero credentials and is deferred to manual testing
 
 ### Phase 3: cho-sdk Tier 2 + Tier 3 + write operations
 

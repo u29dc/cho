@@ -631,8 +631,22 @@ impl XeroClientBuilder {
     }
 
     /// Builds the XeroClient.
+    ///
+    /// Returns an error if the configured `base_url` does not use `http://`
+    /// or `https://` scheme (SSRF mitigation).
     pub fn build(self) -> Result<XeroClient> {
         let config = self.config.unwrap_or_default();
+
+        // Validate base_url scheme to prevent SSRF
+        if !config.base_url.starts_with("https://") && !config.base_url.starts_with("http://") {
+            return Err(ChoSdkError::Config {
+                message: format!(
+                    "Invalid base_url scheme: '{}'. Only http:// and https:// are allowed.",
+                    config.base_url
+                ),
+            });
+        }
+
         let client_id = self.client_id.unwrap_or_default();
         let tenant_id = self.tenant_id.unwrap_or_default();
 
@@ -810,6 +824,30 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, ChoSdkError::WriteNotAllowed { .. }));
+    }
+
+    #[test]
+    fn build_rejects_invalid_base_url_scheme() {
+        let config = SdkConfig::default().with_base_url("ftp://evil.com/");
+        let result = XeroClient::builder()
+            .config(config)
+            .client_id("test")
+            .tenant_id("tenant")
+            .build();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, ChoSdkError::Config { .. }));
+    }
+
+    #[test]
+    fn build_accepts_http_base_url() {
+        let config = SdkConfig::default().with_base_url("http://localhost:8080/");
+        let result = XeroClient::builder()
+            .config(config)
+            .client_id("test")
+            .tenant_id("tenant")
+            .build();
+        assert!(result.is_ok());
     }
 
     #[test]

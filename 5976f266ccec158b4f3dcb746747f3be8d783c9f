@@ -1,0 +1,27 @@
+crates/cho-sdk/src/lib.rs
+  63ea92db6886569c 2-8
+crates/cho-sdk/src/models/mod.rs
+  63ea92db6886569c 1-9
+crates/cho-sdk/src/models/dates.rs
+  63ea92db6886569c 1-12,14-399
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.42",
+  "base_commit_sha": "5976f266ccec158b4f3dcb746747f3be8d783c9f",
+  "prompts": {
+    "63ea92db6886569c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4a614242-e1d0-4eb8-9b76-9d7e78a54c76",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 415,
+      "total_deletions": 3,
+      "accepted_lines": 414,
+      "overriden_lines": 1
+    }
+  }
+}

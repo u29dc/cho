@@ -1,22 +1,22 @@
 ## 1. Overview
 
-> **Proposed development plan** -- may deviate during development; note down any deviations and correct this spec as you implement.
+> **Development plan** -- note deviations and correct this spec as you implement.
 
-cho is a Rust workspace shipping four crates (cho-sdk, cho-cli, cho-tui, cho-mcp) that expose the Xero accounting REST API as a local terminal tool; primary consumers are AI agents (~65 %) invoking `cho` via shell exec with JSON stdout, and human operators (~35 %) using the CLI interactively or through a ratatui TUI; the tool connects to a single Xero organisation via OAuth 2.0 PKCE (browser-based, multi-org capable) with Custom Connections (headless, client_credentials grant) added later; read-only MVP expanding to writes in a later phase; no production-quality open-source Xero CLI/TUI exists -- this is entirely greenfield.
+cho is a Rust workspace (cho-sdk, cho-cli, cho-tui, cho-mcp) exposing the Xero accounting REST API as a local terminal tool. Consumers: AI agents (~65%, shell exec + JSON stdout) and humans (~35%, CLI/TUI). Auth via OAuth 2.0 PKCE (browser, multi-org) with Custom Connections (headless, client_credentials) added later. Read-only MVP expanding to writes. Entirely greenfield — no production Xero CLI/TUI exists.
 
-| Resource              | URL                                                                      |
-| --------------------- | ------------------------------------------------------------------------ |
-| Xero Developer Portal | https://developer.xero.com                                               |
-| Xero OAuth 2.0 PKCE   | https://developer.xero.com/documentation/guides/oauth2/pkce-flow         |
-| Xero Rate Limits      | https://developer.xero.com/documentation/guides/oauth2/limits            |
-| Xero OpenAPI Specs    | https://github.com/XeroAPI/Xero-OpenAPI (MIT, v10.1.0, ~57 k lines YAML) |
-| Xero Changelog        | https://developer.xero.com/changelog                                     |
-| reqwest               | https://docs.rs/reqwest                                                  |
-| serde                 | https://serde.rs                                                         |
-| clap                  | https://docs.rs/clap                                                     |
-| ratatui               | https://docs.rs/ratatui                                                  |
-| tokio                 | https://tokio.rs                                                         |
-| rust_decimal          | https://docs.rs/rust_decimal                                             |
+| Resource | URL |
+|---|---|
+| Xero Developer Portal | https://developer.xero.com |
+| Xero OAuth 2.0 PKCE | https://developer.xero.com/documentation/guides/oauth2/pkce-flow |
+| Xero Rate Limits | https://developer.xero.com/documentation/guides/oauth2/limits |
+| Xero OpenAPI Specs | https://github.com/XeroAPI/Xero-OpenAPI (MIT, v10.1.0, ~57k lines YAML) |
+| Xero Changelog | https://developer.xero.com/changelog |
+| reqwest | https://docs.rs/reqwest |
+| serde | https://serde.rs |
+| clap | https://docs.rs/clap |
+| ratatui | https://docs.rs/ratatui |
+| tokio | https://tokio.rs |
+| rust_decimal | https://docs.rs/rust_decimal |
 
 ## 2. Repository Structure
 
@@ -130,150 +130,115 @@ cho is a Rust workspace shipping four crates (cho-sdk, cho-cli, cho-tui, cho-mcp
 
 ## 3. Stack
 
-| Layer         | Choice                                         | Notes                                                         |
-| ------------- | ---------------------------------------------- | ------------------------------------------------------------- |
-| Language      | Rust 2024 edition                              | rust-version = "1.93.0", latest stable                        |
-| Async runtime | tokio 1.x                                      | multi-threaded, SDK-internal; sync wrapper via block_on       |
-| HTTP client   | reqwest 0.13+                                  | rustls TLS, async, connection pooling                         |
-| Serialization | serde 1.x + serde_json 1.x                     | PascalCase wire format, snake_case CLI output                 |
-| CLI framework | clap 4.x (derive)                              | nested subcommands, env var fallbacks                         |
-| TUI framework | ratatui 0.30+                                  | crossterm 0.29+ backend, cho-tui crate                        |
-| Money         | rust_decimal 1.x                               | serde feature enabled, replaces all f64 money fields          |
-| Dates         | chrono 0.4.x                                   | MsDate/MsDateTime newtypes wrapping NaiveDate/DateTime\<Utc\> |
-| UUIDs         | uuid 1.x                                       | all Xero resource IDs, serde feature                          |
-| Errors        | thiserror 2.x                                  | per-crate error enums                                         |
-| Token storage | keyring 3.x                                    | OS keychain; encrypted file fallback with secrecy 0.10+       |
-| Config        | toml 0.8.x                                     | ~/.config/cho/config.toml, XDG-compliant                      |
-| Table output  | comfy-table 7.x                                | --format table rendering                                      |
-| Logging       | tracing 0.1 + tracing-subscriber 0.3           | --verbose flag, RUST_LOG support                              |
-| Quality gates | bun + biome + commitlint + husky + lint-staged | JS tooling for git hooks                                      |
-| MCP           | rmcp or mcp-server (TBD)                       | cho-mcp crate, Phase 5                                        |
-| HTTP mocking  | httpmock or wiremock                           | test-only dependency                                          |
+| Layer | Choice | Notes |
+|---|---|---|
+| Language | Rust 2024 edition | rust-version = "1.93.0" |
+| Async | tokio 1.x | multi-threaded; sync wrapper via block_on |
+| HTTP | reqwest 0.13+ | rustls TLS, async, connection pooling |
+| Serde | serde 1.x + serde_json 1.x | PascalCase wire, snake_case CLI output |
+| CLI | clap 4.x (derive) | nested subcommands, env var fallbacks |
+| TUI | ratatui 0.30+ / crossterm 0.29+ | cho-tui crate |
+| Money | rust_decimal 1.x | serde feature, replaces all f64 money fields |
+| Dates | chrono 0.4.x | MsDate/MsDateTime newtypes (NaiveDate/DateTime\<Utc\>) |
+| UUIDs | uuid 1.x | all Xero resource IDs, serde feature |
+| Errors | thiserror 2.x | per-crate error enums |
+| Tokens | keyring 3.x + secrecy 0.10+ | OS keychain primary, file fallback |
+| Config | toml 0.8.x | ~/.config/cho/config.toml, XDG-compliant |
+| Tables | comfy-table 7.x | --format table rendering |
+| Logging | tracing 0.1 + tracing-subscriber 0.3 | --verbose, RUST_LOG |
+| Quality | bun + biome + commitlint + husky + lint-staged | JS tooling for git hooks |
+| MCP | rmcp or mcp-server (TBD) | Phase 5 |
+| Mocking | wiremock 0.6.x | test-only dev-dependency |
 
 ## 4. Architecture
 
-cho-sdk is a pure API client crate with zero CLI/TUI/MCP dependencies, publishable to crates.io as a standalone Xero Rust SDK; cho-cli, cho-tui, and cho-mcp are thin consumer crates that depend on cho-sdk and add their respective interface layers; this separation means the SDK can be versioned and distributed independently.
+cho-sdk is a pure API client (zero CLI/TUI/MCP deps, publishable to crates.io); cho-cli, cho-tui, cho-mcp are thin consumers adding their interface layers.
 
 ```
-Agent / Human
-  |
-  v
-cho-cli (clap parse, validate flags, dispatch)
-  |                                    cho-tui (ratatui render, keyboard nav)
-  |                                    cho-mcp (MCP tool dispatch)
-  |                                      |
-  +--------------------------------------+
-  |
-  v
-cho-sdk XeroClient
-  |- auth (PKCE / client_credentials, auto-refresh)
-  |- rate_limit (token bucket, header tracking, 429 backoff)
-  |- pagination (async Stream, auto-fetch pages)
-  |
-  v
-reqwest -> Xero REST API (api.xero.com)
-  |
-  v
-JSON response (PascalCase keys, MS dates, envelope wrapper)
-  |
-  v
-SDK models (typed Rust structs, Option<T>, Decimal, MsDate)
-  |
-  v
-cho-cli output layer (re-serialize to snake_case JSON / table / CSV)
-  |
-  v
-stdout (bare JSON array default) + stderr (errors)
+Agent/Human → cho-cli (clap) / cho-tui (ratatui) / cho-mcp (MCP tools)
+  → cho-sdk XeroClient [auth, rate_limit, pagination]
+    → reqwest → Xero REST API (api.xero.com)
+      → JSON (PascalCase, MS dates, envelope) → SDK models (Option<T>, Decimal, MsDate)
+        → cho-cli output (snake_case JSON / table / CSV) → stdout + stderr
 ```
 
-**Namespaced API surface**: `client.invoices().list(params)` and `client.contacts().get(id)` -- each resource method returns a resource-specific API handle; params use typed builder structs.
+**Namespaced API**: `client.invoices().list(params)`, `client.contacts().get(id)` — resource-specific handles with typed builder params.
 
-**Auto-pagination**: `list()` returns `impl Stream<Item = Result<T>>` that transparently fetches pages; `limit` param caps total items (default 100); page size fixed at 100 (Xero default max).
+**Auto-pagination**: `list()` transparently fetches pages; `limit` caps total items (default 100); page size 100.
 
-**Rate limiting**: SDK-internal token bucket (5 concurrent, 60/min) tracking `X-MinLimit-Remaining` and `X-DayLimit-Remaining` response headers; exponential backoff on HTTP 429 respecting `Retry-After`; configurable (disable for tests, custom limits).
+**Rate limiting**: SDK-internal token bucket (5 concurrent, 60/min) tracking `X-MinLimit-Remaining`/`X-DayLimit-Remaining`; exponential backoff on 429 respecting `Retry-After`; configurable/disableable.
 
-**Transparent auth**: every SDK request checks token expiry, refreshes if needed; caller never manages tokens manually; `secrecy::SecretString` wraps tokens in memory.
+**Transparent auth**: every request checks token expiry, auto-refreshes; `secrecy::SecretString` wraps tokens in memory.
 
-**Output separation**: SDK structs use `#[serde(rename_all = "PascalCase")]` for wire compat with Xero API; CLI output layer re-serializes to snake_case via `serde_json::Value` key transform; `--raw` skips date normalization (preserves `/Date(epoch)/`); `--precise` serializes money as strings instead of numbers.
+**Output separation**: SDK structs `#[serde(rename_all = "PascalCase")]` for wire compat; CLI re-serializes to snake_case; `--raw` preserves native dates; `--precise` emits money as strings.
 
-**Sync wrapper**: SDK exposes `_blocking()` method variants using `tokio::runtime::Runtime::block_on` for synchronous callers; async is primary API.
+**Sync wrapper**: `_blocking()` variants via `tokio::runtime::Runtime::block_on`; async is primary API.
 
 ## 5. Xero API Reference
 
-**Base URLs**: Accounting/most APIs at `https://api.xero.com/api.xro/2.0/`, Identity at `https://api.xero.com/connections`, authorization at `https://login.xero.com/identity/connect/authorize`, token exchange at `https://identity.xero.com/connect/token`.
+**Base URLs**: Accounting `https://api.xero.com/api.xro/2.0/`, Identity `https://api.xero.com/connections`, authorize `https://login.xero.com/identity/connect/authorize`, token `https://identity.xero.com/connect/token`.
 
-**OAuth 2.0 PKCE flow** (cho Phase 1 auth): generate `code_verifier` (43-128 chars, URL-safe random), compute `code_challenge = base64url(sha256(code_verifier))`, redirect user to authorize endpoint with `code_challenge` + `code_challenge_method=S256` + scopes + `redirect_uri=http://localhost:PORT/callback`, start localhost HTTP server to receive callback, exchange authorization code + `code_verifier` at token endpoint; no device flow exists -- browser redirect is mandatory even for CLI; scopes needed: `openid offline_access accounting.transactions.read accounting.contacts.read accounting.settings.read accounting.reports.read accounting.journals.read files.read assets.read projects.read payroll.employees payroll.timesheets payroll.settings`.
+**PKCE flow**: generate `code_verifier` (43-128 chars, URL-safe), `code_challenge = base64url(sha256(verifier))`, redirect to authorize with challenge + `S256` + scopes + `redirect_uri=http://localhost:PORT/callback`, localhost server receives callback, exchange code + verifier at token endpoint. No device flow — browser mandatory. Scopes: `openid offline_access accounting.transactions.read accounting.contacts.read accounting.settings.read accounting.reports.read accounting.journals.read files.read assets.read projects.read payroll.employees payroll.timesheets payroll.settings`.
 
-**Token lifecycle**: access tokens expire after 30 minutes, refresh tokens expire after 60 days of non-use, refresh tokens are single-use (each refresh returns a new access_token + refresh_token pair), `offline_access` scope is required to receive refresh tokens.
+**Token lifecycle**: access 30min, refresh 60 days (non-use), refresh single-use (each returns new pair), `offline_access` required for refresh tokens.
 
-**Custom Connections** (cho Phase 3+): `client_credentials` grant using `client_id` + `client_secret`, single org only, paid Xero feature, no refresh token needed (request new access token each time, 30 min TTL).
+**Custom Connections** (Phase 3+): `client_credentials` grant, `client_id`+`client_secret`, single org, paid feature, no refresh (new token each time, 30min TTL).
 
-**Required headers**: `xero-tenant-id` on every API request (obtained from `GET /connections` after auth), `Authorization: Bearer <token>`, `Content-Type: application/json`.
+**Required headers**: `xero-tenant-id` (from `GET /connections`), `Authorization: Bearer <token>`, `Content-Type: application/json`.
 
-**Rate limits**:
+**Rate limits**: Concurrent 5 in-flight, 60/min, 5000/day (per app+org); 10000/min app-wide. Headers: `X-DayLimit-Remaining`, `X-MinLimit-Remaining`, `X-AppMinLimit-Remaining`; 429 with `Retry-After` (seconds).
 
-| Limit           | Value        | Scope                    |
-| --------------- | ------------ | ------------------------ |
-| Concurrent      | 5 in-flight  | per app + org connection |
-| Per minute      | 60 calls     | per app + org connection |
-| Daily           | 5,000 calls  | per app + org connection |
-| App-wide minute | 10,000 calls | across all tenancies     |
+**Response envelope**: `{ "ResourceName": [...], "pagination": {...}, "Warnings": [...] }` — PascalCase plural key; single GETs same wrapper with 1-element array; mutating adds `Id`, `Status`, `ProviderName`, `DateTimeUTC`.
 
-Response headers: `X-DayLimit-Remaining`, `X-MinLimit-Remaining`, `X-AppMinLimit-Remaining`; HTTP 429 with `Retry-After` (seconds) on exceeded.
+**Pagination**: page-based (`page=1`, `pageSize=100`) for 12 endpoints (BankTransactions, Contacts, CreditNotes, Invoices, Payments, Prepayments, Overpayments, PurchaseOrders, Quotes, ManualJournals, LinkedTransactions, RepeatingInvoices); response: `pagination: {page, pageSize, pageCount, itemCount}`; offset-based for Journals only; non-paginated: Accounts, Currencies, TaxRates, Items.
 
-**Response envelope**: all collection endpoints return `{ "ResourceName": [...], "pagination": {...}, "Warnings": [...] }` where the resource key is PascalCase plural (e.g., `"Invoices"`, `"Contacts"`); single-resource GETs return the same wrapper with a 1-element array; mutating responses add `Id` (UUID, not resource ID), `Status` ("OK"), `ProviderName`, `DateTimeUTC` (MS date).
+**Date formats** — three wire formats:
 
-**Pagination**: page-based for 12 endpoints (BankTransactions, Contacts, CreditNotes, Invoices, Payments, Prepayments, Overpayments, PurchaseOrders, Quotes, ManualJournals, LinkedTransactions, RepeatingInvoices) using `page=1` (1-indexed) and `pageSize=100`; response includes `pagination: {page, pageSize, pageCount, itemCount}`; offset-based for Journals only (`offset=N`); non-paginated reference endpoints (Accounts, Currencies, TaxRates, Items) return full list.
+| Spec marker | Wire (response) | Request | Example | Fields |
+|---|---|---|---|---|
+| `x-is-msdate: true` | `/Date(epoch_ms+offset)/` | `YYYY-MM-DD` | `/Date(1539993600000+0000)/` | 31 |
+| `x-is-msdate-time: true` | `/Date(epoch_ms)/` | not writable | `/Date(1573755038314)/` | 26 |
+| `format: date` | ISO `YYYY-MM-DD` | ISO `YYYY-MM-DD` | `"2019-10-31"` | 16 |
 
-**Date formats** -- three distinct wire formats requiring different deserialization:
+MS Date regex: `/\/Date\((-?\d+)(\+\d{4})?\)\//`; epoch ms since Unix epoch; offset `+HHMM`.
 
-| Spec marker              | Wire format (response)    | Request format   | Example                      | Fields |
-| ------------------------ | ------------------------- | ---------------- | ---------------------------- | ------ |
-| `x-is-msdate: true`      | `/Date(epoch_ms+offset)/` | `YYYY-MM-DD`     | `/Date(1539993600000+0000)/` | 31     |
-| `x-is-msdate-time: true` | `/Date(epoch_ms)/`        | not writable     | `/Date(1573755038314)/`      | 26     |
-| `format: date`           | ISO `YYYY-MM-DD`          | ISO `YYYY-MM-DD` | `"2019-10-31"`               | 16     |
+**Where filter**: OData-like on ~21 endpoints (`Status=="ACTIVE" AND Type=="BANK"`); cho exposes as raw `--where` pass-through.
 
-MS Date regex pattern: `/\/Date\((-?\d+)(\+\d{4})?\)\//`; epoch is milliseconds since Unix epoch; offset is timezone in `+HHMM` format.
+**Query params**: `where` (~21), `order` (~23), `page` (~12), `pageSize`, `If-Modified-Since` (header, ~20), `unitdp`, `summaryOnly` (Contacts/Invoices), `searchTerm`, `Idempotency-Key` (writes), `xero-tenant-id` (all).
 
-**Where filter**: OData-like expression syntax on ~21 endpoints (`Status=="ACTIVE" AND Type=="BANK"`, `AmountDue > 1000.0`); cho exposes as raw `--where` string pass-through.
-
-**Common query parameters**: `where` (string, ~21 endpoints), `order` (string, ~23 endpoints), `page` (int, ~12 endpoints), `pageSize` (int), `If-Modified-Since` (header, ~20 endpoints), `unitdp` (int, decimal places), `summaryOnly` (bool, Contacts/Invoices), `searchTerm` (string), `Idempotency-Key` (header, writes), `xero-tenant-id` (header, all requests).
-
-**API stability**: version 2.0, no v3 announced, 6-month deprecation policy, breaking change detection via `oasdiff` in CI.
-
-**AI/ML prohibition**: Xero prohibits using API data to train AI/ML models; querying and displaying data for agent responses is compliant; no training pipelines.
+**API stability**: v2.0, no v3, 6-month deprecation policy. **AI/ML**: Xero prohibits training on API data; querying/displaying for agents is compliant.
 
 ## 6. SDK Models
 
-**Organization**: one file per resource in `crates/cho-sdk/src/models/`, shared types in `common.rs`, large enums in `enums.rs`, date newtypes in `dates.rs`; every resource has an entity struct (`Invoice`) and a collection wrapper struct (`Invoices`) containing `Option<Vec<Invoice>>` + `Option<Pagination>` + `Option<Vec<ValidationError>>`.
+**Organization**: one file per resource in `models/`, shared types in `common.rs`, enums in `enums.rs`, date newtypes in `dates.rs`. Each resource has entity struct (`Invoice`) + collection wrapper (`Invoices`) containing `Option<Vec<Invoice>>` + `Option<Pagination>` + `Option<Vec<ValidationError>>`.
 
-**Serde strategy**: all structs annotated `#[serde(rename_all = "PascalCase")]` for Xero wire compat; all fields `Option<T>` with `#[serde(skip_serializing_if = "Option::is_none")]` except BankTransaction which has `required: [Type, LineItems, BankAccount]`; money fields use `rust_decimal::Decimal` (never f64); UUIDs use `uuid::Uuid`; dates use `MsDate`/`MsDateTime`/`chrono::NaiveDate` based on spec marker.
+**Serde**: `#[serde(rename_all = "PascalCase")]` for wire compat; all fields `Option<T>` with `skip_serializing_if = "Option::is_none"` (except BankTransaction: required Type/LineItems/BankAccount); money `Decimal` (never f64); IDs `Uuid`; dates `MsDate`/`MsDateTime`/`NaiveDate` per spec marker.
 
-**Modeling challenges** (implementer reference):
+**Modeling challenges**:
 
-| Challenge                                      | Solution                                                                    |
-| ---------------------------------------------- | --------------------------------------------------------------------------- |
-| Circular refs (Payment <-> Invoice)            | `Box<T>` or flatten to ID-only in nested position (API returns subset)      |
-| Hyphenated enum values (RECEIVE-OVERPAYMENT)   | `#[serde(rename = "RECEIVE-OVERPAYMENT")]` per variant                      |
-| Mixed-case enums (LineAmountTypes: PascalCase) | Per-enum `#[serde(rename_all)]` config; most are SCREAMING_SNAKE            |
-| Unknown enum variants                          | `#[serde(other)]` catch-all variant on every enum                           |
-| Polymorphic Payment target                     | 4 optional fields (Invoice, CreditNote, Prepayment, Overpayment), not union |
-| Inline validation errors                       | `ValidationErrors` + `HasErrors` fields on entity structs                   |
-| Nearly-all-optional fields                     | Accept the `Option<T>` reality; builder pattern for construction            |
+| Challenge | Solution |
+|---|---|
+| Circular refs (Payment↔Invoice) | `Box<T>` or ID-only in nested position |
+| Hyphenated enums (RECEIVE-OVERPAYMENT) | `#[serde(rename = "RECEIVE-OVERPAYMENT")]` per variant |
+| Mixed-case enums (LineAmountTypes) | Per-enum `#[serde(rename_all)]`; most SCREAMING_SNAKE |
+| Unknown enum variants | `#[serde(other)]` catch-all on every enum |
+| Polymorphic Payment target | 4 optional fields, not union |
+| Inline validation errors | `ValidationErrors` + `HasErrors` fields on entities |
+| Nearly-all-optional fields | Accept `Option<T>` reality; builder for construction |
 
-**API coverage tiers**:
+**Coverage tiers**:
 
-| Tier             | Resources                                                                                                                                                                                                 | Phase    |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| 1 (core)         | Invoice, Contact, BankTransaction, Payment, Account, Connection, BalanceSheet report, P&L report, TrialBalance report                                                                                     | Phase 1  |
-| 2 (important)    | CreditNote, Quote, PurchaseOrder, Item, TaxRate, Currency, TrackingCategory, Organisation, ManualJournal, remaining reports (AgedPayables, AgedReceivables, BankSummary, ExecutiveSummary, BudgetSummary) | Phase 3  |
-| 3 (completeness) | Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice, BankFeed, FixedAsset, Files, Payroll UK (Employee, Timesheet, Leave, PayRun, PaySlip, Settings)                                     | Phase 3+ |
+| Tier | Resources | Phase |
+|---|---|---|
+| 1 (core) | Invoice, Contact, BankTransaction, Payment, Account, Connection, BalanceSheet/P&L/TrialBalance reports | 1 |
+| 2 (important) | CreditNote, Quote, PurchaseOrder, Item, TaxRate, Currency, TrackingCategory, Organisation, ManualJournal, remaining reports | 3 |
+| 3 (completeness) | Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice, BankFeed, FixedAsset, Files, Payroll UK | 3+ |
 
-**Report models**: Xero reports return tabular `Rows`/`Cells`/`Attributes` not structured objects; SDK provides both raw `Report` struct (mirrors API) and typed report structs (`BalanceSheetReport`, `ProfitAndLossReport`, `TrialBalanceReport`) with parsed sections (assets, liabilities, equity for balance sheet; income, expenses, net profit for P&L); typed models constructed by walking the raw Row/Cell tree.
+**Reports**: Xero returns tabular Rows/Cells/Attributes; SDK has raw `Report` struct + typed `BalanceSheetReport`/`ProfitAndLossReport`/`TrialBalanceReport` with parsed sections (assets/liabilities/equity, income/expenses/net profit); typed models walk the Row/Cell tree.
 
-**Large enums**: CurrencyCode (~170 variants, ISO 4217 + `EMPTY_CURRENCY` sentinel), CountryCode (~250, ISO 3166 alpha-2), TaxType (~130, including year-suffixed variants like `INPUTY23`/`INPUTY24`), TimeZone (~140, IANA names); all with `#[serde(other)]` catch-all.
+**Large enums**: CurrencyCode (~170, ISO 4217 + EMPTY_CURRENCY), CountryCode (~250, ISO 3166), TaxType (~130, year-suffixed like INPUTY23/INPUTY24), TimeZone (~140); all with `#[serde(other)]`.
 
-**MsDate/MsDateTime newtypes**: `MsDate(chrono::NaiveDate)` deserializes `/Date(epoch_ms+offset)/` by extracting epoch_ms, converting to seconds, building NaiveDateTime, extracting date; serializes to `YYYY-MM-DD` for request bodies; `MsDateTime(chrono::DateTime<Utc>)` deserializes `/Date(epoch_ms)/` similarly; comprehensive round-trip tests required including negative epochs, zero offset, various timezone offsets.
+**MsDate/MsDateTime**: `MsDate(NaiveDate)` deserializes `/Date(epoch_ms+offset)/` → extract epoch_ms → seconds → NaiveDateTime → date; serializes `YYYY-MM-DD`. `MsDateTime(DateTime<Utc>)` similar. Round-trip tests: negative epochs, zero offset, various timezones.
 
 ## 7. CLI Design
 
@@ -325,11 +290,11 @@ cho config show
 | `--limit <N>`               | 100         | max items for list commands (auto-pagination)                         |
 | `--all`                     | off         | fetch all pages, no limit                                             |
 
-**Output behavior**: default is bare JSON array to stdout (`[{...}, {...}]`); `--meta` wraps with `{"data": [...], "pagination": {"page": N, "page_count": N, "item_count": N}}`; all JSON keys are snake_case (re-serialized from SDK PascalCase structs); dates normalized to ISO 8601 by default (`--raw` preserves `/Date(epoch)/`); money as JSON numbers by default (`--precise` for string representation); no interactive prompts when stdin is not a TTY; auto-detect: table format for TTY, JSON for pipe (override with `--format`).
+**Output behavior**: bare JSON array to stdout by default; `--meta` wraps with `{"data": [...], "pagination": {...}}`; snake_case keys (re-serialized from PascalCase); dates ISO 8601 (`--raw` preserves `/Date(epoch)/`); money as numbers (`--precise` for strings); no prompts when stdin not TTY; auto-detect table (TTY) vs JSON (pipe), override with `--format`.
 
-**Exit codes**: 0 success, 1 API/data error, 2 auth error, 3 usage/argument error.
+**Exit codes**: 0 success, 1 API/data error, 2 auth error, 3 usage error.
 
-**Error output**: when `--format json` is active, errors emit structured JSON on stderr: `{"error": "message", "code": "AUTH_EXPIRED", "details": {...}}`; otherwise human-readable text on stderr.
+**Error output**: `--format json` emits `{"error": "...", "code": "AUTH_EXPIRED", "details": {...}}` on stderr; otherwise human-readable text.
 
 ## 8. Configuration
 
@@ -351,9 +316,9 @@ timeout_secs = 30
 max_retries = 3
 ```
 
-**Token storage**: OS keychain via `keyring` crate (service: `cho`, username: `access_token` / `refresh_token`) as primary; encrypted file fallback at `~/.config/cho/tokens.enc` with `0600` permissions when keychain is unavailable; `secrecy::SecretString` for all in-memory token handling.
+**Token storage**: keyring (service `cho`, username `access_token`/`refresh_token`) primary; file fallback `~/.config/cho/tokens.enc` at 0600 when keychain unavailable; `secrecy::SecretString` in memory.
 
-**Precedence** (highest to lowest): CLI flags > environment variables (`CHO_TENANT_ID`, `CHO_CLIENT_ID`, `CHO_CLIENT_SECRET`, `CHO_FORMAT`, `CHO_BASE_URL`) > config file > built-in defaults.
+**Precedence** (high→low): CLI flags > env vars (`CHO_TENANT_ID`, `CHO_CLIENT_ID`, `CHO_CLIENT_SECRET`, `CHO_FORMAT`, `CHO_BASE_URL`) > config file > defaults.
 
 ## 9. Error Handling
 
@@ -386,28 +351,29 @@ max_retries = 3
 
 ## 10. Testing
 
-**Mock HTTP layer**: `httpmock` (or `wiremock`) as dev-dependency in cho-sdk; every API module (`api/invoices.rs`, `api/contacts.rs`, etc.) has a corresponding test module that starts a mock server, registers expected requests/responses, and exercises the SDK client methods; mock server returns recorded JSON fixtures.
+**Mock HTTP**: wiremock dev-dependency; API modules have test modules starting mock server with expected requests/responses using recorded JSON fixtures.
 
-**Fixture organization**: `crates/cho-sdk/tests/fixtures/` with per-resource subdirectories (`invoices/list.json`, `invoices/list_page2.json`, `invoices/get.json`, `contacts/list.json`, etc.); fixtures are real Xero API responses with sensitive data (IDs, names, amounts) redacted/anonymized.
+**Fixtures**: `crates/cho-sdk/tests/fixtures/` per-resource subdirs; real Xero responses with data redacted.
 
-**Date serde round-trip tests**: every MsDate/MsDateTime variant: positive epoch, negative epoch, with timezone offset, without offset, zero epoch, large epoch; parse then serialize and verify ISO 8601 output; exercise the regex parser edge cases.
+**Date serde**: round-trip every MsDate/MsDateTime variant (positive/negative/zero epoch, with/without offset, large epoch); verify ISO 8601 output.
 
-**Decimal precision tests**: money fields round-trip through JSON serialize/deserialize without precision loss; test `0.01`, `999999999.99`, `0.00`, negative amounts.
+**Decimal precision**: money round-trip without loss; test 0.01, 999999999.99, 0.00, negatives.
 
-**Pagination tests**: mock multi-page responses (3+ pages), verify Stream yields all items in order, verify `limit` param caps correctly, verify single-page response works.
+**Pagination**: mock multi-page (3+), verify all items in order, `limit` caps correctly, single-page works.
 
-**Rate limit tests**: mock 429 response with `Retry-After` header, verify client waits and retries; mock `X-MinLimit-Remaining: 0`, verify client pre-emptively delays.
+**Rate limits**: mock 429 + `Retry-After`, verify retry; mock `X-MinLimit-Remaining: 0`, verify pre-emptive delay.
 
-**CLI integration tests**: run `cho` binary as subprocess (`assert_cmd` or `std::process::Command`), verify stdout is parseable JSON, verify exit codes match spec, verify `--format table` produces aligned output, verify `--meta` wraps correctly, verify `--raw` preserves date format, verify error JSON on stderr for invalid auth.
+**CLI integration**: `assert_cmd` subprocess, verify parseable JSON stdout, exit codes, `--format table` alignment, `--meta` wrapping, `--raw` date preservation, error JSON on stderr.
 
-**Live API tests** (optional): behind `#[cfg(feature = "live")]` feature flag, require `CHO_CLIENT_ID` + `CHO_CLIENT_SECRET` environment variables, run against real Xero organisation, contract validation only (schemas match, pagination works, auth flow completes); not run in CI, manual execution only.
+**Live tests** (optional): `#[cfg(feature = "live")]`, requires `CHO_CLIENT_ID`+`CHO_CLIENT_SECRET` env vars, contract validation only; not in CI.
 
 ## 11. Commands
 
 | Command               | Action                                                                 |
 | --------------------- | ---------------------------------------------------------------------- |
 | `bun run build`       | `cargo build --workspace --release`                                    |
-| `bun run dev`         | `cargo run -p cho-cli --`                                              |
+| `bun run cho:dev`     | `cargo run -p cho-cli --` (debug build)                                |
+| `bun run cho`         | `./target/release/cho` (release binary alias)                          |
 | `bun run util:format` | `cargo fmt --all`                                                      |
 | `bun run util:lint`   | `cargo clippy --all-targets --all-features -- -D warnings`             |
 | `bun run util:test`   | `cargo test --workspace`                                               |
@@ -416,87 +382,102 @@ max_retries = 3
 
 ## 12. Quality
 
-Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, all tests passing pre-commit via lint-staged + husky; commitlint enforces conventional commits `type(scope): subject` with types `[feat|fix|refactor|docs|style|chore|test]` and scopes `[sdk|cli|tui|mcp|config|deps]`; `#![deny(missing_docs)]` on cho-sdk (all public items documented with `///`); no `unwrap()` in library code (`?` propagation), no `unsafe` unless required for OS keychain FFI; `#![forbid(unsafe_code)]` on cho-cli, cho-tui, cho-mcp.
+Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, tests pass pre-commit via lint-staged + husky. Conventional commits `type(scope): subject` — types: feat|fix|refactor|docs|style|chore|test, scopes: sdk|cli|tui|mcp|config|deps. `#![deny(missing_docs)]` on cho-sdk; no `unwrap()` in library code (`?` propagation); `#![forbid(unsafe_code)]` on cho-cli, cho-tui, cho-mcp.
 
 ## 13. Roadmap
 
 ### Phase 0: scaffolding + progenitor experiment
 
-- [ ] Workspace `Cargo.toml` (resolver = "3", rust-version = "1.93.0") with 4 member crates (cho-sdk, cho-cli, cho-tui, cho-mcp) as empty `lib.rs`/`main.rs` stubs
-- [ ] `package.json` with bun scripts (build, dev, util:format, util:lint, util:test, util:types, util:check)
-- [ ] `commitlint.config.js` with scopes `sdk|cli|tui|mcp|config|deps`
-- [ ] `lint-staged.config.js` triggering `bun run util:check`
-- [ ] `.husky/pre-commit` (lint-staged) + `.husky/commit-msg` (commitlint)
-- [ ] `rustfmt.toml` (edition = "2024")
-- [ ] `biome.json` (extends global config)
-- [ ] `.gitignore` (node_modules, target, .DS_Store, .env, .env.\*, .claude, .tmp, .wrangler)
-- [ ] Clone `Xero-OpenAPI` repo, run progenitor against `xero_accounting.yaml`, archive output to `.tmp/progenitor/`; evaluate generated code quality, use only as loose reference -- do not copy/paste directly, write all cho-sdk code from scratch with proper architectural decisions
-- [ ] Move `xero-terminal-tool-research.md` to `.tmp/`
-- [ ] Verify: `cargo build --workspace` succeeds, `bun run util:check` exits 0
+- [x] Workspace Cargo.toml (resolver 3, rust-version 1.93.0), 4 member crates with workspace dep inheritance
+- [x] Quality tooling: package.json bun scripts, commitlint, lint-staged, husky hooks, rustfmt.toml, biome.json, .gitignore
+- [x] Progenitor experiment — SKIPPED; all SDK code written from scratch using spec as reference
+- [x] Verify: `cargo build --workspace` + `bun run util:check` pass
 
 ### Phase 1: cho-sdk core
 
-- [ ] `MsDate` and `MsDateTime` newtypes with custom serde deserializer (regex-based, handles `/Date(epoch+offset)/` and `/Date(epoch)/`), serializer (ISO 8601 for MsDate, not serialized for MsDateTime); round-trip tests for positive/negative epochs, offsets, edge cases
-- [ ] `rust_decimal::Decimal` for all money fields, serde round-trip tests (0.01, large values, negatives, zero)
-- [ ] OAuth 2.0 PKCE auth module: code_verifier/challenge generation, localhost callback HTTP server (tokio + hyper/axum minimal), browser open via `open` crate, authorization code exchange, token pair storage; tested manually against real Xero
-- [ ] Token refresh module: auto-refresh before expiry, single-use refresh token handling (store new pair on every refresh), expiry tracking; tested with mock token endpoint
-- [ ] Token storage: keyring crate for OS keychain (service "cho"), encrypted file fallback at `~/.config/cho/tokens.enc` with `0600` perms; tested on macOS
-- [ ] `SdkConfig` struct: base_url, timeout_secs, max_retries
-- [ ] `XeroClient` builder: accepts SdkConfig + auth provider + tenant_id; injects `Authorization` and `xero-tenant-id` headers on every request
-- [ ] Rate limiter: token bucket (5 concurrent, 60/min), parse `X-MinLimit-Remaining` / `X-DayLimit-Remaining` from response headers, exponential backoff on 429 respecting `Retry-After`; configurable; tested with mock 429 responses
-- [ ] Auto-pagination: `list()` returns `impl Stream<Item = Result<T>>`, fetches pages transparently (page=1,2,3...) until `page >= pageCount`, respects `limit` param; tested with mock multi-page responses
-- [ ] Request builder: auth header, tenant header, where/order query params, page/pageSize
-- [ ] Tier 1 models with full serde derives and fixture deserialization tests: Invoice (~40 fields), Contact (~35), BankTransaction (~25), Payment (~25), Account (~15)
-- [ ] Collection wrapper structs: Invoices, Contacts, BankTransactions, Payments, Accounts with pagination + warnings
-- [ ] Common types: LineItem, LineItemTracking, Allocation, Attachment, Pagination, ValidationError, Address, Phone, ContactPerson
-- [ ] Large enums: CurrencyCode, CountryCode, TaxType, AccountType, InvoiceType, InvoiceStatus, ContactStatus, BankTransactionType, PaymentStatus, LineAmountTypes -- all with `#[serde(other)]`
-- [ ] Connection model (Identity API) for tenant listing
-- [ ] Report models: raw `Report`/`ReportRow`/`ReportCell` + typed `BalanceSheetReport`/`ProfitAndLossReport`/`TrialBalanceReport` with parsing from tabular structure
-- [ ] API modules: `client.invoices().list(params)`, `.get(id)`; `client.contacts().list()`, `.get(id)`, `.search(term)`; `client.payments().list()`, `.get(id)`; `client.bank_transactions().list()`, `.get(id)`; `client.accounts().list()`; `client.reports().balance_sheet(params)`, `.profit_and_loss(params)`, `.trial_balance(params)`; `client.identity().connections()`
-- [ ] `ChoSdkError` enum with all variants from Section 9
-- [ ] `#![deny(missing_docs)]` enforced, all public items documented
-- [ ] Sync wrapper: `_blocking()` variants for key methods
-- [ ] Verify: `cargo test -p cho-sdk` all passing, fixture deserialization covers all Tier 1 models, MsDate round-trip works, Decimal precision preserved
+- [x] MsDate/MsDateTime newtypes (`models/dates.rs`) — regex parser for `/Date(epoch+offset)/`, ISO 8601 serialization (deviation: MsDateTime also serializes to ISO for CLI use)
+- [x] rust_decimal::Decimal for all money fields with round-trip serde tests
+- [x] OAuth 2.0 PKCE auth (`auth/pkce.rs`) — SHA-256 challenge, base64url, TcpListener callback, browser open; TokenPair with SecretString wrapping + expiry tracking
+- [x] Token auto-refresh (`auth/mod.rs` AuthManager) — transparent refresh via `get_access_token()`, 5-min safety margin, single-use refresh token rotation
+- [x] Token storage (`auth/storage.rs`) — keyring primary + JSON file fallback at 0600 perms (deviation: plaintext JSON, not encrypted .enc)
+- [x] SdkConfig (`config.rs`) — base_url, timeout, max_retries with builder pattern
+- [x] XeroClient (`client.rs`) — builder, auto-retry with exponential backoff, 401 auto-refresh, 429 handling, namespaced API handles (`client.invoices()` etc.)
+- [x] Rate limiter (`http/rate_limit.rs`) — Semaphore concurrency (5), sliding-window MinuteTracker (60/min), header-based limits, configurable/disableable
+- [x] Auto-pagination (`http/pagination.rs`) — `PaginatedResponse` trait, `PaginationParams`, iterative page fetch via `get_all_pages()` (deviation: iterative instead of async Stream)
+- [x] Request builder (`http/request.rs`) — `ListParams`, `ReportParams`, `build_headers()` for auth/tenant/content-type headers
+- [x] Tier 1 models: Invoice (~40 fields), Contact (~35), BankTransaction (~25), Payment (~25), Account (~15) with full serde and nested reference types
+- [x] Collection wrappers (Invoices, Contacts, etc.) with `pagination` (camelCase serde) and `warnings` fields
+- [x] Common types (`models/common.rs`) — LineItem, LineItemTracking, Allocation, Attachment, Pagination, ValidationError, Address, Phone, ContactPerson
+- [x] Enums with `#[serde(other)]` — CurrencyCode (~170), TaxType, AccountType, InvoiceType/Status, ContactStatus, BankTransactionType, PaymentStatus, LineAmountTypes (deviation: CountryCode/TimeZone deferred to Phase 3.1)
+- [x] Connection model (`models/connection.rs`) — camelCase serde for Identity API
+- [x] Report models — raw Report/ReportRow/ReportCell + typed BalanceSheetReport, ProfitAndLossReport, TrialBalanceReport with Row/Cell tree parsing
+- [x] 7 API modules (`api/`) — invoices (list/get/get_by_number), contacts (list/get/search), payments, bank_transactions, accounts, reports (raw + typed + aged), identity
+- [x] ChoSdkError enum — all 8 variants from Section 9 in `error.rs`
+- [x] `#![deny(missing_docs)]` enforced on cho-sdk
+- [x] Sync wrapper (`blocking.rs`) — BlockingClient with internal tokio Runtime, BlockingClientBuilderExt trait, sync methods for all APIs
 
 ### Phase 2: cho-cli
 
-- [ ] clap derive command tree matching Section 7 structure exactly
-- [ ] Global flags: --format, --meta, --raw, --precise, --tenant, --verbose, --quiet, --no-color, --limit, --all
-- [ ] JSON output formatter: snake_case key re-serialization from PascalCase SDK structs via `serde_json::Value` transform; bare array by default; `--meta` wraps with `{"data": [...], "pagination": {...}}`; `--raw` skips date ISO normalization; `--precise` serializes money as strings
-- [ ] Table output formatter: comfy-table with column alignment, header row, truncation for wide fields, `font-variant-numeric: tabular-nums` equivalent (right-align numbers)
-- [ ] CSV output formatter: standard CSV with header row
-- [ ] Error formatter: JSON on stderr when `--format json` with structured error codes, human-readable text otherwise
-- [ ] Exit codes: 0/1/2/3 per Section 9
-- [ ] `cho auth login` triggers PKCE flow, stores tokens, prints tenant list
-- [ ] `cho auth status` prints token expiry, tenant info, connected orgs
-- [ ] `cho auth refresh` forces token refresh
-- [ ] `cho auth tenants` lists connected organisations
-- [ ] `cho invoices list` with --where, --order, --from, --to, --summary, --limit, --all
-- [ ] `cho invoices get <id-or-number>`
-- [ ] `cho contacts list`, `cho contacts get <id>`, `cho contacts search <term>`
-- [ ] `cho payments list`, `cho payments get <id>`
-- [ ] `cho transactions list`, `cho transactions get <id>`
-- [ ] `cho accounts list`
-- [ ] `cho reports balance-sheet`, `cho reports pnl`, `cho reports trial-balance`, `cho reports aged-payables`, `cho reports aged-receivables`
-- [ ] `cho config set <key> <value>`, `cho config show`
-- [ ] Config file creation/reading from `~/.config/cho/config.toml`
-- [ ] Environment variable support (CHO_TENANT_ID, CHO_CLIENT_ID, CHO_CLIENT_SECRET, CHO_FORMAT, CHO_BASE_URL)
-- [ ] TTY detection: auto-select table format for TTY, JSON for pipe; no interactive prompts when stdin is not TTY
-- [ ] `--verbose` enables tracing subscriber output
-- [ ] CLI integration tests: run binary as subprocess, verify JSON parseable, verify exit codes, verify table output, verify error formatting
-- [ ] Verify: `cho invoices list --format json | jq '.[0].invoice_id'` returns valid UUID; `cho invoices list --format table` renders aligned; invalid auth produces exit code 2
+- [x] Clap derive command tree — Auth, Invoices, Contacts, Payments, Transactions, Accounts, Reports, Config subcommands
+- [x] 10 global flags: --format, --meta, --raw, --precise, --tenant, --verbose, --quiet, --no-color, --limit, --all (with env var fallbacks)
+- [x] JSON output (`output/json.rs`) — pascal_to_snake_keys transform, bare array default, --meta envelope, --precise money-as-strings
+- [x] Table output (`output/table.rs`) — comfy-table with Column, format_table(), right-aligned numbers
+- [x] CSV output (`output/csv.rs`) — format_csv() with header row and proper quoting
+- [x] Error formatting (`error.rs`) — ErrorCode enum, JSON on stderr when --format json, exit codes 0/1/2/3 per Section 9
+- [x] Auth commands: login (PKCE + --client-credentials), status, refresh, tenants
+- [x] Invoice commands: list (--where, --order, --from, --to, --summary), get (auto-detects UUID vs invoice number)
+- [x] Contact commands: list, get, search — all with pagination
+- [x] Payment commands: list (--where), get
+- [x] Transaction commands: list (--where, --from, --to), get
+- [x] Accounts command: list (--where, non-paginated)
+- [x] Report commands: balance-sheet, pnl, trial-balance, aged-payables, aged-receivables with appropriate date/period flags
+- [x] Config commands: set (section.key dotted format), show — TOML at `~/.config/cho/config.toml`
+- [x] Env var support: CHO_TENANT_ID, CHO_CLIENT_ID, CHO_FORMAT, CHO_BASE_URL wired in main.rs
+- [x] TTY detection via `std::io::IsTerminal` — auto-select table (TTY) vs JSON (pipe)
+- [x] --verbose enables tracing_subscriber with debug filter
+- [x] 25 CLI integration tests (assert_cmd + predicates) — help, subcommand help, flag parsing, argument validation, exit codes, env vars
+- [x] Verify: argument parsing and exit codes verified; live API verification deferred to manual testing with Xero credentials
 
 ### Phase 3: cho-sdk Tier 2 + Tier 3 + write operations
 
-- [ ] Tier 2 models: CreditNote, Quote, PurchaseOrder, Item, TaxRate, Currency, TrackingCategory, Organisation, ManualJournal + remaining report types (AgedPayables, AgedReceivables, BankSummary, ExecutiveSummary, BudgetSummary)
-- [ ] Tier 3 models: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice, BankFeed, FixedAsset, Files API models, Payroll UK models (Employee, Timesheet, Leave, PayRun, PaySlip, Settings)
-- [ ] API modules for all Tier 2/3 resources
-- [ ] Write operations on SDK: `client.invoices().create(invoice)`, `.update(id, invoice)`; same for Contact, Payment, BankTransaction; `Idempotency-Key` header support
-- [ ] CLI commands for Tier 2/3 list/get
-- [ ] CLI commands for writes: `cho invoices create --file invoice.json`, `cho invoices update <id> --file updates.json`
-- [ ] Custom Connections auth (client_credentials grant) in SDK + `cho auth login --client-credentials` in CLI
-- [ ] Fixture tests for all new models
-- [ ] Verify: all new models deserialize, write operations work against mock server
+- [x] Tier 2 models: CreditNote, Quote, PurchaseOrder, Item, TaxRate, Currency, TrackingCategory, Organisation, ManualJournal + 10 new enums; remaining report types (BankSummary, ExecutiveSummary, BudgetSummary) use raw Report model
+- [x] Tier 3 models: Prepayment, Overpayment, LinkedTransaction, Budget, RepeatingInvoice with hyphenated type enums (deviation: BankFeed, FixedAsset, Files API, Payroll UK deferred — separate API endpoints/versions)
+- [x] 14 API modules for Tier 2/3 — credit_notes, quotes, purchase_orders, manual_journals, prepayments, overpayments, linked_transactions, repeating_invoices (paginated); items, tax_rates, currencies, tracking_categories, organisations, budgets (non-paginated); blocking wrappers for all
+- [x] Write operations — put/post/request_with_body on XeroClient with Idempotency-Key; create/update for invoices, contacts, bank_transactions; create/delete for payments (Xero payments immutable); blocking wrappers
+- [x] Write safety gate — SDK-level `allow_writes` on SdkConfig, config-file-only (NO CLI flag, NO env var), reads `[safety] allow_writes` from config.toml
+- [x] 14 CLI command files for Tier 2/3 list/get — kebab-case multi-word commands, paginated resources support --where/--order
+- [x] CLI write commands — create/update for invoices, contacts, transactions; create/delete for payments; --file and --idempotency-key flags, gated behind require_writes_allowed()
+- [x] Custom Connections auth — client_credentials grant in SDK (`credentials::authenticate()`), `cho auth login --client-credentials` reads CHO_CLIENT_SECRET env var
+- [x] All 24 model files have inline deserialization tests (99 test functions); every Tier 2/3 model tested with realistic Xero JSON fixtures
+
+#### Phase 3.1: contract verification + fixes
+
+- [x] Fix Pagination struct casing to camelCase matching Xero wire format; update 9 test fixtures
+- [x] Add PKCE `state` parameter for OAuth CSRF protection
+- [x] Guard write retries behind idempotency key presence (prevent duplicate creation)
+- [x] Move write safety gate from CLI-only to SDK-level (`allow_writes` on SdkConfig, `WriteNotAllowed` variant)
+- [x] Wire `If-Modified-Since` header through `build_headers()` and `get_all_pages()`
+- [x] Expand PKCE/client_credentials scopes (files.read, assets.read, projects.read, payroll)
+- [x] Implement `--raw` flag to skip pascal_to_snake_keys, preserve PascalCase keys
+- [x] Security warning + `tracing::warn!` for plaintext token file fallback
+- [x] Add `Accept: application/json` header to all API requests
+- [x] Fix UTF-8 safe truncation using `char_indices()` boundary detection
+- [x] Input validation for InvoiceNumber where filter (OData injection prevention)
+- [x] Parse `ValidationErrors[].Message` from 400 responses into `ApiError.validation_errors`
+- [x] Idempotency-Key length validation (128 char max per Xero spec)
+- [x] Unit tests for write safety gate, validation error extraction, UTF-8 truncate
+- [x] Document 401 refresh during pagination as known limitation (partial result loss)
+- [x] Wire `extract_validation_errors()` into `request_with_body()` error path
+- [x] Wire table/CSV formatters through CliContext format dispatch
+- [x] Only write file fallback when keyring storage fails (was unconditionally writing)
+- [x] Use `refresh_attempted` flag for 401 retry (fixes 401-after-429 skipping refresh)
+- [x] Track `X-AppMinLimit-Remaining` header in rate limiter
+- [x] Thread pagination metadata through list output for `--meta` envelope (`ListResult<T>`)
+- [x] URL scheme validation on `SdkConfig.base_url` (SSRF mitigation)
+- [x] Replace `blocking_write()` in `load_stored_tokens()` with async `.write().await`
+- [x] Wiremock integration tests for retry, pagination, 404, validation errors, rate limit headers
+- [x] Remove `#[allow(dead_code)]` from write safety functions
+- [x] Add CountryCode (62 variants) and TimeZone (35 Windows identifiers) enums
 
 ### Phase 4: cho-tui
 

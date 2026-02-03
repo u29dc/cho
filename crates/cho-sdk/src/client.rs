@@ -5,12 +5,21 @@
 //! accessed via namespaced methods: `client.invoices()`, `client.contacts()`, etc.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 use crate::auth::AuthManager;
+
+/// Global request counter for generating unique trace IDs.
+static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Generates a unique request ID for tracing correlation.
+fn generate_request_id() -> u64 {
+    REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 use crate::config::SdkConfig;
 use crate::error::{ChoSdkError, Result};
 use crate::http::pagination::{ListResult, PaginatedResponse, PaginationParams, has_more_pages};
@@ -266,6 +275,14 @@ impl XeroClient {
     }
 
     /// Core request method with retry logic for 429 and transient errors.
+    #[instrument(
+        skip(self, query, if_modified_since),
+        fields(
+            request_id = %generate_request_id(),
+            method = %method,
+            path = %url,
+        )
+    )]
     async fn request_with_retry<T: DeserializeOwned>(
         &self,
         method: reqwest::Method,
@@ -297,9 +314,11 @@ impl XeroClient {
                     if attempt < max_retries && is_transient_error(&e) {
                         let delay = backoff_delay(attempt);
                         warn!(
-                            "Request failed (attempt {}/{}), retrying in {delay:?}: {e}",
-                            attempt + 1,
-                            max_retries + 1
+                            attempt = attempt + 1,
+                            max_attempts = max_retries + 1,
+                            delay_ms = delay.as_millis() as u64,
+                            error = %e,
+                            "Request failed, retrying"
                         );
                         tokio::time::sleep(delay).await;
                         continue;
@@ -312,6 +331,11 @@ impl XeroClient {
             guard.complete(response.headers()).await;
 
             let status = response.status();
+            debug!(
+                attempt = attempt + 1,
+                status = status.as_u16(),
+                "Response received"
+            );
 
             // Handle specific status codes
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
@@ -391,6 +415,15 @@ impl XeroClient {
     }
 
     /// Core request method with JSON body and retry logic for write operations.
+    #[instrument(
+        skip(self, body, idempotency_key),
+        fields(
+            request_id = %generate_request_id(),
+            method = %method,
+            path = %url,
+            has_idempotency_key = idempotency_key.is_some(),
+        )
+    )]
     async fn request_with_body<T: DeserializeOwned, B: Serialize>(
         &self,
         method: reqwest::Method,
@@ -448,9 +481,11 @@ impl XeroClient {
                     if can_retry {
                         let delay = backoff_delay(attempt);
                         warn!(
-                            "Request failed (attempt {}/{}), retrying in {delay:?}: {e}",
-                            attempt + 1,
-                            max_retries + 1
+                            attempt = attempt + 1,
+                            max_attempts = max_retries + 1,
+                            delay_ms = delay.as_millis() as u64,
+                            error = %e,
+                            "Write request failed, retrying"
                         );
                         tokio::time::sleep(delay).await;
                         continue;
@@ -463,6 +498,11 @@ impl XeroClient {
             guard.complete(response.headers()).await;
 
             let status = response.status();
+            debug!(
+                attempt = attempt + 1,
+                status = status.as_u16(),
+                "Write response received"
+            );
 
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
                 // Only retry 429 on write operations when an idempotency key is

@@ -1,18 +1,25 @@
-//! Token storage: OS keyring primary, JSON file fallback.
+//! Token storage: OS keyring required (fail-closed security model).
 //!
-//! Tokens are stored in the OS keychain via the `keyring` crate when available.
-//! When the keychain is not accessible (headless Linux, CI, containers), tokens
-//! are written to `~/.config/cho/tokens.json` with `0600` permissions.
+//! Tokens are stored in the OS keychain via the `keyring` crate. The keychain
+//! provides secure, encrypted storage managed by the operating system (macOS
+//! Keychain, GNOME Keyring, Windows Credential Manager).
 //!
-//! # Security note
+//! # Security model
 //!
-//! The file fallback stores tokens as **plaintext JSON** on disk. While file
-//! permissions are restricted to `0600` (owner-only read/write), any process
-//! running as the same user can read the tokens. The spec originally called for
-//! encrypted file storage (`tokens.enc`), but this was simplified to plaintext
-//! JSON for the MVP. Consider using the OS keychain (macOS Keychain, GNOME
-//! Keyring, Windows Credential Manager) in production environments. A warning
-//! is emitted via `tracing::warn!` when the file fallback is used for storage.
+//! This module uses a **fail-closed** approach: if the OS keychain is not
+//! available (headless Linux without a keyring daemon, CI, containers), token
+//! storage will fail with an error rather than falling back to plaintext files.
+//!
+//! For environments without a keychain, consider:
+//! - Using `--client-credentials` auth with env vars (no token persistence)
+//! - Running a keyring daemon (e.g., `gnome-keyring-daemon --start`)
+//! - Using a secrets manager and injecting tokens via environment
+//!
+//! # Legacy file migration
+//!
+//! For backwards compatibility, `load_tokens()` will still read tokens from
+//! the legacy file location (`~/.config/cho/tokens.json`) if it exists, but
+//! will warn the user to re-authenticate. New tokens are never written to disk.
 
 use std::path::PathBuf;
 
@@ -26,9 +33,14 @@ const SERVICE: &str = "cho";
 /// Keyring username for the token blob.
 const USERNAME: &str = "tokens";
 
-/// Loads stored tokens from the OS keychain or file fallback.
+/// Loads stored tokens from the OS keychain (with legacy file migration).
+///
+/// Tokens are loaded from the OS keychain. For backwards compatibility, if no
+/// keychain tokens exist, the legacy file location is checked. If legacy tokens
+/// are found, a warning is emitted encouraging re-authentication to migrate to
+/// secure keychain storage.
 pub(crate) fn load_tokens() -> crate::error::Result<Option<StoredTokens>> {
-    // Try keyring first
+    // Try keyring first (primary path)
     match load_from_keyring() {
         Ok(Some(tokens)) => {
             debug!("Loaded tokens from OS keychain");
@@ -38,14 +50,18 @@ pub(crate) fn load_tokens() -> crate::error::Result<Option<StoredTokens>> {
             debug!("No tokens in OS keychain");
         }
         Err(e) => {
-            debug!("Keychain unavailable: {e}, trying file fallback");
+            debug!("Keychain unavailable: {e}, checking legacy file");
         }
     }
 
-    // File fallback
+    // Legacy file migration path - read-only for backwards compatibility
     match load_from_file() {
         Ok(Some(tokens)) => {
-            debug!("Loaded tokens from file fallback");
+            warn!(
+                "Loaded tokens from legacy plaintext file (~/.config/cho/tokens.json). \
+                 Please run `cho auth login` to migrate to secure OS keychain storage, \
+                 then delete the legacy file."
+            );
             Ok(Some(tokens))
         }
         Ok(None) => {
@@ -53,37 +69,37 @@ pub(crate) fn load_tokens() -> crate::error::Result<Option<StoredTokens>> {
             Ok(None)
         }
         Err(e) => {
-            warn!("Failed to load tokens from file: {e}");
+            debug!("Legacy file read failed: {e}");
             Ok(None)
         }
     }
 }
 
-/// Stores tokens to the OS keychain and file fallback.
+/// Stores tokens to the OS keychain (fail-closed, no file fallback).
+///
+/// # Errors
+///
+/// Returns an error if the OS keychain is not available. This is intentional:
+/// we refuse to store tokens insecurely rather than falling back to plaintext.
 pub(crate) fn store_tokens(tokens: &StoredTokens) -> crate::error::Result<()> {
     let json = serde_json::to_string(tokens).map_err(|e| crate::error::ChoSdkError::Config {
         message: format!("Failed to serialize tokens: {e}"),
     })?;
 
-    // Try keyring first
+    // Keyring only - fail closed if unavailable
     match store_to_keyring(&json) {
         Ok(()) => {
             debug!("Stored tokens in OS keychain");
-            return Ok(());
+            Ok(())
         }
         Err(e) => {
-            debug!("Keychain storage failed: {e}, using file fallback");
+            warn!(
+                "OS keychain unavailable. Tokens cannot be persisted securely. \
+                 Consider using --client-credentials auth or starting a keyring daemon."
+            );
+            Err(e)
         }
     }
-
-    // File fallback only when keyring is unavailable
-    store_to_file(&json)?;
-    warn!(
-        "Tokens stored as plaintext JSON at ~/.config/cho/tokens.json (0600 permissions). \
-         Use OS keychain for production environments."
-    );
-
-    Ok(())
 }
 
 /// Removes stored tokens from all backends.
@@ -199,28 +215,6 @@ fn load_from_file() -> crate::error::Result<Option<StoredTokens>> {
         })?;
 
     Ok(Some(tokens))
-}
-
-fn store_to_file(json: &str) -> crate::error::Result<()> {
-    let path = token_file_path()?;
-
-    std::fs::write(&path, json).map_err(|e| crate::error::ChoSdkError::Config {
-        message: format!("Failed to write token file {}: {e}", path.display()),
-    })?;
-
-    // Set restrictive permissions (Unix only)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let permissions = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(&path, permissions).map_err(|e| {
-            crate::error::ChoSdkError::Config {
-                message: format!("Failed to set token file permissions: {e}"),
-            }
-        })?;
-    }
-
-    Ok(())
 }
 
 fn clear_file() -> crate::error::Result<()> {

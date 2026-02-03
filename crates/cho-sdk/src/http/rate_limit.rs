@@ -12,6 +12,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use rand::Rng;
 use tokio::sync::{RwLock, Semaphore};
 use tracing::{debug, warn};
 
@@ -226,7 +227,10 @@ impl RateLimiter {
         }
     }
 
-    /// Handles a 429 response by sleeping for the Retry-After duration.
+    /// Handles a 429 response by sleeping for the Retry-After duration plus jitter.
+    ///
+    /// Random jitter (0-2 seconds) is added to the Retry-After value to prevent
+    /// thundering herd when multiple clients hit rate limits simultaneously.
     pub async fn handle_rate_limited(
         &self,
         headers: &reqwest::header::HeaderMap,
@@ -237,8 +241,17 @@ impl RateLimiter {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(5);
 
-        warn!("Rate limited (429), retrying after {retry_after}s");
-        tokio::time::sleep(Duration::from_secs(retry_after)).await;
+        // Add random jitter (0-2000ms) to prevent thundering herd
+        let jitter_ms = rand::rng().random_range(0..2000);
+        let total_wait = Duration::from_secs(retry_after) + Duration::from_millis(jitter_ms);
+
+        warn!(
+            retry_after_secs = retry_after,
+            jitter_ms = jitter_ms,
+            "Rate limited (429), retrying after {}ms",
+            total_wait.as_millis()
+        );
+        tokio::time::sleep(total_wait).await;
         Ok(())
     }
 }

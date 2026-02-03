@@ -8,7 +8,7 @@ use uuid::Uuid;
 use cho_sdk::http::request::ListParams;
 use cho_sdk::models::invoice::Invoice;
 
-use crate::context::CliContext;
+use crate::context::{CliContext, warn_if_suspicious_filter};
 
 /// Invoice subcommands.
 #[derive(Debug, Subcommand)]
@@ -72,6 +72,9 @@ pub async fn run(cmd: &InvoiceCommands, ctx: &CliContext) -> cho_sdk::error::Res
             to,
             summary,
         } => {
+            // Check for suspicious OData patterns in user-provided filter
+            warn_if_suspicious_filter(r#where.as_ref());
+
             let mut params = ListParams::new();
 
             // Build where filter combining explicit where + date range

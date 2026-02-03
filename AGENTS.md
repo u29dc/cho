@@ -365,7 +365,68 @@ max_retries = 3
 
 **CLI integration**: `assert_cmd` subprocess, verify parseable JSON stdout, exit codes, `--format table` alignment, `--meta` wrapping, `--raw` date preservation, error JSON on stderr.
 
-**Live tests** (optional): `#[cfg(feature = "live")]`, requires `CHO_CLIENT_ID`+`CHO_CLIENT_SECRET` env vars, contract validation only; not in CI.
+**Live tests** (optional): `#[cfg(feature = "live")]`, requires credentials from a Xero developer account; contract validation only; not in CI.
+
+### Live Testing Procedure
+
+Live tests validate API contracts against the real Xero API. These are not run in CI to avoid rate limits and credential exposure.
+
+**1. Create a Xero Developer Account**
+
+1. Sign up at https://developer.xero.com
+2. Create a new App (API type: "OAuth 2.0")
+3. Note your Client ID from the app configuration page
+4. For PKCE flow (interactive): no secret needed, just the Client ID
+5. For Custom Connections (headless): enable Custom Connections and note the Client Secret
+
+**2. Configure Environment**
+
+```bash
+# Required: OAuth client ID from your Xero app
+export CHO_CLIENT_ID="YOUR_CLIENT_ID_HERE"
+
+# Optional: for headless/CI testing with Custom Connections (paid Xero feature)
+export CHO_CLIENT_SECRET="YOUR_CLIENT_SECRET_HERE"
+
+# Optional: override default tenant (multi-org accounts)
+export CHO_TENANT_ID="YOUR_TENANT_UUID"
+```
+
+**3. Authenticate**
+
+```bash
+# Interactive PKCE flow (opens browser)
+cargo run -p cho-cli -- auth login
+
+# Or headless with Custom Connections
+cargo run -p cho-cli -- auth login --client-credentials
+```
+
+**4. Run Manual Live Tests**
+
+```bash
+# List invoices (basic smoke test)
+cargo run -p cho-cli -- invoices list --limit 5
+
+# Test pagination
+cargo run -p cho-cli -- invoices list --limit 150 --format json | jq length
+
+# Test reports
+cargo run -p cho-cli -- reports balance-sheet
+
+# Verify auth status
+cargo run -p cho-cli -- auth status
+```
+
+**5. Validation Checklist**
+
+- [ ] Authentication flow completes without error
+- [ ] `auth status` shows valid token with reasonable expiry
+- [ ] `invoices list` returns valid JSON with expected fields
+- [ ] Pagination correctly fetches multiple pages (test with data-rich account)
+- [ ] Reports return structured data matching typed models
+- [ ] Rate limit headers are tracked (visible with `--verbose`)
+- [ ] Token refresh works (wait 30+ minutes, then retry a command)
 
 ## 11. Commands
 
@@ -478,6 +539,15 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, tests pass pre
 - [x] Wiremock integration tests for retry, pagination, 404, validation errors, rate limit headers
 - [x] Remove `#[allow(dead_code)]` from write safety functions
 - [x] Add CountryCode (62 variants) and TimeZone (35 Windows identifiers) enums
+
+#### Phase 3.2: security hardening + observability
+
+- [x] Fail-closed token storage when keyring unavailable (no plaintext file fallback; legacy read-only migration)
+- [x] Add basic OData injection detection to `--where` filter — warn on suspicious patterns (`'`, `--`, `/*`, etc.) before passing to Xero
+- [x] Add random jitter (0-2000ms) to 429 retry backoff (prevent thundering herd on shared rate limits)
+- [x] Expand invoice number validation beyond `"` and `\` to cover `'`, `==`, `&&`, `||` OData operators
+- [x] Add structured request/response logging with correlation IDs (request_id in tracing spans)
+- [x] Document live testing procedure in AGENTS.md Section 10 with CHO_CLIENT_ID setup example
 
 ### Phase 4: cho-tui
 

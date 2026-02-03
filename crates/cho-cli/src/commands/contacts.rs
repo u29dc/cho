@@ -8,7 +8,7 @@ use uuid::Uuid;
 use cho_sdk::http::request::ListParams;
 use cho_sdk::models::contact::Contact;
 
-use crate::context::CliContext;
+use crate::context::{CliContext, warn_if_suspicious_filter};
 
 /// Contact subcommands.
 #[derive(Debug, Subcommand)]
@@ -55,6 +55,7 @@ pub enum ContactCommands {
 pub async fn run(cmd: &ContactCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
     match cmd {
         ContactCommands::List { r#where } => {
+            warn_if_suspicious_filter(r#where.as_ref());
             let mut params = ListParams::new();
             if let Some(w) = r#where {
                 params = params.with_where(w.clone());

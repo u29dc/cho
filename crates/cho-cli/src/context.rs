@@ -3,6 +3,7 @@
 use cho_sdk::client::XeroClient;
 use cho_sdk::http::pagination::{ListResult, PaginationParams};
 use serde::Serialize;
+use tracing::warn;
 
 use crate::output::OutputFormat;
 use crate::output::json::{JsonOptions, format_json, format_json_list};
@@ -215,5 +216,75 @@ pub fn check_writes_allowed() -> cho_sdk::error::Result<()> {
                 config_path.display()
             ),
         })
+    }
+}
+
+/// Suspicious patterns that may indicate OData injection attempts.
+///
+/// These patterns are checked against `--where` filter values to warn users
+/// about potentially malicious input. The check is not exhaustive and does
+/// not block requests, but emits a warning via `tracing::warn!`.
+const SUSPICIOUS_ODATA_PATTERNS: &[(&str, &str)] = &[
+    ("'", "single quote (string delimiter)"),
+    ("--", "SQL-style comment"),
+    ("/*", "block comment start"),
+    ("*/", "block comment end"),
+    (";", "statement separator"),
+    ("$", "OData system query option prefix"),
+    ("{{", "template injection"),
+    ("}}", "template injection"),
+];
+
+/// Checks a `--where` filter value for suspicious OData injection patterns.
+///
+/// Emits a warning if suspicious patterns are detected. Does not block the
+/// request since OData injection detection is inherently imperfect, but alerts
+/// the user to review their input.
+///
+/// # Example
+///
+/// ```ignore
+/// warn_if_suspicious_filter(Some(&"Status=='ACTIVE'".to_string()));
+/// // Warns: Suspicious pattern in --where filter: single quote (string delimiter)
+/// ```
+pub fn warn_if_suspicious_filter(filter: Option<&String>) {
+    let Some(filter) = filter else {
+        return;
+    };
+
+    for (pattern, description) in SUSPICIOUS_ODATA_PATTERNS {
+        if filter.contains(pattern) {
+            warn!(
+                filter = %filter,
+                pattern = %pattern,
+                "Suspicious pattern in --where filter: {}. \
+                 Verify this is intentional and not injection.",
+                description
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn suspicious_patterns_detected() {
+        // Test that patterns are detected (doesn't panic)
+        warn_if_suspicious_filter(Some(&"Status=='ACTIVE'".to_string()));
+        warn_if_suspicious_filter(Some(&"Name--comment".to_string()));
+        warn_if_suspicious_filter(Some(&"Status/*comment*/".to_string()));
+        warn_if_suspicious_filter(Some(&"Status;DROP".to_string()));
+        warn_if_suspicious_filter(Some(&"$filter=something".to_string()));
+        warn_if_suspicious_filter(Some(&"{{injection}}".to_string()));
+    }
+
+    #[test]
+    fn clean_filter_no_warning() {
+        // Normal filters should not trigger warnings
+        warn_if_suspicious_filter(Some(&"Status==\"ACTIVE\"".to_string()));
+        warn_if_suspicious_filter(Some(&"Type==\"ACCREC\" AND Status==\"PAID\"".to_string()));
+        warn_if_suspicious_filter(None);
     }
 }

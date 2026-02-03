@@ -486,7 +486,7 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, tests pass pre
 - [ ] Add random jitter to 429 retry backoff (prevent thundering herd on shared rate limits)
 - [ ] Expand invoice number validation beyond `"` and `\` to cover `'`, `==`, `&&`, `||` OData operators
 - [ ] Add structured request/response logging with correlation IDs (trace_id in tracing spans)
-- [ ] Document live testing procedure in README with CHO_CLIENT_ID setup example
+- [ ] Document live testing procedure in AGENTS.md with CHO_CLIENT_ID setup example
 
 ### Phase 4: cho-tui
 

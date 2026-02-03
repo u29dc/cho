@@ -542,12 +542,12 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, tests pass pre
 
 #### Phase 3.2: security hardening + observability
 
-- [ ] Encrypt token file fallback using age/ChaCha20 OR fail closed when keyring unavailable (currently plaintext JSON at `~/.config/cho/tokens.json`)
-- [ ] Add basic OData injection detection to `--where` filter — warn on suspicious patterns (`'`, `--`, `/*`, etc.) before passing to Xero
-- [ ] Add random jitter to 429 retry backoff (prevent thundering herd on shared rate limits)
-- [ ] Expand invoice number validation beyond `"` and `\` to cover `'`, `==`, `&&`, `||` OData operators
-- [ ] Add structured request/response logging with correlation IDs (trace_id in tracing spans)
-- [ ] Document live testing procedure in AGENTS.md with CHO_CLIENT_ID setup example
+- [x] Fail-closed token storage when keyring unavailable (no plaintext file fallback; legacy read-only migration)
+- [x] Add basic OData injection detection to `--where` filter — warn on suspicious patterns (`'`, `--`, `/*`, etc.) before passing to Xero
+- [x] Add random jitter (0-2000ms) to 429 retry backoff (prevent thundering herd on shared rate limits)
+- [x] Expand invoice number validation beyond `"` and `\` to cover `'`, `==`, `&&`, `||` OData operators
+- [x] Add structured request/response logging with correlation IDs (request_id in tracing spans)
+- [x] Document live testing procedure in AGENTS.md Section 10 with CHO_CLIENT_ID setup example
 
 ### Phase 4: cho-tui
 

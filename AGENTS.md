@@ -479,6 +479,15 @@ Zero clippy warnings (`-D warnings`), `cargo fmt --all` enforced, tests pass pre
 - [x] Remove `#[allow(dead_code)]` from write safety functions
 - [x] Add CountryCode (62 variants) and TimeZone (35 Windows identifiers) enums
 
+#### Phase 3.2: security hardening + observability
+
+- [ ] Encrypt token file fallback using age/ChaCha20 OR fail closed when keyring unavailable (currently plaintext JSON at `~/.config/cho/tokens.json`)
+- [ ] Add basic OData injection detection to `--where` filter — warn on suspicious patterns (`'`, `--`, `/*`, etc.) before passing to Xero
+- [ ] Add random jitter to 429 retry backoff (prevent thundering herd on shared rate limits)
+- [ ] Expand invoice number validation beyond `"` and `\` to cover `'`, `==`, `&&`, `||` OData operators
+- [ ] Add structured request/response logging with correlation IDs (trace_id in tracing spans)
+- [ ] Document live testing procedure in README with CHO_CLIENT_ID setup example
+
 ### Phase 4: cho-tui
 
 - [ ] ratatui + crossterm setup in cho-tui crate

@@ -8,7 +8,7 @@ use uuid::Uuid;
 use cho_sdk::http::request::ListParams;
 use cho_sdk::models::bank_transaction::BankTransaction;
 
-use crate::context::CliContext;
+use crate::context::{CliContext, warn_if_suspicious_filter};
 
 /// Transaction subcommands.
 #[derive(Debug, Subcommand)]
@@ -58,6 +58,7 @@ pub enum TransactionCommands {
 pub async fn run(cmd: &TransactionCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
     match cmd {
         TransactionCommands::List { r#where, from, to } => {
+            warn_if_suspicious_filter(r#where.as_ref());
             let mut params = ListParams::new();
             let mut where_parts = Vec::new();
             if let Some(w) = r#where {

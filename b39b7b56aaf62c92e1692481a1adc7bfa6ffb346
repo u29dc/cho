@@ -1,0 +1,157 @@
+crates/cho-cli/src/commands/credit_notes.rs
+  fa50c6e6c99e00e9 49
+  252ddc07a0a48f36 3-4,32-37,43-44,63,68
+crates/cho-cli/src/registry.rs
+  fa50c6e6c99e00e9 148-172
+  252ddc07a0a48f36 1-99,105-147,173-265,267-288,290-505,507-511,513-517,519-535,537-541,543-547,549-553,555-571,573-587,589-593,595-611,613-617,619-647,649-653,655-673,675-691,693-732,734-748,750-778,780-843,845-928,930-980,982-997,999-1004
+  7d87182ef8ba31a4 100-104
+crates/cho-cli/src/commands/prepayments.rs
+  252ddc07a0a48f36 3-4,32-37,43-44,63,68
+  fa50c6e6c99e00e9 49
+crates/cho-cli/src/commands/accounts.rs
+  252ddc07a0a48f36 3-4,22-26,32-33,43
+crates/cho-cli/src/commands/mod.rs
+  252ddc07a0a48f36 12,27
+crates/cho-cli/src/commands/invoices.rs
+  252ddc07a0a48f36 4,67-76,80-81,129,138,152,167
+  fa50c6e6c99e00e9 12,91,93,98-105
+crates/cho-cli/src/commands/utils.rs
+  fa50c6e6c99e00e9 3-5,7-8,12-26,34-89
+crates/cho-cli/src/commands/tracking_categories.rs
+  252ddc07a0a48f36 3-4,28-33,39-40,50,55
+crates/cho-cli/src/commands/overpayments.rs
+  fa50c6e6c99e00e9 49
+  252ddc07a0a48f36 3-4,32-37,43-44,63,68
+crates/cho-cli/src/context.rs
+  9023b80323b3545c 218
+  252ddc07a0a48f36 3-4,10,74-75,79-88,90-94,96-97,100,103-107,109,111-114,117-123,125-136,139-140,142,144-147,149-153,155-156,159-166,168-169,173,177-189,210-211
+crates/cho-cli/src/commands/tax_rates.rs
+  252ddc07a0a48f36 3-4,22-26,32-33,43
+crates/cho-cli/src/commands/organisations.rs
+  252ddc07a0a48f36 3-4,16-20,26-27,32
+crates/cho-cli/src/commands/linked_transactions.rs
+  fa50c6e6c99e00e9 49
+  252ddc07a0a48f36 3-4,32-37,43-44,63,68
+crates/cho-cli/src/commands/currencies.rs
+  252ddc07a0a48f36 3-4,22-26,32-33,43
+crates/cho-cli/src/commands/reports.rs
+  fa50c6e6c99e00e9 6,10,99-101,118-123,136-138,148-156,167-175
+  252ddc07a0a48f36 3-4,76-84,90-91,109,132,144,163,182
+package.json
+  9023b80323b3545c 14
+crates/cho-cli/src/envelope.rs
+  252ddc07a0a48f36 1-93,99-133,135-153,155-172,174-180
+crates/cho-cli/src/commands/auth.rs
+  252ddc07a0a48f36 3-4,30-37,43-44,80-84,96-103,109-113,118
+crates/cho-cli/src/commands/health.rs
+  252ddc07a0a48f36 1-179,181-333
+crates/cho-cli/src/error.rs
+  252ddc07a0a48f36 1,3,7,51-52,54-63,66-79,104-106,109-111,113-114,126-196
+crates/cho-cli/src/main.rs
+  252ddc07a0a48f36 7,10,13,35,37-40,86-90,92-94,217,226-229,236-242,244,251-255,258-261,263,269-282,307-310,312,319-323,325-412,416-419,421
+crates/cho-cli/src/commands/tools.rs
+  252ddc07a0a48f36 1-164
+crates/cho-cli/src/output/json.rs
+  252ddc07a0a48f36 4,69
+crates/cho-cli/tests/cli_integration.rs
+  252ddc07a0a48f36 7-9,16,271-465
+crates/cho-cli/src/commands/init.rs
+  9023b80323b3545c 266
+crates/cho-cli/src/commands/transactions.rs
+  252ddc07a0a48f36 4,59-68,72-73,107,112,126,141
+  fa50c6e6c99e00e9 12,79-86
+crates/cho-cli/src/commands/budgets.rs
+  252ddc07a0a48f36 3-4,28-33,39-40,50,55
+crates/cho-cli/src/commands/repeating_invoices.rs
+  252ddc07a0a48f36 3-4,32-37,43-44,63,68
+  fa50c6e6c99e00e9 49
+crates/cho-cli/src/commands/contacts.rs
+  252ddc07a0a48f36 4,55-65,69-70,81,86,92,106,121
+crates/cho-cli/src/commands/payments.rs
+  252ddc07a0a48f36 4,47-56,60-61,72,77,91,104
+crates/cho-cli/src/commands/config.rs
+  252ddc07a0a48f36 3-4,23-28,34-35,82-86,98-102
+crates/cho-cli/src/commands/purchase_orders.rs
+  fa50c6e6c99e00e9 49
+  252ddc07a0a48f36 3-4,32-37,43-44,63,68
+crates/cho-cli/src/commands/quotes.rs
+  252ddc07a0a48f36 3-4,32-37,43-44,59,64
+  fa50c6e6c99e00e9 49
+crates/cho-cli/src/commands/manual_journals.rs
+  252ddc07a0a48f36 3-4,32-37,43-44,63,68
+  fa50c6e6c99e00e9 49
+crates/cho-cli/src/commands/items.rs
+  252ddc07a0a48f36 3-4,28-33,39-40,50,55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.2",
+  "base_commit_sha": "b39b7b56aaf62c92e1692481a1adc7bfa6ffb346",
+  "prompts": {
+    "1ba9552509b4c107": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c533a-ff75-7fe3-911a-e7695f5ea93f",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 114,
+      "overriden_lines": 0
+    },
+    "252ddc07a0a48f36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34b775e1-a122-419e-8000-ba3ac35ee178",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 2487,
+      "overriden_lines": 0
+    },
+    "7d87182ef8ba31a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d83ee5fa-f78b-4ea9-bfa5-9c89e578e15c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "9023b80323b3545c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1eac866c-1b4d-4dee-9cf3-6ee1493d8ad6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 3,
+      "overriden_lines": 0
+    },
+    "fa50c6e6c99e00e9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b65dbe5b-6e9d-40cb-bfed-bc440b69c5d3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 162,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,78 @@
+crates/cho-sdk/src/auth/storage.rs
+  fa50c6e6c99e00e9 57,62,64-83,273-275
+  9023b80323b3545c 61,193,201,212-223
+crates/cho-sdk/src/client.rs
+  fa50c6e6c99e00e9 10,760-763,766-767,843-862
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.2",
+  "base_commit_sha": "9a1e9a8c603101f23e952c0048ce46fa4219f4f9",
+  "prompts": {
+    "1ba9552509b4c107": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019c533a-ff75-7fe3-911a-e7695f5ea93f",
+        "model": "gpt-5.3-codex"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 299,
+      "total_deletions": 754,
+      "accepted_lines": 123,
+      "overriden_lines": 0
+    },
+    "252ddc07a0a48f36": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "34b775e1-a122-419e-8000-ba3ac35ee178",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 2763,
+      "total_deletions": 404,
+      "accepted_lines": 2533,
+      "overriden_lines": 33
+    },
+    "7d87182ef8ba31a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d83ee5fa-f78b-4ea9-bfa5-9c89e578e15c",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 0,
+      "accepted_lines": 5,
+      "overriden_lines": 0
+    },
+    "9023b80323b3545c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1eac866c-1b4d-4dee-9cf3-6ee1493d8ad6",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 21,
+      "total_deletions": 14,
+      "accepted_lines": 20,
+      "overriden_lines": 0
+    },
+    "fa50c6e6c99e00e9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b65dbe5b-6e9d-40cb-bfed-bc440b69c5d3",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Han <han@u29dc.com>",
+      "messages": [],
+      "total_additions": 227,
+      "total_deletions": 43,
+      "accepted_lines": 214,
+      "overriden_lines": 0
+    }
+  }
+}

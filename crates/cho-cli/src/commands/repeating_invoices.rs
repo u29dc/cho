@@ -1,5 +1,7 @@
 //! Repeating invoice commands: list, get.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 use uuid::Uuid;
 
@@ -27,11 +29,24 @@ pub enum RepeatingInvoiceCommands {
     },
 }
 
+/// Returns the tool name for a repeating invoice subcommand.
+pub fn tool_name(cmd: &RepeatingInvoiceCommands) -> &'static str {
+    match cmd {
+        RepeatingInvoiceCommands::List { .. } => "repeating-invoices.list",
+        RepeatingInvoiceCommands::Get { .. } => "repeating-invoices.get",
+    }
+}
+
 /// Runs a repeating invoice subcommand.
-pub async fn run(cmd: &RepeatingInvoiceCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &RepeatingInvoiceCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         RepeatingInvoiceCommands::List { r#where, order } => {
             warn_if_suspicious_filter(r#where.as_ref());
+            warn_if_suspicious_filter(order.as_ref());
             let mut params = ListParams::new();
             if let Some(w) = r#where {
                 params = params.with_where(w.clone());
@@ -45,14 +60,12 @@ pub async fn run(cmd: &RepeatingInvoiceCommands, ctx: &CliContext) -> cho_sdk::e
                 .repeating_invoices()
                 .list(&params, &pagination)
                 .await?;
-            let output = ctx.format_paginated_output(&items)?;
-            println!("{output}");
+            ctx.emit_list("repeating-invoices.list", &items, start)?;
             Ok(())
         }
         RepeatingInvoiceCommands::Get { id } => {
             let item = ctx.client().repeating_invoices().get(*id).await?;
-            let output = ctx.format_output(&item)?;
-            println!("{output}");
+            ctx.emit_success("repeating-invoices.get", &item, start)?;
             Ok(())
         }
     }

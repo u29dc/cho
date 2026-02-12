@@ -1,5 +1,7 @@
 //! Account commands: list.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 
 use cho_sdk::http::request::ListParams;
@@ -17,8 +19,19 @@ pub enum AccountCommands {
     },
 }
 
+/// Returns the tool name for an account subcommand.
+pub fn tool_name(cmd: &AccountCommands) -> &'static str {
+    match cmd {
+        AccountCommands::List { .. } => "accounts.list",
+    }
+}
+
 /// Runs an account subcommand.
-pub async fn run(cmd: &AccountCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &AccountCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         AccountCommands::List { r#where } => {
             warn_if_suspicious_filter(r#where.as_ref());
@@ -27,8 +40,7 @@ pub async fn run(cmd: &AccountCommands, ctx: &CliContext) -> cho_sdk::error::Res
                 params = params.with_where(w.clone());
             }
             let accounts = ctx.client().accounts().list(&params).await?;
-            let output = ctx.format_list_output(&accounts)?;
-            println!("{output}");
+            ctx.emit_items("accounts.list", &accounts, start)?;
             Ok(())
         }
     }

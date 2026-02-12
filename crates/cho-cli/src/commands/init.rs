@@ -263,7 +263,7 @@ struct ExistingConfig {
     table: toml::Table,
 }
 
-/// Returns the config file path: `~/.config/cho/config.toml`.
+/// Returns the config file path.
 fn config_file_path() -> cho_sdk::error::Result<PathBuf> {
     let dir = storage::config_dir()?;
     Ok(dir.join("config.toml"))

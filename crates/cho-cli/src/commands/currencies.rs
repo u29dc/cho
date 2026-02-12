@@ -1,5 +1,7 @@
 //! Currency commands: list.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 
 use cho_sdk::http::request::ListParams;
@@ -17,8 +19,19 @@ pub enum CurrencyCommands {
     },
 }
 
+/// Returns the tool name for a currency subcommand.
+pub fn tool_name(cmd: &CurrencyCommands) -> &'static str {
+    match cmd {
+        CurrencyCommands::List { .. } => "currencies.list",
+    }
+}
+
 /// Runs a currency subcommand.
-pub async fn run(cmd: &CurrencyCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &CurrencyCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         CurrencyCommands::List { r#where } => {
             warn_if_suspicious_filter(r#where.as_ref());
@@ -27,8 +40,7 @@ pub async fn run(cmd: &CurrencyCommands, ctx: &CliContext) -> cho_sdk::error::Re
                 params = params.with_where(w.clone());
             }
             let items = ctx.client().currencies().list(&params).await?;
-            let output = ctx.format_list_output(&items)?;
-            println!("{output}");
+            ctx.emit_items("currencies.list", &items, start)?;
             Ok(())
         }
     }

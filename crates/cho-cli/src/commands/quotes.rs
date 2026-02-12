@@ -1,5 +1,7 @@
 //! Quote commands: list, get.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 use uuid::Uuid;
 
@@ -27,11 +29,24 @@ pub enum QuoteCommands {
     },
 }
 
+/// Returns the tool name for a quote subcommand.
+pub fn tool_name(cmd: &QuoteCommands) -> &'static str {
+    match cmd {
+        QuoteCommands::List { .. } => "quotes.list",
+        QuoteCommands::Get { .. } => "quotes.get",
+    }
+}
+
 /// Runs a quote subcommand.
-pub async fn run(cmd: &QuoteCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &QuoteCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         QuoteCommands::List { r#where, order } => {
             warn_if_suspicious_filter(r#where.as_ref());
+            warn_if_suspicious_filter(order.as_ref());
             let mut params = ListParams::new();
             if let Some(w) = r#where {
                 params = params.with_where(w.clone());
@@ -41,14 +56,12 @@ pub async fn run(cmd: &QuoteCommands, ctx: &CliContext) -> cho_sdk::error::Resul
             }
             let pagination = ctx.pagination_params();
             let items = ctx.client().quotes().list(&params, &pagination).await?;
-            let output = ctx.format_paginated_output(&items)?;
-            println!("{output}");
+            ctx.emit_list("quotes.list", &items, start)?;
             Ok(())
         }
         QuoteCommands::Get { id } => {
             let item = ctx.client().quotes().get(*id).await?;
-            let output = ctx.format_output(&item)?;
-            println!("{output}");
+            ctx.emit_success("quotes.get", &item, start)?;
             Ok(())
         }
     }

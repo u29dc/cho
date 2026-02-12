@@ -1,6 +1,7 @@
 //! Invoice commands: list, get, create, update.
 
 use std::path::PathBuf;
+use std::time::Instant;
 
 use clap::Subcommand;
 use uuid::Uuid;
@@ -8,6 +9,7 @@ use uuid::Uuid;
 use cho_sdk::http::request::ListParams;
 use cho_sdk::models::invoice::Invoice;
 
+use crate::commands::utils::{read_json_file, validate_date};
 use crate::context::{CliContext, warn_if_suspicious_filter};
 
 /// Invoice subcommands.
@@ -62,8 +64,22 @@ pub enum InvoiceCommands {
     },
 }
 
+/// Returns the tool name for an invoice subcommand.
+pub fn tool_name(cmd: &InvoiceCommands) -> &'static str {
+    match cmd {
+        InvoiceCommands::List { .. } => "invoices.list",
+        InvoiceCommands::Get { .. } => "invoices.get",
+        InvoiceCommands::Create { .. } => "invoices.create",
+        InvoiceCommands::Update { .. } => "invoices.update",
+    }
+}
+
 /// Runs an invoice subcommand.
-pub async fn run(cmd: &InvoiceCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &InvoiceCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         InvoiceCommands::List {
             r#where,
@@ -72,12 +88,21 @@ pub async fn run(cmd: &InvoiceCommands, ctx: &CliContext) -> cho_sdk::error::Res
             to,
             summary,
         } => {
-            // Check for suspicious OData patterns in user-provided filter
+            // Check for suspicious OData patterns in user-provided filter/order
             warn_if_suspicious_filter(r#where.as_ref());
+            warn_if_suspicious_filter(order.as_ref());
 
             let mut params = ListParams::new();
 
             // Build where filter combining explicit where + date range
+            // Validate date formats before OData interpolation
+            if let Some(d) = from {
+                validate_date(d, "--from")?;
+            }
+            if let Some(d) = to {
+                validate_date(d, "--to")?;
+            }
+
             let mut where_parts = Vec::new();
             if let Some(w) = r#where {
                 where_parts.push(w.clone());
@@ -101,8 +126,7 @@ pub async fn run(cmd: &InvoiceCommands, ctx: &CliContext) -> cho_sdk::error::Res
 
             let pagination = ctx.pagination_params();
             let invoices = ctx.client().invoices().list(&params, &pagination).await?;
-            let output = ctx.format_paginated_output(&invoices)?;
-            println!("{output}");
+            ctx.emit_list("invoices.list", &invoices, start)?;
             Ok(())
         }
         InvoiceCommands::Get { id_or_number } => {
@@ -111,8 +135,7 @@ pub async fn run(cmd: &InvoiceCommands, ctx: &CliContext) -> cho_sdk::error::Res
             } else {
                 ctx.client().invoices().get_by_number(id_or_number).await?
             };
-            let output = ctx.format_output(&invoice)?;
-            println!("{output}");
+            ctx.emit_success("invoices.get", &invoice, start)?;
             Ok(())
         }
         InvoiceCommands::Create {
@@ -126,8 +149,7 @@ pub async fn run(cmd: &InvoiceCommands, ctx: &CliContext) -> cho_sdk::error::Res
                 .invoices()
                 .create(&invoice, idempotency_key.as_deref())
                 .await?;
-            let output = ctx.format_output(&result)?;
-            println!("{output}");
+            ctx.emit_success("invoices.create", &result, start)?;
             Ok(())
         }
         InvoiceCommands::Update {
@@ -142,22 +164,8 @@ pub async fn run(cmd: &InvoiceCommands, ctx: &CliContext) -> cho_sdk::error::Res
                 .invoices()
                 .update(*id, &invoice, idempotency_key.as_deref())
                 .await?;
-            let output = ctx.format_output(&result)?;
-            println!("{output}");
+            ctx.emit_success("invoices.update", &result, start)?;
             Ok(())
         }
     }
-}
-
-/// Reads and parses a JSON file into the specified type.
-pub fn read_json_file<T: serde::de::DeserializeOwned>(
-    path: &std::path::Path,
-) -> cho_sdk::error::Result<T> {
-    let content =
-        std::fs::read_to_string(path).map_err(|e| cho_sdk::error::ChoSdkError::Config {
-            message: format!("Failed to read file {}: {e}", path.display()),
-        })?;
-    serde_json::from_str(&content).map_err(|e| cho_sdk::error::ChoSdkError::Parse {
-        message: format!("Failed to parse JSON from {}: {e}", path.display()),
-    })
 }

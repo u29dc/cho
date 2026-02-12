@@ -1,5 +1,7 @@
 //! Purchase order commands: list, get.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 use uuid::Uuid;
 
@@ -27,11 +29,24 @@ pub enum PurchaseOrderCommands {
     },
 }
 
+/// Returns the tool name for a purchase order subcommand.
+pub fn tool_name(cmd: &PurchaseOrderCommands) -> &'static str {
+    match cmd {
+        PurchaseOrderCommands::List { .. } => "purchase-orders.list",
+        PurchaseOrderCommands::Get { .. } => "purchase-orders.get",
+    }
+}
+
 /// Runs a purchase order subcommand.
-pub async fn run(cmd: &PurchaseOrderCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &PurchaseOrderCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         PurchaseOrderCommands::List { r#where, order } => {
             warn_if_suspicious_filter(r#where.as_ref());
+            warn_if_suspicious_filter(order.as_ref());
             let mut params = ListParams::new();
             if let Some(w) = r#where {
                 params = params.with_where(w.clone());
@@ -45,14 +60,12 @@ pub async fn run(cmd: &PurchaseOrderCommands, ctx: &CliContext) -> cho_sdk::erro
                 .purchase_orders()
                 .list(&params, &pagination)
                 .await?;
-            let output = ctx.format_paginated_output(&items)?;
-            println!("{output}");
+            ctx.emit_list("purchase-orders.list", &items, start)?;
             Ok(())
         }
         PurchaseOrderCommands::Get { id } => {
             let item = ctx.client().purchase_orders().get(*id).await?;
-            let output = ctx.format_output(&item)?;
-            println!("{output}");
+            ctx.emit_success("purchase-orders.get", &item, start)?;
             Ok(())
         }
     }

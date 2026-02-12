@@ -1,9 +1,13 @@
 //! Report commands: balance-sheet, pnl, trial-balance, aged-payables, aged-receivables.
 
+use std::time::Instant;
+
 use clap::Subcommand;
+use uuid::Uuid;
 
 use cho_sdk::http::request::ReportParams;
 
+use crate::commands::utils::validate_date;
 use crate::context::CliContext;
 
 /// Report subcommands.
@@ -69,14 +73,32 @@ pub enum ReportCommands {
     },
 }
 
+/// Returns the tool name for a report subcommand.
+pub fn tool_name(cmd: &ReportCommands) -> &'static str {
+    match cmd {
+        ReportCommands::BalanceSheet { .. } => "reports.balance-sheet",
+        ReportCommands::Pnl { .. } => "reports.pnl",
+        ReportCommands::TrialBalance { .. } => "reports.trial-balance",
+        ReportCommands::AgedPayables { .. } => "reports.aged-payables",
+        ReportCommands::AgedReceivables { .. } => "reports.aged-receivables",
+    }
+}
+
 /// Runs a report subcommand.
-pub async fn run(cmd: &ReportCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &ReportCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         ReportCommands::BalanceSheet {
             date,
             periods,
             timeframe,
         } => {
+            if let Some(d) = date {
+                validate_date(d, "--date")?;
+            }
             let params = ReportParams {
                 date: date.clone(),
                 periods: *periods,
@@ -84,8 +106,7 @@ pub async fn run(cmd: &ReportCommands, ctx: &CliContext) -> cho_sdk::error::Resu
                 ..Default::default()
             };
             let report = ctx.client().reports().balance_sheet_raw(&params).await?;
-            let output = ctx.format_output(&report)?;
-            println!("{output}");
+            ctx.emit_success("reports.balance-sheet", &report, start)?;
             Ok(())
         }
         ReportCommands::Pnl {
@@ -94,6 +115,12 @@ pub async fn run(cmd: &ReportCommands, ctx: &CliContext) -> cho_sdk::error::Resu
             periods,
             timeframe,
         } => {
+            if let Some(d) = from {
+                validate_date(d, "--from")?;
+            }
+            if let Some(d) = to {
+                validate_date(d, "--to")?;
+            }
             let params = ReportParams {
                 from_date: from.clone(),
                 to_date: to.clone(),
@@ -102,40 +129,57 @@ pub async fn run(cmd: &ReportCommands, ctx: &CliContext) -> cho_sdk::error::Resu
                 ..Default::default()
             };
             let report = ctx.client().reports().profit_and_loss_raw(&params).await?;
-            let output = ctx.format_output(&report)?;
-            println!("{output}");
+            ctx.emit_success("reports.pnl", &report, start)?;
             Ok(())
         }
         ReportCommands::TrialBalance { date } => {
+            if let Some(d) = date {
+                validate_date(d, "--date")?;
+            }
             let params = ReportParams {
                 date: date.clone(),
                 ..Default::default()
             };
             let report = ctx.client().reports().trial_balance_raw(&params).await?;
-            let output = ctx.format_output(&report)?;
-            println!("{output}");
+            ctx.emit_success("reports.trial-balance", &report, start)?;
             Ok(())
         }
         ReportCommands::AgedPayables { contact, date } => {
+            if let Some(c) = contact {
+                c.parse::<Uuid>()
+                    .map_err(|_| cho_sdk::error::ChoSdkError::Config {
+                        message: format!("Invalid --contact UUID: \"{c}\""),
+                    })?;
+            }
+            if let Some(d) = date {
+                validate_date(d, "--date")?;
+            }
             let params = ReportParams {
                 contact_id: contact.clone(),
                 date: date.clone(),
                 ..Default::default()
             };
             let report = ctx.client().reports().aged_payables(&params).await?;
-            let output = ctx.format_output(&report)?;
-            println!("{output}");
+            ctx.emit_success("reports.aged-payables", &report, start)?;
             Ok(())
         }
         ReportCommands::AgedReceivables { contact, date } => {
+            if let Some(c) = contact {
+                c.parse::<Uuid>()
+                    .map_err(|_| cho_sdk::error::ChoSdkError::Config {
+                        message: format!("Invalid --contact UUID: \"{c}\""),
+                    })?;
+            }
+            if let Some(d) = date {
+                validate_date(d, "--date")?;
+            }
             let params = ReportParams {
                 contact_id: contact.clone(),
                 date: date.clone(),
                 ..Default::default()
             };
             let report = ctx.client().reports().aged_receivables(&params).await?;
-            let output = ctx.format_output(&report)?;
-            println!("{output}");
+            ctx.emit_success("reports.aged-receivables", &report, start)?;
             Ok(())
         }
     }

@@ -37,8 +37,14 @@ pub fn format_table(columns: &[Column], rows: &[Vec<String>]) -> String {
                     .map(|c| c.alignment)
                     .unwrap_or(CellAlignment::Left);
                 let display = if let Some(col) = columns.get(i) {
-                    if col.max_width > 0 && val.len() > col.max_width as usize {
-                        format!("{}...", &val[..col.max_width as usize - 3])
+                    if col.max_width >= 4 && val.len() > col.max_width as usize {
+                        let max = col.max_width as usize - 3;
+                        let boundary = val
+                            .char_indices()
+                            .take_while(|(i, _)| *i < max)
+                            .last()
+                            .map_or(0, |(i, ch)| i + ch.len_utf8());
+                        format!("{}...", &val[..boundary])
                     } else {
                         val.clone()
                     }
@@ -55,40 +61,10 @@ pub fn format_table(columns: &[Column], rows: &[Vec<String>]) -> String {
 }
 
 /// Helper: creates a left-aligned text column.
-#[allow(dead_code)]
-pub fn text_col(header: &'static str) -> Column {
-    Column {
-        header: header.to_string(),
-        alignment: CellAlignment::Left,
-        max_width: 0,
-    }
-}
-
-/// Helper: creates a left-aligned text column from a borrowed string.
 pub fn text_col_static(header: &str) -> Column {
     Column {
         header: header.to_string(),
         alignment: CellAlignment::Left,
         max_width: 0,
-    }
-}
-
-/// Helper: creates a right-aligned number column.
-#[allow(dead_code)]
-pub fn num_col(header: &'static str) -> Column {
-    Column {
-        header: header.to_string(),
-        alignment: CellAlignment::Right,
-        max_width: 0,
-    }
-}
-
-/// Helper: creates a left-aligned column with max width.
-#[allow(dead_code)]
-pub fn text_col_width(header: &'static str, max_width: u16) -> Column {
-    Column {
-        header: header.to_string(),
-        alignment: CellAlignment::Left,
-        max_width,
     }
 }

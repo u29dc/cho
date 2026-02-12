@@ -1,5 +1,7 @@
 //! Budget commands: list, get.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 use uuid::Uuid;
 
@@ -23,8 +25,20 @@ pub enum BudgetCommands {
     },
 }
 
+/// Returns the tool name for a budget subcommand.
+pub fn tool_name(cmd: &BudgetCommands) -> &'static str {
+    match cmd {
+        BudgetCommands::List { .. } => "budgets.list",
+        BudgetCommands::Get { .. } => "budgets.get",
+    }
+}
+
 /// Runs a budget subcommand.
-pub async fn run(cmd: &BudgetCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &BudgetCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         BudgetCommands::List { r#where } => {
             warn_if_suspicious_filter(r#where.as_ref());
@@ -33,14 +47,12 @@ pub async fn run(cmd: &BudgetCommands, ctx: &CliContext) -> cho_sdk::error::Resu
                 params = params.with_where(w.clone());
             }
             let items = ctx.client().budgets().list(&params).await?;
-            let output = ctx.format_list_output(&items)?;
-            println!("{output}");
+            ctx.emit_items("budgets.list", &items, start)?;
             Ok(())
         }
         BudgetCommands::Get { id } => {
             let item = ctx.client().budgets().get(*id).await?;
-            let output = ctx.format_output(&item)?;
-            println!("{output}");
+            ctx.emit_success("budgets.get", &item, start)?;
             Ok(())
         }
     }

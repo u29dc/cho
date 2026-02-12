@@ -1,5 +1,7 @@
 //! Manual journal commands: list, get.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 use uuid::Uuid;
 
@@ -27,11 +29,24 @@ pub enum ManualJournalCommands {
     },
 }
 
+/// Returns the tool name for the given subcommand.
+pub fn tool_name(cmd: &ManualJournalCommands) -> &'static str {
+    match cmd {
+        ManualJournalCommands::List { .. } => "manual-journals.list",
+        ManualJournalCommands::Get { .. } => "manual-journals.get",
+    }
+}
+
 /// Runs a manual journal subcommand.
-pub async fn run(cmd: &ManualJournalCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &ManualJournalCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         ManualJournalCommands::List { r#where, order } => {
             warn_if_suspicious_filter(r#where.as_ref());
+            warn_if_suspicious_filter(order.as_ref());
             let mut params = ListParams::new();
             if let Some(w) = r#where {
                 params = params.with_where(w.clone());
@@ -45,14 +60,12 @@ pub async fn run(cmd: &ManualJournalCommands, ctx: &CliContext) -> cho_sdk::erro
                 .manual_journals()
                 .list(&params, &pagination)
                 .await?;
-            let output = ctx.format_paginated_output(&items)?;
-            println!("{output}");
+            ctx.emit_list("manual-journals.list", &items, start)?;
             Ok(())
         }
         ManualJournalCommands::Get { id } => {
             let item = ctx.client().manual_journals().get(*id).await?;
-            let output = ctx.format_output(&item)?;
-            println!("{output}");
+            ctx.emit_success("manual-journals.get", &item, start)?;
             Ok(())
         }
     }

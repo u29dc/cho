@@ -1,5 +1,7 @@
 //! Auth commands: login, status, refresh, tenants.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 
 use crate::context::CliContext;
@@ -25,8 +27,22 @@ pub enum AuthCommands {
     Tenants,
 }
 
+/// Returns the tool name for an auth subcommand.
+pub fn tool_name(cmd: &AuthCommands) -> &'static str {
+    match cmd {
+        AuthCommands::Login { .. } => "auth.login",
+        AuthCommands::Status => "auth.status",
+        AuthCommands::Refresh => "auth.refresh",
+        AuthCommands::Tenants => "auth.tenants",
+    }
+}
+
 /// Runs an auth subcommand.
-pub async fn run(cmd: &AuthCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &AuthCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         AuthCommands::Login {
             client_credentials,
@@ -61,6 +77,11 @@ pub async fn run(cmd: &AuthCommands, ctx: &CliContext) -> cho_sdk::error::Result
                 );
             }
 
+            ctx.emit_success(
+                "auth.login",
+                &serde_json::json!({"authenticated": true}),
+                start,
+            )?;
             Ok(())
         }
         AuthCommands::Status => {
@@ -72,17 +93,29 @@ pub async fn run(cmd: &AuthCommands, ctx: &CliContext) -> cho_sdk::error::Result
                 eprintln!("Authenticated: no");
                 eprintln!("Run 'cho auth login' to authenticate.");
             }
+            ctx.emit_success(
+                "auth.status",
+                &serde_json::json!({
+                    "authenticated": authenticated,
+                    "tenant_id": ctx.client().tenant_id(),
+                }),
+                start,
+            )?;
             Ok(())
         }
         AuthCommands::Refresh => {
             ctx.client().auth().refresh().await?;
             eprintln!("Token refreshed successfully.");
+            ctx.emit_success(
+                "auth.refresh",
+                &serde_json::json!({"refreshed": true}),
+                start,
+            )?;
             Ok(())
         }
         AuthCommands::Tenants => {
             let connections = ctx.client().identity().connections().await?;
-            let output = ctx.format_list_output(&connections)?;
-            println!("{output}");
+            ctx.emit_items("auth.tenants", &connections, start)?;
             Ok(())
         }
     }

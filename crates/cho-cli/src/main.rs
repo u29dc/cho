@@ -4,10 +4,13 @@
 
 mod commands;
 mod context;
+mod envelope;
 mod error;
 mod output;
+mod registry;
 
 use std::io::IsTerminal;
+use std::time::Instant;
 
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
@@ -29,11 +32,15 @@ struct Cli {
     #[arg(long, value_enum, global = true, env = "CHO_FORMAT")]
     format: Option<OutputFormat>,
 
-    /// Wrap JSON output with {"data": [...], "pagination": {...}} envelope.
+    /// Shorthand for --format json.
     #[arg(long, global = true)]
+    json: bool,
+
+    /// Deprecated: JSON output always uses envelope. Accepted for compatibility.
+    #[arg(long, global = true, hide = true)]
     meta: bool,
 
-    /// Preserve Xero-native date format, skip ISO normalization.
+    /// Preserve Xero-native PascalCase keys, skip snake_case normalization.
     #[arg(long, global = true)]
     raw: bool,
 
@@ -75,6 +82,15 @@ struct Cli {
 enum Commands {
     /// Interactive first-time setup: authenticate and select a tenant.
     Init(commands::init::InitArgs),
+
+    /// Show tool catalog for agent discovery.
+    Tools {
+        /// Tool name for detail view (e.g. "invoices.list").
+        name: Option<String>,
+    },
+
+    /// Check CLI readiness (auth, config, connectivity).
+    Health,
 
     /// Authentication management.
     Auth {
@@ -198,6 +214,7 @@ enum Commands {
 
 #[tokio::main]
 async fn main() {
+    let start = Instant::now();
     let cli = Cli::parse();
 
     // Initialize tracing
@@ -206,32 +223,63 @@ async fn main() {
         tracing_subscriber::fmt().with_env_filter(filter).init();
     }
 
-    // Determine output format (auto-detect if not specified)
-    let format = cli.format.unwrap_or_else(|| {
-        if std::io::stdout().is_terminal() {
-            OutputFormat::Table
-        } else {
-            OutputFormat::Json
-        }
-    });
+    // Determine output format: --json flag > --format flag > auto-detect
+    let format = if cli.json {
+        OutputFormat::Json
+    } else {
+        cli.format.unwrap_or_else(|| {
+            if std::io::stdout().is_terminal() {
+                OutputFormat::Table
+            } else {
+                OutputFormat::Json
+            }
+        })
+    };
+
+    // Deprecation warning for --meta
+    if cli.meta {
+        eprintln!(
+            "Warning: --meta is deprecated. JSON output now always uses the envelope format."
+        );
+    }
 
     let json_options = JsonOptions {
-        meta: cli.meta,
         raw: cli.raw,
         precise: cli.precise,
     };
 
-    // Early dispatch for init (runs before CliContext, which requires client_id/tenant_id)
+    let is_json = format == OutputFormat::Json;
+
+    // --- Early dispatch: commands that don't need a client ---
+
+    // Init
     if let Commands::Init(ref args) = cli.command {
         if let Err(e) = commands::init::run(args).await {
-            let msg = error::format_error(&e, false);
-            eprintln!("{msg}");
+            let msg = error::format_error(&e, is_json, "init", start);
+            if is_json {
+                println!("{msg}");
+            } else {
+                eprintln!("{msg}");
+            }
             std::process::exit(error::exit_code(&e));
         }
         return;
     }
 
-    // Build SDK client
+    // Tools
+    if let Commands::Tools { ref name } = cli.command {
+        commands::tools::run(name.as_deref(), is_json, start);
+        return;
+    }
+
+    // Health
+    if let Commands::Health = cli.command {
+        let exit = commands::health::run(is_json, start).await;
+        std::process::exit(exit);
+    }
+
+    // --- Build SDK client ---
+
     let client_id = std::env::var("CHO_CLIENT_ID").unwrap_or_default();
     let base_url =
         std::env::var("CHO_BASE_URL").unwrap_or_else(|_| SdkConfig::default().base_url.clone());
@@ -256,50 +304,121 @@ async fn main() {
     {
         Ok(c) => c,
         Err(e) => {
-            let msg = error::format_error(&e, format == OutputFormat::Json);
-            eprintln!("{msg}");
+            let msg = error::format_error(&e, is_json, "unknown", start);
+            if is_json {
+                println!("{msg}");
+            } else {
+                eprintln!("{msg}");
+            }
             std::process::exit(error::exit_code(&e));
         }
     };
 
     let ctx = CliContext::new(client, format, json_options, cli.limit, cli.all);
 
-    // Dispatch command
-    let result = match &cli.command {
-        Commands::Init(_) => unreachable!("Init handled by early dispatch"),
-        Commands::Auth { command } => commands::auth::run(command, &ctx).await,
-        Commands::Invoices { command } => commands::invoices::run(command, &ctx).await,
-        Commands::Contacts { command } => commands::contacts::run(command, &ctx).await,
-        Commands::Payments { command } => commands::payments::run(command, &ctx).await,
-        Commands::Transactions { command } => commands::transactions::run(command, &ctx).await,
-        Commands::Accounts { command } => commands::accounts::run(command, &ctx).await,
-        Commands::Reports { command } => commands::reports::run(command, &ctx).await,
-        Commands::Config { command } => commands::config::run(command, &ctx).await,
-        Commands::CreditNotes { command } => commands::credit_notes::run(command, &ctx).await,
-        Commands::Quotes { command } => commands::quotes::run(command, &ctx).await,
-        Commands::PurchaseOrders { command } => commands::purchase_orders::run(command, &ctx).await,
-        Commands::Items { command } => commands::items::run(command, &ctx).await,
-        Commands::TaxRates { command } => commands::tax_rates::run(command, &ctx).await,
-        Commands::Currencies { command } => commands::currencies::run(command, &ctx).await,
-        Commands::TrackingCategories { command } => {
-            commands::tracking_categories::run(command, &ctx).await
+    // --- Dispatch command ---
+
+    let (tool_name, result) = match &cli.command {
+        Commands::Init(_) | Commands::Tools { .. } | Commands::Health => {
+            unreachable!("handled by early dispatch")
         }
-        Commands::Organisation { command } => commands::organisations::run(command, &ctx).await,
-        Commands::ManualJournals { command } => commands::manual_journals::run(command, &ctx).await,
-        Commands::Prepayments { command } => commands::prepayments::run(command, &ctx).await,
-        Commands::Overpayments { command } => commands::overpayments::run(command, &ctx).await,
-        Commands::LinkedTransactions { command } => {
-            commands::linked_transactions::run(command, &ctx).await
-        }
-        Commands::Budgets { command } => commands::budgets::run(command, &ctx).await,
-        Commands::RepeatingInvoices { command } => {
-            commands::repeating_invoices::run(command, &ctx).await
-        }
+        Commands::Auth { command } => (
+            commands::auth::tool_name(command),
+            commands::auth::run(command, &ctx, start).await,
+        ),
+        Commands::Invoices { command } => (
+            commands::invoices::tool_name(command),
+            commands::invoices::run(command, &ctx, start).await,
+        ),
+        Commands::Contacts { command } => (
+            commands::contacts::tool_name(command),
+            commands::contacts::run(command, &ctx, start).await,
+        ),
+        Commands::Payments { command } => (
+            commands::payments::tool_name(command),
+            commands::payments::run(command, &ctx, start).await,
+        ),
+        Commands::Transactions { command } => (
+            commands::transactions::tool_name(command),
+            commands::transactions::run(command, &ctx, start).await,
+        ),
+        Commands::Accounts { command } => (
+            commands::accounts::tool_name(command),
+            commands::accounts::run(command, &ctx, start).await,
+        ),
+        Commands::Reports { command } => (
+            commands::reports::tool_name(command),
+            commands::reports::run(command, &ctx, start).await,
+        ),
+        Commands::Config { command } => (
+            commands::config::tool_name(command),
+            commands::config::run(command, &ctx, start).await,
+        ),
+        Commands::CreditNotes { command } => (
+            commands::credit_notes::tool_name(command),
+            commands::credit_notes::run(command, &ctx, start).await,
+        ),
+        Commands::Quotes { command } => (
+            commands::quotes::tool_name(command),
+            commands::quotes::run(command, &ctx, start).await,
+        ),
+        Commands::PurchaseOrders { command } => (
+            commands::purchase_orders::tool_name(command),
+            commands::purchase_orders::run(command, &ctx, start).await,
+        ),
+        Commands::Items { command } => (
+            commands::items::tool_name(command),
+            commands::items::run(command, &ctx, start).await,
+        ),
+        Commands::TaxRates { command } => (
+            commands::tax_rates::tool_name(command),
+            commands::tax_rates::run(command, &ctx, start).await,
+        ),
+        Commands::Currencies { command } => (
+            commands::currencies::tool_name(command),
+            commands::currencies::run(command, &ctx, start).await,
+        ),
+        Commands::TrackingCategories { command } => (
+            commands::tracking_categories::tool_name(command),
+            commands::tracking_categories::run(command, &ctx, start).await,
+        ),
+        Commands::Organisation { command } => (
+            commands::organisations::tool_name(command),
+            commands::organisations::run(command, &ctx, start).await,
+        ),
+        Commands::ManualJournals { command } => (
+            commands::manual_journals::tool_name(command),
+            commands::manual_journals::run(command, &ctx, start).await,
+        ),
+        Commands::Prepayments { command } => (
+            commands::prepayments::tool_name(command),
+            commands::prepayments::run(command, &ctx, start).await,
+        ),
+        Commands::Overpayments { command } => (
+            commands::overpayments::tool_name(command),
+            commands::overpayments::run(command, &ctx, start).await,
+        ),
+        Commands::LinkedTransactions { command } => (
+            commands::linked_transactions::tool_name(command),
+            commands::linked_transactions::run(command, &ctx, start).await,
+        ),
+        Commands::Budgets { command } => (
+            commands::budgets::tool_name(command),
+            commands::budgets::run(command, &ctx, start).await,
+        ),
+        Commands::RepeatingInvoices { command } => (
+            commands::repeating_invoices::tool_name(command),
+            commands::repeating_invoices::run(command, &ctx, start).await,
+        ),
     };
 
     if let Err(e) = result {
-        let msg = error::format_error(&e, ctx.json_errors());
-        eprintln!("{msg}");
+        let msg = error::format_error(&e, ctx.is_json(), tool_name, start);
+        if ctx.is_json() {
+            println!("{msg}");
+        } else {
+            eprintln!("{msg}");
+        }
         std::process::exit(error::exit_code(&e));
     }
 }

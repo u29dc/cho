@@ -1,5 +1,7 @@
 //! Item commands: list, get.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 use uuid::Uuid;
 
@@ -23,8 +25,20 @@ pub enum ItemCommands {
     },
 }
 
+/// Returns the tool name for an item subcommand.
+pub fn tool_name(cmd: &ItemCommands) -> &'static str {
+    match cmd {
+        ItemCommands::List { .. } => "items.list",
+        ItemCommands::Get { .. } => "items.get",
+    }
+}
+
 /// Runs an item subcommand.
-pub async fn run(cmd: &ItemCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &ItemCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         ItemCommands::List { r#where } => {
             warn_if_suspicious_filter(r#where.as_ref());
@@ -33,14 +47,12 @@ pub async fn run(cmd: &ItemCommands, ctx: &CliContext) -> cho_sdk::error::Result
                 params = params.with_where(w.clone());
             }
             let items = ctx.client().items().list(&params).await?;
-            let output = ctx.format_list_output(&items)?;
-            println!("{output}");
+            ctx.emit_items("items.list", &items, start)?;
             Ok(())
         }
         ItemCommands::Get { id } => {
             let item = ctx.client().items().get(*id).await?;
-            let output = ctx.format_output(&item)?;
-            println!("{output}");
+            ctx.emit_success("items.get", &item, start)?;
             Ok(())
         }
     }

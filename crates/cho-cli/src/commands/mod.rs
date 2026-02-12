@@ -1,5 +1,7 @@
 //! CLI command implementations.
 
+pub mod utils;
+
 pub mod accounts;
 pub mod auth;
 pub mod budgets;
@@ -7,6 +9,7 @@ pub mod config;
 pub mod contacts;
 pub mod credit_notes;
 pub mod currencies;
+pub mod health;
 pub mod init;
 pub mod invoices;
 pub mod items;
@@ -21,5 +24,6 @@ pub mod quotes;
 pub mod repeating_invoices;
 pub mod reports;
 pub mod tax_rates;
+pub mod tools;
 pub mod tracking_categories;
 pub mod transactions;

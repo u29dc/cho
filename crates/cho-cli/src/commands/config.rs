@@ -1,5 +1,7 @@
 //! Config commands: set, show.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 
 use crate::context::CliContext;
@@ -18,8 +20,20 @@ pub enum ConfigCommands {
     Show,
 }
 
+/// Returns the tool name for a config subcommand.
+pub fn tool_name(cmd: &ConfigCommands) -> &'static str {
+    match cmd {
+        ConfigCommands::Set { .. } => "config.set",
+        ConfigCommands::Show => "config.show",
+    }
+}
+
 /// Runs a config subcommand.
-pub async fn run(cmd: &ConfigCommands, _ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &ConfigCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         ConfigCommands::Set { key, value } => {
             let config_path = cho_sdk::auth::storage::config_dir()?.join("config.toml");
@@ -65,6 +79,11 @@ pub async fn run(cmd: &ConfigCommands, _ctx: &CliContext) -> cho_sdk::error::Res
             })?;
 
             eprintln!("Set {key} = {value}");
+            ctx.emit_success(
+                "config.set",
+                &serde_json::json!({"key": key, "value": value}),
+                start,
+            )?;
             Ok(())
         }
         ConfigCommands::Show => {
@@ -76,10 +95,15 @@ pub async fn run(cmd: &ConfigCommands, _ctx: &CliContext) -> cho_sdk::error::Res
                         message: format!("Failed to read config: {e}"),
                     }
                 })?;
-                println!("{content}");
+                let config_value: serde_json::Value =
+                    toml::from_str(&content).map_err(|e| cho_sdk::error::ChoSdkError::Config {
+                        message: format!("Failed to parse config: {e}"),
+                    })?;
+                ctx.emit_success("config.show", &config_value, start)?;
             } else {
                 eprintln!("No configuration file found.");
                 eprintln!("Config path: {}", config_path.display());
+                ctx.emit_success("config.show", &serde_json::json!({}), start)?;
             }
             Ok(())
         }

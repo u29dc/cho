@@ -1,5 +1,7 @@
 //! Tracking category commands: list, get.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 use uuid::Uuid;
 
@@ -23,8 +25,20 @@ pub enum TrackingCategoryCommands {
     },
 }
 
+/// Returns the tool name for the given subcommand.
+pub fn tool_name(cmd: &TrackingCategoryCommands) -> &'static str {
+    match cmd {
+        TrackingCategoryCommands::List { .. } => "tracking-categories.list",
+        TrackingCategoryCommands::Get { .. } => "tracking-categories.get",
+    }
+}
+
 /// Runs a tracking category subcommand.
-pub async fn run(cmd: &TrackingCategoryCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &TrackingCategoryCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         TrackingCategoryCommands::List { r#where } => {
             warn_if_suspicious_filter(r#where.as_ref());
@@ -33,14 +47,12 @@ pub async fn run(cmd: &TrackingCategoryCommands, ctx: &CliContext) -> cho_sdk::e
                 params = params.with_where(w.clone());
             }
             let items = ctx.client().tracking_categories().list(&params).await?;
-            let output = ctx.format_list_output(&items)?;
-            println!("{output}");
+            ctx.emit_items("tracking-categories.list", &items, start)?;
             Ok(())
         }
         TrackingCategoryCommands::Get { id } => {
             let item = ctx.client().tracking_categories().get(*id).await?;
-            let output = ctx.format_output(&item)?;
-            println!("{output}");
+            ctx.emit_success("tracking-categories.get", &item, start)?;
             Ok(())
         }
     }

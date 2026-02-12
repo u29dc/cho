@@ -1,12 +1,15 @@
 //! CLI execution context: client, formatting options, and global state.
 
+use std::time::Instant;
+
 use cho_sdk::client::XeroClient;
 use cho_sdk::http::pagination::{ListResult, PaginationParams};
 use serde::Serialize;
 use tracing::warn;
 
+use crate::envelope;
 use crate::output::OutputFormat;
-use crate::output::json::{JsonOptions, format_json, format_json_list};
+use crate::output::json::{JsonOptions, money_to_strings, pascal_to_snake_keys};
 use crate::output::value_to_rows;
 
 /// Shared context for all CLI commands.
@@ -51,116 +54,168 @@ impl CliContext {
     }
 
     /// Returns pagination parameters based on --limit and --all flags.
+    ///
+    /// Caps the effective limit at 10,000 items to prevent OOM. Use `--all`
+    /// for truly unlimited fetches.
     pub fn pagination_params(&self) -> PaginationParams {
+        const MAX_LIMIT: usize = 10_000;
+
         if self.all {
             PaginationParams::all()
         } else {
-            PaginationParams::with_limit(self.limit)
+            let effective = self.limit.min(MAX_LIMIT);
+            if self.limit > MAX_LIMIT {
+                warn!("Limit capped at {MAX_LIMIT} items. Use --all for unlimited.");
+            }
+            PaginationParams::with_limit(effective)
         }
     }
 
-    /// Returns whether JSON error formatting should be used.
-    pub fn json_errors(&self) -> bool {
+    /// Returns whether JSON mode is active.
+    pub fn is_json(&self) -> bool {
         self.format == OutputFormat::Json
     }
 
-    /// Formats a serializable value according to the selected output format.
-    pub fn format_output<T: Serialize>(&self, value: &T) -> cho_sdk::error::Result<String> {
+    /// Emits a single-item success response.
+    ///
+    /// In JSON mode, wraps in `{ok, data, meta}` envelope.
+    /// In table/CSV mode, formats directly.
+    pub fn emit_success<T: Serialize>(
+        &self,
+        tool: &str,
+        data: &T,
+        start: Instant,
+    ) -> cho_sdk::error::Result<()> {
         match self.format {
-            OutputFormat::Json => format_json(value, &self.json_options)
-                .map_err(|e| cho_sdk::error::ChoSdkError::Parse { message: e }),
+            OutputFormat::Json => {
+                let json_data = self.transform_data(data)?;
+                let output = envelope::emit_success(tool, json_data, start, None, None, None);
+                println!("{output}");
+            }
             OutputFormat::Table | OutputFormat::Csv => {
-                let json_value = serde_json::to_value(value).map_err(|e| {
-                    cho_sdk::error::ChoSdkError::Parse {
-                        message: format!("JSON serialization failed: {e}"),
-                    }
-                })?;
-                let transformed = if self.json_options.raw {
-                    json_value
-                } else {
-                    crate::output::json::pascal_to_snake_keys(json_value)
-                };
-                let (headers, rows) = value_to_rows(&transformed);
-                match self.format {
-                    OutputFormat::Table => {
-                        let columns: Vec<_> = headers
-                            .iter()
-                            .map(|h| crate::output::table::text_col_static(h))
-                            .collect();
-                        Ok(crate::output::table::format_table(&columns, &rows))
-                    }
-                    OutputFormat::Csv => {
-                        let header_refs: Vec<&str> = headers.iter().map(|s| s.as_str()).collect();
-                        Ok(crate::output::csv::format_csv(&header_refs, &rows))
-                    }
-                    _ => unreachable!(),
-                }
+                let output = self.format_table_csv(data)?;
+                println!("{output}");
             }
         }
+        Ok(())
     }
 
-    /// Formats a paginated list result, threading pagination metadata through
-    /// the `--meta` envelope when enabled.
-    pub fn format_paginated_output<T: Serialize>(
+    /// Emits a paginated list response.
+    ///
+    /// In JSON mode, wraps in envelope with count/total/hasMore metadata.
+    /// In table/CSV mode, formats directly.
+    pub fn emit_list<T: Serialize>(
         &self,
+        tool: &str,
         result: &ListResult<T>,
-    ) -> cho_sdk::error::Result<String> {
-        let pagination_json = result
+        start: Instant,
+    ) -> cho_sdk::error::Result<()> {
+        let count = Some(result.items.len());
+        let total = result
             .pagination
             .as_ref()
-            .and_then(|p| serde_json::to_value(p).ok());
+            .and_then(|p| p.item_count)
+            .map(|c| c as usize);
+        let has_more = result.pagination.as_ref().and_then(|p| {
+            let page = p.page?;
+            let page_count = p.page_count?;
+            Some(page < page_count)
+        });
 
-        self.format_list_inner(&result.items, pagination_json.as_ref())
-    }
-
-    /// Formats a non-paginated list of items.
-    pub fn format_list_output<T: Serialize>(&self, items: &[T]) -> cho_sdk::error::Result<String> {
-        self.format_list_inner(items, None)
-    }
-
-    /// Inner list formatting with optional pagination metadata.
-    fn format_list_inner<T: Serialize>(
-        &self,
-        items: &[T],
-        pagination: Option<&serde_json::Value>,
-    ) -> cho_sdk::error::Result<String> {
         match self.format {
-            OutputFormat::Json => format_json_list(items, pagination, &self.json_options)
-                .map_err(|e| cho_sdk::error::ChoSdkError::Parse { message: e }),
-            OutputFormat::Table | OutputFormat::Csv => {
-                let json_value = serde_json::to_value(items).map_err(|e| {
-                    cho_sdk::error::ChoSdkError::Parse {
-                        message: format!("JSON serialization failed: {e}"),
-                    }
-                })?;
-                let transformed = if self.json_options.raw {
-                    json_value
-                } else {
-                    crate::output::json::pascal_to_snake_keys(json_value)
-                };
-                let (headers, rows) = value_to_rows(&transformed);
-                match self.format {
-                    OutputFormat::Table => {
-                        let columns: Vec<_> = headers
-                            .iter()
-                            .map(|h| crate::output::table::text_col_static(h))
-                            .collect();
-                        Ok(crate::output::table::format_table(&columns, &rows))
-                    }
-                    OutputFormat::Csv => {
-                        let header_refs: Vec<&str> = headers.iter().map(|s| s.as_str()).collect();
-                        Ok(crate::output::csv::format_csv(&header_refs, &rows))
-                    }
-                    _ => unreachable!(),
-                }
+            OutputFormat::Json => {
+                let json_data = self.transform_data(&result.items)?;
+                let output = envelope::emit_success(tool, json_data, start, count, total, has_more);
+                println!("{output}");
             }
+            OutputFormat::Table | OutputFormat::Csv => {
+                let output = self.format_table_csv(&result.items)?;
+                println!("{output}");
+            }
+        }
+        Ok(())
+    }
+
+    /// Emits a non-paginated list response.
+    pub fn emit_items<T: Serialize>(
+        &self,
+        tool: &str,
+        items: &[T],
+        start: Instant,
+    ) -> cho_sdk::error::Result<()> {
+        let count = Some(items.len());
+
+        match self.format {
+            OutputFormat::Json => {
+                let json_data = self.transform_data(items)?;
+                let output = envelope::emit_success(tool, json_data, start, count, None, None);
+                println!("{output}");
+            }
+            OutputFormat::Table | OutputFormat::Csv => {
+                let output = self.format_table_csv(items)?;
+                println!("{output}");
+            }
+        }
+        Ok(())
+    }
+
+    /// Transforms a serializable value through the JSON pipeline (snake_case, --precise).
+    ///
+    /// Returns a `serde_json::Value` suitable for embedding in the envelope `data` field.
+    fn transform_data<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+    ) -> cho_sdk::error::Result<serde_json::Value> {
+        let json_value =
+            serde_json::to_value(value).map_err(|e| cho_sdk::error::ChoSdkError::Parse {
+                message: format!("JSON serialization failed: {e}"),
+            })?;
+
+        let transformed = if self.json_options.raw {
+            json_value
+        } else {
+            pascal_to_snake_keys(json_value)
+        };
+
+        Ok(if self.json_options.precise {
+            money_to_strings(transformed)
+        } else {
+            transformed
+        })
+    }
+
+    /// Formats data as table or CSV.
+    fn format_table_csv<T: Serialize + ?Sized>(&self, value: &T) -> cho_sdk::error::Result<String> {
+        let json_value =
+            serde_json::to_value(value).map_err(|e| cho_sdk::error::ChoSdkError::Parse {
+                message: format!("JSON serialization failed: {e}"),
+            })?;
+        let transformed = if self.json_options.raw {
+            json_value
+        } else {
+            pascal_to_snake_keys(json_value)
+        };
+        let (headers, rows) = value_to_rows(&transformed);
+        match self.format {
+            OutputFormat::Table => {
+                let columns: Vec<_> = headers
+                    .iter()
+                    .map(|h| crate::output::table::text_col_static(h))
+                    .collect();
+                Ok(crate::output::table::format_table(&columns, &rows))
+            }
+            OutputFormat::Csv => {
+                let header_refs: Vec<&str> = headers.iter().map(|s| s.as_str()).collect();
+                Ok(crate::output::csv::format_csv(&header_refs, &rows))
+            }
+            OutputFormat::Json => unreachable!("JSON handled by emit methods"),
         }
     }
 
     /// Checks whether write operations are allowed.
     ///
     /// Write operations are gated behind a config-file-only setting:
-    /// `[safety] allow_writes = true` in `~/.config/cho/config.toml`.
+    /// `[safety] allow_writes = true` in `config.toml`.
     ///
     /// This cannot be overridden by CLI flags or environment variables.
     pub fn require_writes_allowed(&self) -> cho_sdk::error::Result<()> {
@@ -240,13 +295,6 @@ const SUSPICIOUS_ODATA_PATTERNS: &[(&str, &str)] = &[
 /// Emits a warning if suspicious patterns are detected. Does not block the
 /// request since OData injection detection is inherently imperfect, but alerts
 /// the user to review their input.
-///
-/// # Example
-///
-/// ```ignore
-/// warn_if_suspicious_filter(Some(&"Status=='ACTIVE'".to_string()));
-/// // Warns: Suspicious pattern in --where filter: single quote (string delimiter)
-/// ```
 pub fn warn_if_suspicious_filter(filter: Option<&String>) {
     let Some(filter) = filter else {
         return;

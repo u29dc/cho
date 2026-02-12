@@ -1,17 +1,13 @@
 //! JSON output formatter.
 //!
 //! Re-serializes SDK structs (PascalCase) to snake_case JSON for CLI output.
-//! Supports `--meta` envelope, `--raw` date preservation, and `--precise`
-//! money-as-string formatting.
+//! Supports `--raw` key preservation and `--precise` money-as-string formatting.
 
-use serde::Serialize;
 use serde_json::Value;
 
 /// Options controlling JSON output behavior.
 #[derive(Debug, Clone, Default)]
 pub struct JsonOptions {
-    /// Wrap output in `{"data": [...], "pagination": {...}}` envelope.
-    pub meta: bool,
     /// When true, skip key transformation (preserve PascalCase Xero-native keys).
     ///
     /// Note: raw MS date (`/Date(epoch)/`) preservation would require SDK-level
@@ -20,68 +16,6 @@ pub struct JsonOptions {
     pub raw: bool,
     /// Serialize money as strings instead of numbers.
     pub precise: bool,
-}
-
-/// Formats a serializable value as JSON.
-///
-/// By default, converts PascalCase keys to snake_case. When `raw` is true,
-/// preserves Xero-native PascalCase keys.
-pub fn format_json<T: Serialize>(value: &T, options: &JsonOptions) -> Result<String, String> {
-    let json_value =
-        serde_json::to_value(value).map_err(|e| format!("JSON serialization failed: {e}"))?;
-
-    let transformed = if options.raw {
-        json_value
-    } else {
-        pascal_to_snake_keys(json_value)
-    };
-
-    let output = if options.precise {
-        money_to_strings(transformed)
-    } else {
-        transformed
-    };
-
-    serde_json::to_string_pretty(&output).map_err(|e| format!("JSON formatting failed: {e}"))
-}
-
-/// Formats a list with optional meta envelope.
-pub fn format_json_list<T: Serialize>(
-    items: &[T],
-    pagination: Option<&serde_json::Value>,
-    options: &JsonOptions,
-) -> Result<String, String> {
-    let json_value =
-        serde_json::to_value(items).map_err(|e| format!("JSON serialization failed: {e}"))?;
-
-    let transformed = if options.raw {
-        json_value
-    } else {
-        pascal_to_snake_keys(json_value)
-    };
-
-    let output = if options.precise {
-        money_to_strings(transformed)
-    } else {
-        transformed
-    };
-
-    if options.meta {
-        let mut envelope = serde_json::Map::new();
-        envelope.insert("data".to_string(), output);
-        if let Some(pag) = pagination {
-            let pag_value = if options.raw {
-                pag.clone()
-            } else {
-                pascal_to_snake_keys(pag.clone())
-            };
-            envelope.insert("pagination".to_string(), pag_value);
-        }
-        serde_json::to_string_pretty(&Value::Object(envelope))
-            .map_err(|e| format!("JSON formatting failed: {e}"))
-    } else {
-        serde_json::to_string_pretty(&output).map_err(|e| format!("JSON formatting failed: {e}"))
-    }
 }
 
 /// Recursively converts all object keys from PascalCase to snake_case.
@@ -101,22 +35,20 @@ pub fn pascal_to_snake_keys(value: Value) -> Value {
 
 /// Converts a PascalCase string to snake_case.
 fn pascal_to_snake(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
     let mut result = String::with_capacity(s.len() + 4);
     let mut prev_upper = false;
     let mut prev_was_start = true;
 
-    for (i, ch) in s.chars().enumerate() {
+    for i in 0..chars.len() {
+        let ch = chars[i];
         if ch.is_uppercase() {
             if !prev_was_start && !prev_upper {
                 result.push('_');
-            } else if prev_upper && i + 1 < s.len() {
+            } else if prev_upper && i + 1 < chars.len() {
                 // Handle sequences like "ID" -> "id", "UTC" -> "utc"
                 // But "IDField" -> "id_field"
-                let next = s.chars().nth(i + 1);
-                if let Some(next_ch) = next
-                    && next_ch.is_lowercase()
-                    && !prev_was_start
-                {
+                if chars[i + 1].is_lowercase() && !prev_was_start {
                     result.push('_');
                 }
             }
@@ -134,7 +66,7 @@ fn pascal_to_snake(s: &str) -> String {
 
 /// Recursively converts numeric values that look like money (have decimal places)
 /// to string representations for precise output.
-fn money_to_strings(value: Value) -> Value {
+pub fn money_to_strings(value: Value) -> Value {
     match value {
         Value::Object(map) => {
             let new_map: serde_json::Map<String, Value> = map
@@ -145,13 +77,11 @@ fn money_to_strings(value: Value) -> Value {
         }
         Value::Array(arr) => Value::Array(arr.into_iter().map(money_to_strings).collect()),
         Value::Number(n) => {
-            // Convert numbers with decimals to strings
-            if let Some(f) = n.as_f64() {
-                if f.fract() != 0.0 || n.to_string().contains('.') {
-                    Value::String(n.to_string())
-                } else {
-                    Value::Number(n)
-                }
+            // Convert numbers with decimals to strings, avoiding f64 intermediate
+            // which can lose precision for large Decimal values.
+            let s = n.to_string();
+            if s.contains('.') {
+                Value::String(s)
             } else {
                 Value::Number(n)
             }

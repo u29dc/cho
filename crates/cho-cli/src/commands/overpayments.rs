@@ -1,5 +1,7 @@
 //! Overpayment commands: list, get.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 use uuid::Uuid;
 
@@ -27,11 +29,24 @@ pub enum OverpaymentCommands {
     },
 }
 
+/// Returns the tool name for the given subcommand.
+pub fn tool_name(cmd: &OverpaymentCommands) -> &'static str {
+    match cmd {
+        OverpaymentCommands::List { .. } => "overpayments.list",
+        OverpaymentCommands::Get { .. } => "overpayments.get",
+    }
+}
+
 /// Runs an overpayment subcommand.
-pub async fn run(cmd: &OverpaymentCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &OverpaymentCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         OverpaymentCommands::List { r#where, order } => {
             warn_if_suspicious_filter(r#where.as_ref());
+            warn_if_suspicious_filter(order.as_ref());
             let mut params = ListParams::new();
             if let Some(w) = r#where {
                 params = params.with_where(w.clone());
@@ -45,14 +60,12 @@ pub async fn run(cmd: &OverpaymentCommands, ctx: &CliContext) -> cho_sdk::error:
                 .overpayments()
                 .list(&params, &pagination)
                 .await?;
-            let output = ctx.format_paginated_output(&items)?;
-            println!("{output}");
+            ctx.emit_list("overpayments.list", &items, start)?;
             Ok(())
         }
         OverpaymentCommands::Get { id } => {
             let item = ctx.client().overpayments().get(*id).await?;
-            let output = ctx.format_output(&item)?;
-            println!("{output}");
+            ctx.emit_success("overpayments.get", &item, start)?;
             Ok(())
         }
     }

@@ -11,7 +11,7 @@
 		"init---------------------------------": "",
 		"prepare": "husky",
 		"build--------------------------------": "",
-		"build": "cargo build --workspace --release",
+		"build": "cargo build --workspace --release && mkdir -p \"${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}\" && cp target/release/cho \"${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}/cho\"",
 		"cho:dev": "cargo run -p cho-cli --",
 		"cho": "./target/release/cho",
 		"check--------------------------------": "",

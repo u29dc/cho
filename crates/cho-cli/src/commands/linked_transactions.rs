@@ -1,5 +1,7 @@
 //! Linked transaction commands: list, get.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 use uuid::Uuid;
 
@@ -27,11 +29,24 @@ pub enum LinkedTransactionCommands {
     },
 }
 
+/// Returns the tool name for the given subcommand.
+pub fn tool_name(cmd: &LinkedTransactionCommands) -> &'static str {
+    match cmd {
+        LinkedTransactionCommands::List { .. } => "linked-transactions.list",
+        LinkedTransactionCommands::Get { .. } => "linked-transactions.get",
+    }
+}
+
 /// Runs a linked transaction subcommand.
-pub async fn run(cmd: &LinkedTransactionCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &LinkedTransactionCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         LinkedTransactionCommands::List { r#where, order } => {
             warn_if_suspicious_filter(r#where.as_ref());
+            warn_if_suspicious_filter(order.as_ref());
             let mut params = ListParams::new();
             if let Some(w) = r#where {
                 params = params.with_where(w.clone());
@@ -45,14 +60,12 @@ pub async fn run(cmd: &LinkedTransactionCommands, ctx: &CliContext) -> cho_sdk::
                 .linked_transactions()
                 .list(&params, &pagination)
                 .await?;
-            let output = ctx.format_paginated_output(&items)?;
-            println!("{output}");
+            ctx.emit_list("linked-transactions.list", &items, start)?;
             Ok(())
         }
         LinkedTransactionCommands::Get { id } => {
             let item = ctx.client().linked_transactions().get(*id).await?;
-            let output = ctx.format_output(&item)?;
-            println!("{output}");
+            ctx.emit_success("linked-transactions.get", &item, start)?;
             Ok(())
         }
     }

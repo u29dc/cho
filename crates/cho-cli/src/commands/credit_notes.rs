@@ -1,5 +1,7 @@
 //! Credit note commands: list, get.
 
+use std::time::Instant;
+
 use clap::Subcommand;
 use uuid::Uuid;
 
@@ -27,11 +29,24 @@ pub enum CreditNoteCommands {
     },
 }
 
+/// Returns the tool name for a credit note subcommand.
+pub fn tool_name(cmd: &CreditNoteCommands) -> &'static str {
+    match cmd {
+        CreditNoteCommands::List { .. } => "credit-notes.list",
+        CreditNoteCommands::Get { .. } => "credit-notes.get",
+    }
+}
+
 /// Runs a credit note subcommand.
-pub async fn run(cmd: &CreditNoteCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &CreditNoteCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         CreditNoteCommands::List { r#where, order } => {
             warn_if_suspicious_filter(r#where.as_ref());
+            warn_if_suspicious_filter(order.as_ref());
             let mut params = ListParams::new();
             if let Some(w) = r#where {
                 params = params.with_where(w.clone());
@@ -45,14 +60,12 @@ pub async fn run(cmd: &CreditNoteCommands, ctx: &CliContext) -> cho_sdk::error::
                 .credit_notes()
                 .list(&params, &pagination)
                 .await?;
-            let output = ctx.format_paginated_output(&items)?;
-            println!("{output}");
+            ctx.emit_list("credit-notes.list", &items, start)?;
             Ok(())
         }
         CreditNoteCommands::Get { id } => {
             let item = ctx.client().credit_notes().get(*id).await?;
-            let output = ctx.format_output(&item)?;
-            println!("{output}");
+            ctx.emit_success("credit-notes.get", &item, start)?;
             Ok(())
         }
     }

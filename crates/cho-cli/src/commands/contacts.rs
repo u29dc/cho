@@ -1,6 +1,7 @@
 //! Contact commands: list, get, search, create, update.
 
 use std::path::PathBuf;
+use std::time::Instant;
 
 use clap::Subcommand;
 use uuid::Uuid;
@@ -51,8 +52,23 @@ pub enum ContactCommands {
     },
 }
 
+/// Returns the tool name for a contact subcommand.
+pub fn tool_name(cmd: &ContactCommands) -> &'static str {
+    match cmd {
+        ContactCommands::List { .. } => "contacts.list",
+        ContactCommands::Get { .. } => "contacts.get",
+        ContactCommands::Search { .. } => "contacts.search",
+        ContactCommands::Create { .. } => "contacts.create",
+        ContactCommands::Update { .. } => "contacts.update",
+    }
+}
+
 /// Runs a contact subcommand.
-pub async fn run(cmd: &ContactCommands, ctx: &CliContext) -> cho_sdk::error::Result<()> {
+pub async fn run(
+    cmd: &ContactCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> cho_sdk::error::Result<()> {
     match cmd {
         ContactCommands::List { r#where } => {
             warn_if_suspicious_filter(r#where.as_ref());
@@ -62,21 +78,18 @@ pub async fn run(cmd: &ContactCommands, ctx: &CliContext) -> cho_sdk::error::Res
             }
             let pagination = ctx.pagination_params();
             let contacts = ctx.client().contacts().list(&params, &pagination).await?;
-            let output = ctx.format_paginated_output(&contacts)?;
-            println!("{output}");
+            ctx.emit_list("contacts.list", &contacts, start)?;
             Ok(())
         }
         ContactCommands::Get { id } => {
             let contact = ctx.client().contacts().get(*id).await?;
-            let output = ctx.format_output(&contact)?;
-            println!("{output}");
+            ctx.emit_success("contacts.get", &contact, start)?;
             Ok(())
         }
         ContactCommands::Search { term } => {
             let pagination = ctx.pagination_params();
             let contacts = ctx.client().contacts().search(term, &pagination).await?;
-            let output = ctx.format_paginated_output(&contacts)?;
-            println!("{output}");
+            ctx.emit_list("contacts.search", &contacts, start)?;
             Ok(())
         }
         ContactCommands::Create {
@@ -84,14 +97,13 @@ pub async fn run(cmd: &ContactCommands, ctx: &CliContext) -> cho_sdk::error::Res
             idempotency_key,
         } => {
             ctx.require_writes_allowed()?;
-            let contact: Contact = crate::commands::invoices::read_json_file(file)?;
+            let contact: Contact = crate::commands::utils::read_json_file(file)?;
             let result = ctx
                 .client()
                 .contacts()
                 .create(&contact, idempotency_key.as_deref())
                 .await?;
-            let output = ctx.format_output(&result)?;
-            println!("{output}");
+            ctx.emit_success("contacts.create", &result, start)?;
             Ok(())
         }
         ContactCommands::Update {
@@ -100,14 +112,13 @@ pub async fn run(cmd: &ContactCommands, ctx: &CliContext) -> cho_sdk::error::Res
             idempotency_key,
         } => {
             ctx.require_writes_allowed()?;
-            let contact: Contact = crate::commands::invoices::read_json_file(file)?;
+            let contact: Contact = crate::commands::utils::read_json_file(file)?;
             let result = ctx
                 .client()
                 .contacts()
                 .update(*id, &contact, idempotency_key.as_deref())
                 .await?;
-            let output = ctx.format_output(&result)?;
-            println!("{output}");
+            ctx.emit_success("contacts.update", &result, start)?;
             Ok(())
         }
     }

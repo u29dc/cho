@@ -104,6 +104,21 @@ impl TokenPair {
         }
     }
 
+    /// Creates a token pair for testing with a refresh token.
+    pub fn for_testing_with_refresh(
+        access_token: &str,
+        refresh_token: &str,
+        expires_in_secs: u64,
+    ) -> Self {
+        let lifetime = Duration::from_secs(expires_in_secs);
+        Self {
+            access_token: SecretString::from(access_token.to_string()),
+            refresh_token: Some(SecretString::from(refresh_token.to_string())),
+            expires_at: Instant::now() + lifetime,
+            expires_in: lifetime,
+        }
+    }
+
     /// Creates a new token pair from a token endpoint response.
     pub(crate) fn from_response(response: &TokenResponse) -> Self {
         let lifetime = response

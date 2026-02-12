@@ -12,6 +12,7 @@
 //! - [`api`] provides namespaced API handles (e.g., `client.invoices()`).
 
 #![deny(missing_docs)]
+#![forbid(unsafe_code)]
 
 pub mod api;
 pub mod auth;

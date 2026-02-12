@@ -7,6 +7,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use rand::Rng;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tracing::{debug, instrument, warn};
@@ -375,8 +376,12 @@ impl XeroClient {
             }
 
             if status == reqwest::StatusCode::NOT_FOUND {
+                let resource = url
+                    .strip_prefix(&self.config.base_url)
+                    .unwrap_or(url)
+                    .to_string();
                 return Err(ChoSdkError::NotFound {
-                    resource: url.to_string(),
+                    resource,
                     id: String::new(),
                 });
             }
@@ -543,8 +548,12 @@ impl XeroClient {
             }
 
             if status == reqwest::StatusCode::NOT_FOUND {
+                let resource = url
+                    .strip_prefix(&self.config.base_url)
+                    .unwrap_or(url)
+                    .to_string();
                 return Err(ChoSdkError::NotFound {
-                    resource: url.to_string(),
+                    resource,
                     id: String::new(),
                 });
             }
@@ -604,9 +613,26 @@ impl XeroClient {
                 .with_page_size(pagination.page_size);
             let query = params.to_query_pairs();
 
-            let response: R = self
+            let response: R = match self
                 .get_with_modified_since(path, &query, base_params.if_modified_since.as_deref())
-                .await?;
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    if !all_items.is_empty() {
+                        warn!(
+                            collected = all_items.len(),
+                            page = page,
+                            "Pagination interrupted by error, returning partial results: {e}"
+                        );
+                        return Ok(ListResult {
+                            items: all_items,
+                            pagination: last_pagination,
+                        });
+                    }
+                    return Err(e);
+                }
+            };
             let pag = response.pagination().cloned();
             last_pagination.clone_from(&pag);
             let items = response.into_items();
@@ -731,10 +757,14 @@ fn is_transient_error(error: &reqwest::Error) -> bool {
     error.is_timeout() || error.is_connect()
 }
 
-/// Calculates exponential backoff delay for a given attempt.
+/// Calculates exponential backoff delay with jitter for a given attempt.
+///
+/// Uses `base + rand(0..base*500)ms` to prevent thundering herd on
+/// transient failures, consistent with the jitter in the 429 handler.
 fn backoff_delay(attempt: u32) -> std::time::Duration {
     let base = 1u64 << attempt.min(4); // 1, 2, 4, 8, 16 seconds
-    std::time::Duration::from_secs(base)
+    let jitter_ms = rand::rng().random_range(0..base * 500);
+    std::time::Duration::from_secs(base) + std::time::Duration::from_millis(jitter_ms)
 }
 
 /// Attempts to extract validation error messages from a Xero API error response.
@@ -810,14 +840,26 @@ mod tests {
     }
 
     #[test]
-    fn backoff_delay_exponential() {
-        assert_eq!(backoff_delay(0), std::time::Duration::from_secs(1));
-        assert_eq!(backoff_delay(1), std::time::Duration::from_secs(2));
-        assert_eq!(backoff_delay(2), std::time::Duration::from_secs(4));
-        assert_eq!(backoff_delay(3), std::time::Duration::from_secs(8));
-        assert_eq!(backoff_delay(4), std::time::Duration::from_secs(16));
-        // Capped at 16
-        assert_eq!(backoff_delay(5), std::time::Duration::from_secs(16));
+    fn backoff_delay_exponential_with_jitter() {
+        // Base delays: 1, 2, 4, 8, 16 seconds; jitter adds 0..base*500 ms
+        for _ in 0..5 {
+            let d0 = backoff_delay(0);
+            assert!(d0 >= std::time::Duration::from_secs(1));
+            assert!(d0 < std::time::Duration::from_millis(1500));
+
+            let d1 = backoff_delay(1);
+            assert!(d1 >= std::time::Duration::from_secs(2));
+            assert!(d1 < std::time::Duration::from_millis(3000));
+
+            let d4 = backoff_delay(4);
+            assert!(d4 >= std::time::Duration::from_secs(16));
+            assert!(d4 < std::time::Duration::from_millis(24000));
+
+            // Capped at attempt 4 (base=16)
+            let d5 = backoff_delay(5);
+            assert!(d5 >= std::time::Duration::from_secs(16));
+            assert!(d5 < std::time::Duration::from_millis(24000));
+        }
     }
 
     #[test]

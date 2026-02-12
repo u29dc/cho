@@ -61,10 +61,6 @@ sha2 = "0.10.8"
 base64 = "0.22.1"
 rand = "0.9.1"
 
-# Async streams (pagination)
-futures-core = "0.3.31"
-async-stream = "0.3.6"
-
 # Testing
 assert_cmd = "2.0.16"
 predicates = "3.1.3"

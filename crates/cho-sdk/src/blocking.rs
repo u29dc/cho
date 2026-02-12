@@ -73,7 +73,18 @@ impl BlockingClient {
     }
 
     /// Creates a blocking client from an existing async client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if called from within an existing tokio runtime
+    /// (which would deadlock), or if the runtime cannot be created.
     pub fn from_async(client: XeroClient) -> Result<Self> {
+        if tokio::runtime::Handle::try_current().is_ok() {
+            return Err(crate::error::ChoSdkError::Config {
+                message: "BlockingClient cannot be used from within an async runtime. Use XeroClient directly instead.".to_string(),
+            });
+        }
+
         let runtime =
             tokio::runtime::Runtime::new().map_err(|e| crate::error::ChoSdkError::Config {
                 message: format!("Failed to create tokio runtime: {e}"),

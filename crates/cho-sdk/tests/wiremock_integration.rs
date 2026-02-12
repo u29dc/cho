@@ -338,3 +338,132 @@ async fn header_tracking_updates_from_response() {
     // We can't directly inspect them here, but the test verifies the
     // request succeeds with rate limit headers present.
 }
+
+#[tokio::test]
+async fn not_found_strips_base_url_from_resource() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("Invoices/00000000-0000-0000-0000-000000000099"))
+        .respond_with(ResponseTemplate::new(404))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = test_client(&format!("{}/", server.uri()));
+    let result = client
+        .invoices()
+        .get("00000000-0000-0000-0000-000000000099".parse().unwrap())
+        .await;
+
+    assert!(result.is_err());
+    if let cho_sdk::error::ChoSdkError::NotFound { resource, .. } = result.unwrap_err() {
+        // Should be the path, not the full URL with base
+        assert_eq!(resource, "Invoices/00000000-0000-0000-0000-000000000099");
+    } else {
+        panic!("Expected NotFound error");
+    }
+}
+
+#[tokio::test]
+async fn idempotency_key_length_validation() {
+    let server = MockServer::start().await;
+
+    let config = SdkConfig::new()
+        .with_base_url(format!("{}/", server.uri()))
+        .with_max_retries(0)
+        .with_allow_writes(true);
+    let token = TokenPair::for_testing("test-token", 3600);
+    let auth = AuthManager::with_token("test-client-id".to_string(), token);
+    let client = XeroClient::builder()
+        .config(config)
+        .tenant_id("test-tenant")
+        .auth_manager(auth)
+        .rate_limit(RateLimitConfig {
+            enabled: false,
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+
+    // 129-char key should be rejected
+    let long_key = "a".repeat(129);
+    let invoice: cho_sdk::models::invoice::Invoice = serde_json::from_str("{}").unwrap();
+    let result = client.invoices().create(&invoice, Some(&long_key)).await;
+
+    assert!(result.is_err());
+    if let cho_sdk::error::ChoSdkError::Config { message } = result.unwrap_err() {
+        assert!(message.contains("128"));
+    } else {
+        panic!("Expected Config error for idempotency key length");
+    }
+}
+
+#[tokio::test]
+async fn pagination_returns_partial_results_on_mid_page_error() {
+    let server = MockServer::start().await;
+
+    // Page 1 succeeds
+    let page1 = serde_json::json!({
+        "Invoices": [
+            {"InvoiceID": "00000000-0000-0000-0000-000000000001", "Type": "ACCREC"}
+        ],
+        "pagination": {
+            "page": 1,
+            "pageSize": 1,
+            "pageCount": 3,
+            "itemCount": 3
+        }
+    });
+
+    Mock::given(method("GET"))
+        .and(path("Invoices"))
+        .and(query_param("page", "1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&page1))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // Page 2 returns 500 (simulates mid-pagination failure)
+    Mock::given(method("GET"))
+        .and(path("Invoices"))
+        .and(query_param("page", "2"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("Internal Server Error"))
+        .mount(&server)
+        .await;
+
+    let config = SdkConfig::new()
+        .with_base_url(format!("{}/", server.uri()))
+        .with_max_retries(0);
+    let token = TokenPair::for_testing("test-token", 3600);
+    let auth = AuthManager::with_token("test-client-id".to_string(), token);
+    let client = XeroClient::builder()
+        .config(config)
+        .tenant_id("test-tenant")
+        .auth_manager(auth)
+        .rate_limit(RateLimitConfig {
+            enabled: false,
+            ..Default::default()
+        })
+        .build()
+        .unwrap();
+
+    let result = client
+        .invoices()
+        .list(
+            &ListParams::new(),
+            &PaginationParams {
+                limit: 0,
+                page_size: 1,
+            },
+        )
+        .await
+        .unwrap();
+
+    // Should return page 1 items as partial result
+    assert_eq!(result.items.len(), 1);
+    assert_eq!(
+        result.items[0].invoice_id.unwrap().to_string(),
+        "00000000-0000-0000-0000-000000000001"
+    );
+}

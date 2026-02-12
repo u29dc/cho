@@ -14,7 +14,7 @@ pub mod token;
 
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tracing::debug;
 
 use self::token::{TokenPair, refresh_access_token};
@@ -32,6 +32,10 @@ pub struct AuthManager {
 
     /// HTTP client for token endpoint requests.
     http_client: reqwest::Client,
+
+    /// Serializes refresh attempts so only one caller refreshes at a time.
+    /// Prevents burning single-use Xero refresh tokens on concurrent requests.
+    refresh_lock: Mutex<()>,
 }
 
 impl AuthManager {
@@ -41,6 +45,7 @@ impl AuthManager {
             token: Arc::new(RwLock::new(None)),
             client_id,
             http_client: reqwest::Client::new(),
+            refresh_lock: Mutex::new(()),
         }
     }
 
@@ -50,6 +55,7 @@ impl AuthManager {
             token: Arc::new(RwLock::new(Some(token))),
             client_id,
             http_client: reqwest::Client::new(),
+            refresh_lock: Mutex::new(()),
         }
     }
 
@@ -115,7 +121,7 @@ impl AuthManager {
     ///
     /// This is the primary method called by the HTTP layer before each request.
     pub async fn get_access_token(&self) -> crate::error::Result<String> {
-        // Fast path: token exists and is valid
+        // Fast path: token exists and is valid (no lock contention)
         {
             let guard = self.token.read().await;
             if let Some(ref pair) = *guard
@@ -125,7 +131,20 @@ impl AuthManager {
             }
         }
 
-        // Slow path: need to refresh
+        // Slow path: serialize refresh attempts to prevent burning single-use
+        // refresh tokens when multiple concurrent requests detect expiry.
+        let _refresh_guard = self.refresh_lock.lock().await;
+
+        // Double-check: another caller may have refreshed while we waited.
+        {
+            let guard = self.token.read().await;
+            if let Some(ref pair) = *guard
+                && !pair.needs_refresh()
+            {
+                return Ok(pair.access_token().to_string());
+            }
+        }
+
         self.refresh().await?;
 
         let guard = self.token.read().await;

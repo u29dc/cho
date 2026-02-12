@@ -18,7 +18,7 @@
 //! # Legacy file migration
 //!
 //! For backwards compatibility, `load_tokens()` will still read tokens from
-//! the legacy file location (`~/.config/cho/tokens.json`) if it exists, but
+//! the legacy file location if it exists, but
 //! will warn the user to re-authenticate. New tokens are never written to disk.
 
 use std::path::PathBuf;
@@ -54,14 +54,33 @@ pub(crate) fn load_tokens() -> crate::error::Result<Option<StoredTokens>> {
         }
     }
 
-    // Legacy file migration path - read-only for backwards compatibility
+    // Legacy file migration path - attempt auto-migration to keyring
     match load_from_file() {
         Ok(Some(tokens)) => {
             warn!(
-                "Loaded tokens from legacy plaintext file (~/.config/cho/tokens.json). \
-                 Please run `cho auth login` to migrate to secure OS keychain storage, \
-                 then delete the legacy file."
+                "Loaded tokens from legacy plaintext file. \
+                 Attempting auto-migration to secure OS keychain storage."
             );
+            // Attempt to migrate to keyring and delete legacy file
+            match store_tokens(&tokens) {
+                Ok(()) => {
+                    if let Ok(path) = token_file_path()
+                        && path.exists()
+                    {
+                        if let Err(e) = std::fs::remove_file(&path) {
+                            warn!("Failed to delete legacy token file: {e}");
+                        } else {
+                            debug!("Deleted legacy plaintext token file after keyring migration");
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Auto-migration to keyring failed: {e}. \
+                         Run `cho auth login` to migrate manually."
+                    );
+                }
+            }
             Ok(Some(tokens))
         }
         Ok(None) => {
@@ -171,7 +190,7 @@ fn clear_keyring() -> crate::error::Result<()> {
 
 // --- File fallback ---
 
-/// Returns the token file path: `~/.config/cho/tokens.json`.
+/// Returns the token file path: `$CHO_HOME/tokens.json` (legacy).
 fn token_file_path() -> crate::error::Result<PathBuf> {
     let config_dir = dirs_path()?;
     Ok(config_dir.join("tokens.json"))
@@ -179,14 +198,7 @@ fn token_file_path() -> crate::error::Result<PathBuf> {
 
 /// Returns the cho config directory, creating it if needed.
 fn dirs_path() -> crate::error::Result<PathBuf> {
-    let base = std::env::var("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|_| std::env::var("HOME").map(|home| PathBuf::from(home).join(".config")))
-        .map_err(|_| crate::error::ChoSdkError::Config {
-            message: "Neither XDG_CONFIG_HOME nor HOME environment variable is set".to_string(),
-        })?;
-
-    let dir = base.join("cho");
+    let dir = cho_config_dir()?;
 
     if !dir.exists() {
         std::fs::create_dir_all(&dir).map_err(|e| crate::error::ChoSdkError::Config {
@@ -195,6 +207,20 @@ fn dirs_path() -> crate::error::Result<PathBuf> {
     }
 
     Ok(dir)
+}
+
+/// Resolves the cho config directory from env vars.
+fn cho_config_dir() -> crate::error::Result<PathBuf> {
+    if let Ok(cho_home) = std::env::var("CHO_HOME") {
+        return Ok(PathBuf::from(cho_home));
+    }
+    if let Ok(tools_home) = std::env::var("TOOLS_HOME") {
+        return Ok(PathBuf::from(tools_home).join("cho"));
+    }
+    let home = std::env::var("HOME").map_err(|_| crate::error::ChoSdkError::Config {
+        message: "HOME environment variable is not set".to_string(),
+    })?;
+    Ok(PathBuf::from(home).join(".tools").join("cho"))
 }
 
 fn load_from_file() -> crate::error::Result<Option<StoredTokens>> {
@@ -242,13 +268,11 @@ pub fn store_client_id(client_id: &str) -> crate::error::Result<()> {
         }
     })?;
 
-    match entry.set_secret(client_id.as_bytes()) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            debug!("Keychain client_id storage failed: {e}, skipping");
-            Ok(())
-        }
-    }
+    entry
+        .set_secret(client_id.as_bytes())
+        .map_err(|e| crate::error::ChoSdkError::Config {
+            message: format!("Failed to store client_id in keychain: {e}"),
+        })
 }
 
 /// Loads the stored client ID.

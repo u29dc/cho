@@ -240,6 +240,15 @@ pub(crate) async fn refresh_access_token(
     client_id: &str,
     refresh_token: &str,
 ) -> crate::error::Result<TokenResponse> {
+    refresh_access_token_at(client, client_id, refresh_token, TOKEN_ENDPOINT).await
+}
+
+pub(crate) async fn refresh_access_token_at(
+    client: &reqwest::Client,
+    client_id: &str,
+    refresh_token: &str,
+    endpoint: &str,
+) -> crate::error::Result<TokenResponse> {
     let params = [
         ("grant_type", "refresh_token"),
         ("client_id", client_id),
@@ -247,7 +256,7 @@ pub(crate) async fn refresh_access_token(
     ];
 
     let response = client
-        .post(TOKEN_ENDPOINT)
+        .post(endpoint)
         .form(&params)
         .send()
         .await
@@ -272,6 +281,9 @@ pub(crate) async fn refresh_access_token(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn token_pair_from_response() {
@@ -347,5 +359,50 @@ mod tests {
         };
         assert!(stored.is_expired());
         assert!(stored.needs_refresh());
+    }
+
+    #[tokio::test]
+    async fn refresh_access_token_success() {
+        let server = MockServer::start().await;
+        let endpoint = format!("{}/connect/token", server.uri());
+
+        Mock::given(method("POST"))
+            .and(path("/connect/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "new_access",
+                "refresh_token": "new_refresh",
+                "expires_in": 1800,
+                "token_type": "Bearer",
+                "scope": "openid offline_access accounting.transactions"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let response = refresh_access_token_at(&client, "client-id", "old-refresh", &endpoint)
+            .await
+            .expect("refresh succeeds");
+
+        assert_eq!(response.access_token, "new_access");
+        assert_eq!(response.refresh_token.as_deref(), Some("new_refresh"));
+    }
+
+    #[tokio::test]
+    async fn refresh_access_token_failure_returns_token_expired() {
+        let server = MockServer::start().await;
+        let endpoint = format!("{}/connect/token", server.uri());
+
+        Mock::given(method("POST"))
+            .and(path("/connect/token"))
+            .respond_with(ResponseTemplate::new(400).set_body_string("bad refresh token"))
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let result = refresh_access_token_at(&client, "client-id", "old-refresh", &endpoint).await;
+        assert!(matches!(
+            result,
+            Err(crate::error::ChoSdkError::TokenExpired { .. })
+        ));
     }
 }

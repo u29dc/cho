@@ -114,7 +114,7 @@ impl ListParams {
 /// characters that cannot be represented in an HTTP header value.
 pub fn build_headers(
     access_token: &str,
-    tenant_id: &str,
+    tenant_id: Option<&str>,
     if_modified_since: Option<&str>,
 ) -> crate::error::Result<HeaderMap> {
     let mut headers = HeaderMap::new();
@@ -128,12 +128,20 @@ pub fn build_headers(
         })?,
     );
 
-    headers.insert(
-        "xero-tenant-id",
-        HeaderValue::from_str(tenant_id).map_err(|e| crate::error::ChoSdkError::Config {
-            message: format!("Invalid tenant ID for HTTP header: {e}"),
-        })?,
-    );
+    if let Some(tenant_id) = tenant_id {
+        if tenant_id.trim().is_empty() {
+            return Err(crate::error::ChoSdkError::Config {
+                message: "Missing tenant ID. Configure auth.tenant_id or pass --tenant <UUID>."
+                    .to_string(),
+            });
+        }
+        headers.insert(
+            "xero-tenant-id",
+            HeaderValue::from_str(tenant_id).map_err(|e| crate::error::ChoSdkError::Config {
+                message: format!("Invalid tenant ID for HTTP header: {e}"),
+            })?,
+        );
+    }
 
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
@@ -242,7 +250,7 @@ mod tests {
 
     #[test]
     fn build_headers_contains_required() {
-        let headers = build_headers("test_token", "tenant-123", None).unwrap();
+        let headers = build_headers("test_token", Some("tenant-123"), None).unwrap();
         assert!(headers.get(AUTHORIZATION).is_some());
         assert!(headers.get("xero-tenant-id").is_some());
         assert!(headers.get(CONTENT_TYPE).is_some());
@@ -256,8 +264,12 @@ mod tests {
 
     #[test]
     fn build_headers_with_if_modified_since() {
-        let headers =
-            build_headers("test_token", "tenant-123", Some("2024-01-01T00:00:00Z")).unwrap();
+        let headers = build_headers(
+            "test_token",
+            Some("tenant-123"),
+            Some("2024-01-01T00:00:00Z"),
+        )
+        .unwrap();
         assert!(headers.get(reqwest::header::IF_MODIFIED_SINCE).is_some());
         let since = headers
             .get(reqwest::header::IF_MODIFIED_SINCE)
@@ -270,14 +282,27 @@ mod tests {
     #[test]
     fn build_headers_rejects_invalid_token() {
         // HeaderValue rejects control characters like newlines
-        let result = build_headers("token\ninjection", "tenant-123", None);
+        let result = build_headers("token\ninjection", Some("tenant-123"), None);
         assert!(result.is_err());
     }
 
     #[test]
     fn build_headers_rejects_invalid_tenant() {
-        let result = build_headers("valid_token", "tenant\r\nid", None);
+        let result = build_headers("valid_token", Some("tenant\r\nid"), None);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_headers_rejects_empty_tenant() {
+        let result = build_headers("valid_token", Some(""), None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_headers_allows_missing_tenant_for_identity_requests() {
+        let headers = build_headers("valid_token", None, None).unwrap();
+        assert!(headers.get(AUTHORIZATION).is_some());
+        assert!(headers.get("xero-tenant-id").is_none());
     }
 
     #[test]

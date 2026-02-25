@@ -39,6 +39,9 @@ pub struct EnvelopeError {
     pub message: String,
     /// Actionable recovery suggestion for agents.
     pub hint: String,
+    /// Suggested retry delay in seconds (rate-limit errors only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after: Option<u64>,
 }
 
 /// Request metadata attached to every envelope.
@@ -94,6 +97,7 @@ pub fn emit_error(
     code: &'static str,
     message: String,
     hint: String,
+    retry_after: Option<u64>,
     start: Instant,
 ) -> String {
     let envelope = ErrorEnvelope {
@@ -102,6 +106,7 @@ pub fn emit_error(
             code,
             message,
             hint,
+            retry_after,
         },
         meta: Meta {
             tool: tool.to_string(),
@@ -151,6 +156,7 @@ mod tests {
             "AUTH_REQUIRED",
             "No token".into(),
             "Run cho auth login".into(),
+            None,
             start,
         );
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -158,7 +164,23 @@ mod tests {
         assert_eq!(v["error"]["code"], "AUTH_REQUIRED");
         assert_eq!(v["error"]["message"], "No token");
         assert_eq!(v["error"]["hint"], "Run cho auth login");
+        assert!(v["error"].get("retry_after").is_none());
         assert_eq!(v["meta"]["tool"], "invoices.list");
+    }
+
+    #[test]
+    fn error_envelope_retry_after_optional() {
+        let start = Instant::now();
+        let json = emit_error(
+            "invoices.list",
+            "RATE_LIMITED",
+            "rate limited".into(),
+            "Retry later".into(),
+            Some(42),
+            start,
+        );
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["error"]["retry_after"], 42);
     }
 
     #[test]

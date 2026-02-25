@@ -209,8 +209,14 @@ impl XeroClient {
         query: &[(&str, String)],
     ) -> Result<T> {
         let url = format!("{}{path}", self.config.base_url);
-        self.request_with_retry(reqwest::Method::GET, &url, query, None)
-            .await
+        self.request_with_retry(
+            reqwest::Method::GET,
+            &url,
+            query,
+            None,
+            Some(self.tenant_id.as_str()),
+        )
+        .await
     }
 
     /// Makes a GET request with an optional `If-Modified-Since` header.
@@ -221,8 +227,14 @@ impl XeroClient {
         if_modified_since: Option<&str>,
     ) -> Result<T> {
         let url = format!("{}{path}", self.config.base_url);
-        self.request_with_retry(reqwest::Method::GET, &url, query, if_modified_since)
-            .await
+        self.request_with_retry(
+            reqwest::Method::GET,
+            &url,
+            query,
+            if_modified_since,
+            Some(self.tenant_id.as_str()),
+        )
+        .await
     }
 
     /// Makes a PUT request to a Xero API endpoint with a JSON body.
@@ -236,8 +248,14 @@ impl XeroClient {
     ) -> Result<T> {
         self.check_writes_allowed()?;
         let url = format!("{}{path}", self.config.base_url);
-        self.request_with_body(reqwest::Method::PUT, &url, body, idempotency_key)
-            .await
+        self.request_with_body(
+            reqwest::Method::PUT,
+            &url,
+            body,
+            idempotency_key,
+            Some(self.tenant_id.as_str()),
+        )
+        .await
     }
 
     /// Makes a POST request to a Xero API endpoint with a JSON body.
@@ -251,8 +269,14 @@ impl XeroClient {
     ) -> Result<T> {
         self.check_writes_allowed()?;
         let url = format!("{}{path}", self.config.base_url);
-        self.request_with_body(reqwest::Method::POST, &url, body, idempotency_key)
-            .await
+        self.request_with_body(
+            reqwest::Method::POST,
+            &url,
+            body,
+            idempotency_key,
+            Some(self.tenant_id.as_str()),
+        )
+        .await
     }
 
     /// Checks whether write operations are allowed by the SDK configuration.
@@ -271,7 +295,7 @@ impl XeroClient {
         url: &str,
         query: &[(&str, String)],
     ) -> Result<T> {
-        self.request_with_retry(reqwest::Method::GET, url, query, None)
+        self.request_with_retry(reqwest::Method::GET, url, query, None, None)
             .await
     }
 
@@ -290,6 +314,7 @@ impl XeroClient {
         url: &str,
         query: &[(&str, String)],
         if_modified_since: Option<&str>,
+        tenant_id: Option<&str>,
     ) -> Result<T> {
         let max_retries = self.config.max_retries;
         let mut refresh_attempted = false;
@@ -298,8 +323,7 @@ impl XeroClient {
             let guard = self.rate_limiter.acquire().await?;
 
             let access_token = self.auth.get_access_token().await?;
-            let headers =
-                request::build_headers(&access_token, &self.tenant_id, if_modified_since)?;
+            let headers = request::build_headers(&access_token, tenant_id, if_modified_since)?;
 
             let result = self
                 .http_client
@@ -435,6 +459,7 @@ impl XeroClient {
         url: &str,
         body: &B,
         idempotency_key: Option<&str>,
+        tenant_id: Option<&str>,
     ) -> Result<T> {
         // Validate Idempotency-Key length (Xero max 128 chars per OpenAPI spec)
         if let Some(key) = idempotency_key
@@ -458,7 +483,7 @@ impl XeroClient {
             let guard = self.rate_limiter.acquire().await?;
 
             let access_token = self.auth.get_access_token().await?;
-            let mut headers = request::build_headers(&access_token, &self.tenant_id, None)?;
+            let mut headers = request::build_headers(&access_token, tenant_id, None)?;
 
             // Add Idempotency-Key header if provided
             if let Some(key) = idempotency_key
@@ -728,6 +753,16 @@ impl XeroClientBuilder {
             });
         }
 
+        if let Some(tenant_id) = self.tenant_id.as_ref()
+            && tenant_id.trim().is_empty()
+        {
+            return Err(ChoSdkError::Config {
+                message:
+                    "Tenant ID cannot be empty when explicitly provided to the client builder."
+                        .to_string(),
+            });
+        }
+
         let client_id = self.client_id.unwrap_or_default();
         let tenant_id = self.tenant_id.unwrap_or_default();
 
@@ -945,6 +980,17 @@ mod tests {
             .tenant_id("tenant")
             .build();
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn build_rejects_explicit_empty_tenant() {
+        let result = XeroClient::builder()
+            .client_id("test")
+            .tenant_id("")
+            .build();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, ChoSdkError::Config { .. }));
     }
 
     #[test]

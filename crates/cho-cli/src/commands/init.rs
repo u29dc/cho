@@ -86,7 +86,6 @@ pub async fn run(args: &InitArgs) -> cho_sdk::error::Result<()> {
     let config = SdkConfig::default();
     let client = XeroClient::builder()
         .config(config)
-        .tenant_id(String::new())
         .auth_manager(auth)
         .rate_limit(RateLimitConfig::default())
         .build()?;

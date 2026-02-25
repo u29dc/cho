@@ -26,6 +26,13 @@ pub enum ChoSdkError {
         retry_after: u64,
     },
 
+    /// Xero daily quota has been exhausted for this app+tenant pair.
+    #[error("daily quota exhausted: {remaining} requests remaining")]
+    DailyQuotaExceeded {
+        /// Remaining daily requests reported by Xero (typically 0).
+        remaining: u32,
+    },
+
     /// Xero API returned an error response (4xx/5xx, excluding 401 and 429).
     #[error("API error {status}: {message}")]
     ApiError {

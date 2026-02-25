@@ -21,6 +21,9 @@ const DEFAULT_CONCURRENT: usize = 5;
 
 /// Default per-minute request limit.
 const DEFAULT_PER_MINUTE: u32 = 60;
+/// How long to trust a cached `X-DayLimit-Remaining=0` value before allowing
+/// one probe request to re-check whether the quota has reset.
+const DAY_QUOTA_RECHECK_AFTER: Duration = Duration::from_secs(60);
 
 /// Rate limiter configuration.
 #[derive(Debug, Clone)]
@@ -53,6 +56,8 @@ struct HeaderLimits {
 
     /// Remaining requests today (from `X-DayLimit-Remaining`).
     day_remaining: Option<u32>,
+    /// When `day_remaining` was last observed from response headers.
+    day_remaining_observed_at: Option<Instant>,
 
     /// Remaining app-wide requests this minute (from `X-AppMinLimit-Remaining`).
     app_min_remaining: Option<u32>,
@@ -153,26 +158,50 @@ impl RateLimiter {
             });
         }
 
-        // Check header-reported limits
+        // Check header-reported limits.
+        // Keep lock scope tight and avoid sleeping while holding the lock.
+        let mut min_limit_delay = None;
+        let mut app_min_limit_delay = None;
         {
-            let limits = self.header_limits.read().await;
+            let mut limits = self.header_limits.write().await;
             if let Some(remaining) = limits.min_remaining
                 && remaining <= 2
             {
                 debug!("Xero X-MinLimit-Remaining is {remaining}, throttling");
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                min_limit_delay = Some(Duration::from_secs(2));
             }
             if let Some(remaining) = limits.app_min_remaining
                 && remaining <= 5
             {
                 debug!("Xero X-AppMinLimit-Remaining is {remaining}, throttling");
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                app_min_limit_delay = Some(Duration::from_secs(1));
             }
-            if let Some(remaining) = limits.day_remaining
-                && remaining <= 10
-            {
-                warn!("Xero daily limit nearly exhausted: {remaining} remaining");
+            if let Some(remaining) = limits.day_remaining {
+                if remaining == 0 {
+                    let stale = limits
+                        .day_remaining_observed_at
+                        .map(|observed_at| observed_at.elapsed() >= DAY_QUOTA_RECHECK_AFTER)
+                        .unwrap_or(true);
+                    if stale {
+                        debug!(
+                            "Re-checking daily quota after cached zero age >= {:?}",
+                            DAY_QUOTA_RECHECK_AFTER
+                        );
+                        limits.day_remaining = None;
+                        limits.day_remaining_observed_at = None;
+                    } else {
+                        return Err(crate::error::ChoSdkError::DailyQuotaExceeded { remaining });
+                    }
+                } else if remaining <= 10 {
+                    warn!("Xero daily limit nearly exhausted: {remaining} remaining");
+                }
             }
+        }
+        if let Some(wait) = min_limit_delay {
+            tokio::time::sleep(wait).await;
+        }
+        if let Some(wait) = app_min_limit_delay {
+            tokio::time::sleep(wait).await;
         }
 
         // Check per-minute limit
@@ -218,6 +247,7 @@ impl RateLimiter {
             && let Ok(s) = val.to_str()
         {
             limits.day_remaining = s.parse().ok();
+            limits.day_remaining_observed_at = Some(Instant::now());
         }
 
         if let Some(val) = headers.get("X-AppMinLimit-Remaining")
@@ -320,6 +350,43 @@ mod tests {
         let limits = limiter.header_limits.read().await;
         assert_eq!(limits.min_remaining, Some(10));
         assert_eq!(limits.day_remaining, Some(4500));
+        assert!(limits.day_remaining_observed_at.is_some());
         assert_eq!(limits.app_min_remaining, Some(9500));
+    }
+
+    #[tokio::test]
+    async fn acquire_fails_when_daily_quota_exhausted() {
+        let limiter = RateLimiter::default_limiter();
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("X-DayLimit-Remaining", "0".parse().unwrap());
+        limiter.update_from_headers(&headers).await;
+
+        let result = limiter.acquire().await;
+        assert!(matches!(
+            result,
+            Err(crate::error::ChoSdkError::DailyQuotaExceeded { remaining: 0 })
+        ));
+    }
+
+    #[tokio::test]
+    async fn acquire_clears_stale_daily_quota_cache() {
+        let limiter = RateLimiter::default_limiter();
+        let stale_seen_at = Instant::now()
+            .checked_sub(DAY_QUOTA_RECHECK_AFTER + Duration::from_secs(1))
+            .expect("stale observation time should be representable");
+
+        {
+            let mut limits = limiter.header_limits.write().await;
+            limits.day_remaining = Some(0);
+            limits.day_remaining_observed_at = Some(stale_seen_at);
+        }
+
+        let _guard = limiter
+            .acquire()
+            .await
+            .expect("stale daily quota cache should be cleared");
+        let limits = limiter.header_limits.read().await;
+        assert_eq!(limits.day_remaining, None);
+        assert_eq!(limits.day_remaining_observed_at, None);
     }
 }

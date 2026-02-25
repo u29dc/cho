@@ -173,6 +173,24 @@ fn format_csv_accepted() {
     result.code(predicate::ne(2));
 }
 
+#[test]
+fn quiet_flag_removed() {
+    cho()
+        .args(["--quiet", "tools"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unexpected argument '--quiet'"));
+}
+
+#[test]
+fn no_color_flag_removed() {
+    cho()
+        .args(["--no-color", "tools"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unexpected argument '--no-color'"));
+}
+
 // --- Invalid arguments ---
 
 #[test]
@@ -293,6 +311,12 @@ fn tools_json_returns_catalog() {
 
     let tools = data["tools"].as_array().unwrap();
     assert!(tools.len() >= 40, "Expected 40+ tools, got {}", tools.len());
+    assert!(
+        tools
+            .iter()
+            .any(|t| t["name"].as_str() == Some("health.check")),
+        "Expected health.check in tools catalog"
+    );
 
     // Verify tool structure
     let first_tool = &tools[0];
@@ -304,6 +328,20 @@ fn tools_json_returns_catalog() {
     assert!(first_tool["outputFields"].is_array());
     assert!(first_tool["idempotent"].is_boolean());
     assert!(first_tool["example"].is_string());
+
+    let global_flags = data["globalFlags"].as_array().unwrap();
+    assert!(
+        global_flags
+            .iter()
+            .all(|f| f["name"].as_str() != Some("--quiet")),
+        "Expected --quiet to be removed from global flags"
+    );
+    assert!(
+        global_flags
+            .iter()
+            .all(|f| f["name"].as_str() != Some("--no-color")),
+        "Expected --no-color to be removed from global flags"
+    );
 
     // Verify meta has count
     assert!(envelope["meta"]["count"].is_number());
@@ -324,6 +362,22 @@ fn tools_detail_returns_single_tool() {
     assert_eq!(envelope["data"]["name"], "invoices.list");
     assert_eq!(envelope["data"]["category"], "invoices");
     assert!(envelope["data"]["parameters"].is_array());
+}
+
+#[test]
+fn tools_detail_health_check() {
+    let output = cho()
+        .args(["tools", "health.check", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let envelope: Value = serde_json::from_slice(&output).expect("valid JSON envelope");
+    assert_eq!(envelope["ok"], true);
+    assert_eq!(envelope["data"]["name"], "health.check");
+    assert_eq!(envelope["data"]["command"], "cho health");
 }
 
 #[test]

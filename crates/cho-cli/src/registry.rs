@@ -92,16 +92,6 @@ pub static GLOBAL_FLAGS: &[GlobalFlagMeta] = &[
         description: "Enable tracing output",
         default: "false",
     },
-    GlobalFlagMeta {
-        name: "--quiet",
-        description: "Suppress non-essential output",
-        default: "false",
-    },
-    GlobalFlagMeta {
-        name: "--no-color",
-        description: "Disable terminal colors",
-        default: "false",
-    },
 ];
 
 // --- Common parameter sets ---
@@ -169,6 +159,18 @@ pub static TOOLS: &[ToolMeta] = &[
         idempotent: true,
         rate_limit: None,
         example: "cho init",
+    },
+    // --- Health ---
+    ToolMeta {
+        name: "health.check",
+        command: "cho health",
+        category: "health",
+        description: "Check CLI readiness (config, auth, tenant, keyring)",
+        parameters: &[],
+        output_fields: &["status", "checks", "summary"],
+        idempotent: true,
+        rate_limit: None,
+        example: "cho health --json",
     },
     // --- Auth ---
     ToolMeta {

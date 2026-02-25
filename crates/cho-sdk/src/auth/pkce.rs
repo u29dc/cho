@@ -18,7 +18,10 @@ use super::token::{TOKEN_ENDPOINT, TokenResponse};
 const AUTHORIZE_URL: &str = "https://login.xero.com/identity/connect/authorize";
 
 /// Default scopes for cho PKCE flow.
-const DEFAULT_SCOPES: &str = "openid offline_access accounting.transactions.read accounting.contacts.read accounting.settings.read accounting.reports.read accounting.journals.read files.read assets.read projects.read payroll.employees payroll.timesheets payroll.settings";
+///
+/// Defaults are read-only to follow least privilege. Use `CHO_SCOPES` to
+/// explicitly opt into write scopes when required.
+const DEFAULT_SCOPES: &str = "openid offline_access accounting.transactions.read accounting.contacts.read accounting.settings.read accounting.reports.read accounting.journals.read accounting.budgets.read";
 
 /// PKCE code verifier length (43-128 characters per RFC 7636).
 const VERIFIER_LENGTH: usize = 64;
@@ -434,5 +437,19 @@ mod tests {
         assert_eq!(urldecoded("hello%20world"), "hello world");
         assert_eq!(urldecoded("a+b"), "a b");
         assert_eq!(urldecoded("simple"), "simple");
+    }
+
+    #[test]
+    fn default_scopes_are_minimal_and_no_payroll_projects() {
+        assert!(DEFAULT_SCOPES.contains("offline_access"));
+        assert!(!DEFAULT_SCOPES.contains("payroll."));
+        assert!(!DEFAULT_SCOPES.contains("projects."));
+        let scopes: std::collections::HashSet<&str> = DEFAULT_SCOPES.split_whitespace().collect();
+        assert!(scopes.contains("accounting.transactions.read"));
+        assert!(scopes.contains("accounting.contacts.read"));
+        assert!(scopes.contains("accounting.settings.read"));
+        assert!(!scopes.contains("accounting.transactions"));
+        assert!(!scopes.contains("accounting.contacts"));
+        assert!(!scopes.contains("accounting.settings"));
     }
 }

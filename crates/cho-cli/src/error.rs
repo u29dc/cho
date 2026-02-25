@@ -15,6 +15,8 @@ pub enum ErrorCode {
     TokenExpired,
     /// Retry after N seconds.
     RateLimited,
+    /// Xero daily quota exhausted.
+    DailyQuotaExceeded,
     /// Resource does not exist.
     NotFound,
     /// Xero rejected the request.
@@ -25,6 +27,8 @@ pub enum ErrorCode {
     NetworkError,
     /// Response deserialization failed.
     ParseError,
+    /// Configuration or environment is invalid.
+    ConfigError,
     /// Write operations are not allowed.
     WriteNotAllowed,
     /// Invalid arguments/flags.
@@ -38,11 +42,13 @@ impl ErrorCode {
             Self::AuthRequired => "AUTH_REQUIRED",
             Self::TokenExpired => "TOKEN_EXPIRED",
             Self::RateLimited => "RATE_LIMITED",
+            Self::DailyQuotaExceeded => "DAILY_QUOTA_EXCEEDED",
             Self::NotFound => "NOT_FOUND",
             Self::ValidationError => "VALIDATION_ERROR",
             Self::ApiError => "API_ERROR",
             Self::NetworkError => "NETWORK_ERROR",
             Self::ParseError => "PARSE_ERROR",
+            Self::ConfigError => "CONFIG_ERROR",
             Self::WriteNotAllowed => "WRITE_NOT_ALLOWED",
             Self::UsageError => "USAGE_ERROR",
         }
@@ -54,11 +60,15 @@ impl ErrorCode {
             Self::AuthRequired => "Run 'cho auth login' to authenticate",
             Self::TokenExpired => "Run 'cho auth login' to re-authenticate",
             Self::RateLimited => "Wait and retry. Use --verbose for rate limit details",
+            Self::DailyQuotaExceeded => {
+                "Daily quota exhausted. Wait for Xero's daily quota reset before retrying"
+            }
             Self::NotFound => "Verify the resource ID or number",
             Self::ValidationError => "Check the request payload against Xero's API requirements",
             Self::ApiError => "Retry the request. Check 'cho health --json' for system status",
             Self::NetworkError => "Check network connectivity and retry",
             Self::ParseError => "This may indicate an API change. Use --verbose for details",
+            Self::ConfigError => "Fix config/env values. Run 'cho health --json' for diagnostics",
             Self::WriteNotAllowed => "Set [safety] allow_writes = true in config.toml",
             Self::UsageError => "Run 'cho <command> --help' for usage information",
         }
@@ -80,12 +90,20 @@ impl ErrorCode {
     }
 }
 
+fn is_usage_like_config_message(message: &str) -> bool {
+    let msg = message.to_ascii_lowercase();
+    msg.starts_with("invalid ")
+        || msg.contains("usage")
+        || msg.contains("requires an interactive terminal")
+}
+
 impl From<&ChoSdkError> for ErrorCode {
     fn from(err: &ChoSdkError) -> Self {
         match err {
             ChoSdkError::AuthRequired { .. } => Self::AuthRequired,
             ChoSdkError::TokenExpired { .. } => Self::TokenExpired,
             ChoSdkError::RateLimited { .. } => Self::RateLimited,
+            ChoSdkError::DailyQuotaExceeded { .. } => Self::DailyQuotaExceeded,
             ChoSdkError::NotFound { .. } => Self::NotFound,
             ChoSdkError::ApiError {
                 validation_errors, ..
@@ -93,7 +111,10 @@ impl From<&ChoSdkError> for ErrorCode {
             ChoSdkError::ApiError { .. } => Self::ApiError,
             ChoSdkError::Network(_) => Self::NetworkError,
             ChoSdkError::Parse { .. } => Self::ParseError,
-            ChoSdkError::Config { .. } => Self::UsageError,
+            ChoSdkError::Config { message } if is_usage_like_config_message(message) => {
+                Self::UsageError
+            }
+            ChoSdkError::Config { .. } => Self::ConfigError,
             ChoSdkError::WriteNotAllowed { .. } => Self::WriteNotAllowed,
         }
     }
@@ -105,6 +126,10 @@ impl From<&ChoSdkError> for ErrorCode {
 /// Otherwise outputs human-readable text for stderr.
 pub fn format_error(err: &ChoSdkError, json_mode: bool, tool: &str, start: Instant) -> String {
     let code = ErrorCode::from(err);
+    let retry_after = match err {
+        ChoSdkError::RateLimited { retry_after } => Some(*retry_after),
+        _ => None,
+    };
 
     if json_mode {
         envelope::emit_error(
@@ -112,6 +137,7 @@ pub fn format_error(err: &ChoSdkError, json_mode: bool, tool: &str, start: Insta
             code.as_str(),
             err.to_string(),
             code.hint().to_string(),
+            retry_after,
             start,
         )
     } else {
@@ -134,11 +160,13 @@ mod tests {
             ErrorCode::AuthRequired,
             ErrorCode::TokenExpired,
             ErrorCode::RateLimited,
+            ErrorCode::DailyQuotaExceeded,
             ErrorCode::NotFound,
             ErrorCode::ValidationError,
             ErrorCode::ApiError,
             ErrorCode::NetworkError,
             ErrorCode::ParseError,
+            ErrorCode::ConfigError,
             ErrorCode::WriteNotAllowed,
             ErrorCode::UsageError,
         ];
@@ -157,11 +185,29 @@ mod tests {
     #[test]
     fn non_blocking_codes_exit_1() {
         assert_eq!(ErrorCode::RateLimited.exit_code(), 1);
+        assert_eq!(ErrorCode::DailyQuotaExceeded.exit_code(), 1);
         assert_eq!(ErrorCode::NotFound.exit_code(), 1);
         assert_eq!(ErrorCode::ApiError.exit_code(), 1);
         assert_eq!(ErrorCode::NetworkError.exit_code(), 1);
         assert_eq!(ErrorCode::ParseError.exit_code(), 1);
+        assert_eq!(ErrorCode::ConfigError.exit_code(), 1);
         assert_eq!(ErrorCode::UsageError.exit_code(), 1);
+    }
+
+    #[test]
+    fn sdk_config_error_maps_to_config_code() {
+        let err = ChoSdkError::Config {
+            message: "Missing tenant ID".to_string(),
+        };
+        assert_eq!(ErrorCode::from(&err).as_str(), "CONFIG_ERROR");
+    }
+
+    #[test]
+    fn sdk_invalid_config_message_maps_to_usage_code() {
+        let err = ChoSdkError::Config {
+            message: "Invalid date format: expected YYYY-MM-DD".to_string(),
+        };
+        assert_eq!(ErrorCode::from(&err).as_str(), "USAGE_ERROR");
     }
 
     #[test]
@@ -181,6 +227,17 @@ mod tests {
                 .contains("cho auth login")
         );
         assert_eq!(v["meta"]["tool"], "invoices.list");
+        assert!(v["error"].get("retry_after").is_none());
+    }
+
+    #[test]
+    fn format_error_rate_limited_includes_retry_after() {
+        let err = ChoSdkError::RateLimited { retry_after: 17 };
+        let start = Instant::now();
+        let json = format_error(&err, true, "invoices.list", start);
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["error"]["code"], "RATE_LIMITED");
+        assert_eq!(v["error"]["retry_after"], 17);
     }
 
     #[test]

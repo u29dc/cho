@@ -80,7 +80,7 @@ impl AuthManager {
         let params = pkce::PkceFlowParams {
             client_id: self.client_id.clone(),
             port,
-            scopes: None,
+            scopes: configured_scopes(),
         };
 
         let response = pkce::run_pkce_flow(&params).await?;
@@ -104,7 +104,7 @@ impl AuthManager {
         let params = credentials::ClientCredentialsParams {
             client_id: self.client_id.clone(),
             client_secret,
-            scopes: None,
+            scopes: configured_scopes(),
         };
 
         let response = credentials::authenticate(&self.http_client, &params).await?;
@@ -211,11 +211,74 @@ impl AuthManager {
     }
 }
 
+/// Returns a scope override from `CHO_SCOPES`, if set.
+///
+/// Defaults are read-only; set `CHO_SCOPES` explicitly to include write scopes.
+fn configured_scopes() -> Option<String> {
+    #[cfg(test)]
+    {
+        if let Some(scopes) = scope_override_cell()
+            .lock()
+            .expect("scope override lock poisoned")
+            .clone()
+        {
+            return Some(scopes);
+        }
+    }
+
+    std::env::var("CHO_SCOPES")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+#[cfg(test)]
+fn scope_override_cell() -> &'static std::sync::Mutex<Option<String>> {
+    static OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option<String>>> =
+        std::sync::OnceLock::new();
+    OVERRIDE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+#[cfg(test)]
+pub(crate) fn set_scope_override_for_tests(scopes: Option<String>) {
+    *scope_override_cell()
+        .lock()
+        .expect("scope override lock poisoned") = scopes;
+}
+
 impl std::fmt::Debug for AuthManager {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuthManager")
             .field("client_id", &self.client_id)
             .field("has_token", &"<check is_authenticated()>")
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn configured_scopes_reads_env_override() {
+        set_scope_override_for_tests(Some(
+            "accounting.transactions accounting.contacts".to_string(),
+        ));
+        let scopes = configured_scopes();
+        assert_eq!(
+            scopes.as_deref(),
+            Some("accounting.transactions accounting.contacts")
+        );
+        set_scope_override_for_tests(None);
+    }
+
+    #[tokio::test]
+    async fn refresh_without_token_returns_auth_required() {
+        let auth = AuthManager::new("test-client-id".to_string());
+        let result = auth.refresh().await;
+        assert!(matches!(
+            result,
+            Err(crate::error::ChoSdkError::AuthRequired { .. })
+        ));
     }
 }

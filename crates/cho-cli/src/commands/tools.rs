@@ -51,6 +51,7 @@ fn run_detail(name: &str, json_mode: bool, start: Instant) {
                     "NOT_FOUND",
                     format!("Tool '{name}' not found"),
                     "Run 'cho tools --json' to list all available tools".to_string(),
+                    None,
                     start,
                 );
                 println!("{output}");

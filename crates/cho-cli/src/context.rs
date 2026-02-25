@@ -9,7 +9,7 @@ use tracing::warn;
 
 use crate::envelope;
 use crate::output::OutputFormat;
-use crate::output::json::{JsonOptions, money_to_strings, pascal_to_snake_keys};
+use crate::output::json::{JsonOptions, apply_json_options};
 use crate::output::value_to_rows;
 
 /// Shared context for all CLI commands.
@@ -86,14 +86,14 @@ impl CliContext {
         data: &T,
         start: Instant,
     ) -> cho_sdk::error::Result<()> {
+        let transformed = self.serialize_and_transform(data)?;
         match self.format {
             OutputFormat::Json => {
-                let json_data = self.transform_data(data)?;
-                let output = envelope::emit_success(tool, json_data, start, None, None, None);
+                let output = envelope::emit_success(tool, transformed, start, None, None, None);
                 println!("{output}");
             }
             OutputFormat::Table | OutputFormat::Csv => {
-                let output = self.format_table_csv(data)?;
+                let output = self.format_table_csv_value(&transformed)?;
                 println!("{output}");
             }
         }
@@ -121,15 +121,16 @@ impl CliContext {
             let page_count = p.page_count?;
             Some(page < page_count)
         });
+        let transformed = self.serialize_and_transform(&result.items)?;
 
         match self.format {
             OutputFormat::Json => {
-                let json_data = self.transform_data(&result.items)?;
-                let output = envelope::emit_success(tool, json_data, start, count, total, has_more);
+                let output =
+                    envelope::emit_success(tool, transformed, start, count, total, has_more);
                 println!("{output}");
             }
             OutputFormat::Table | OutputFormat::Csv => {
-                let output = self.format_table_csv(&result.items)?;
+                let output = self.format_table_csv_value(&transformed)?;
                 println!("{output}");
             }
         }
@@ -144,25 +145,25 @@ impl CliContext {
         start: Instant,
     ) -> cho_sdk::error::Result<()> {
         let count = Some(items.len());
+        let transformed = self.serialize_and_transform(items)?;
 
         match self.format {
             OutputFormat::Json => {
-                let json_data = self.transform_data(items)?;
-                let output = envelope::emit_success(tool, json_data, start, count, None, None);
+                let output = envelope::emit_success(tool, transformed, start, count, None, None);
                 println!("{output}");
             }
             OutputFormat::Table | OutputFormat::Csv => {
-                let output = self.format_table_csv(items)?;
+                let output = self.format_table_csv_value(&transformed)?;
                 println!("{output}");
             }
         }
         Ok(())
     }
 
-    /// Transforms a serializable value through the JSON pipeline (snake_case, --precise).
+    /// Serializes and transforms a value through the shared JSON pipeline.
     ///
-    /// Returns a `serde_json::Value` suitable for embedding in the envelope `data` field.
-    fn transform_data<T: Serialize + ?Sized>(
+    /// Returns a transformed `serde_json::Value` suitable for envelope or table/CSV rendering.
+    fn serialize_and_transform<T: Serialize + ?Sized>(
         &self,
         value: &T,
     ) -> cho_sdk::error::Result<serde_json::Value> {
@@ -171,31 +172,15 @@ impl CliContext {
                 message: format!("JSON serialization failed: {e}"),
             })?;
 
-        let transformed = if self.json_options.raw {
-            json_value
-        } else {
-            pascal_to_snake_keys(json_value)
-        };
-
-        Ok(if self.json_options.precise {
-            money_to_strings(transformed)
-        } else {
-            transformed
-        })
+        Ok(apply_json_options(json_value, &self.json_options))
     }
 
     /// Formats data as table or CSV.
-    fn format_table_csv<T: Serialize + ?Sized>(&self, value: &T) -> cho_sdk::error::Result<String> {
-        let json_value =
-            serde_json::to_value(value).map_err(|e| cho_sdk::error::ChoSdkError::Parse {
-                message: format!("JSON serialization failed: {e}"),
-            })?;
-        let transformed = if self.json_options.raw {
-            json_value
-        } else {
-            pascal_to_snake_keys(json_value)
-        };
-        let (headers, rows) = value_to_rows(&transformed);
+    fn format_table_csv_value(
+        &self,
+        transformed: &serde_json::Value,
+    ) -> cho_sdk::error::Result<String> {
+        let (headers, rows) = value_to_rows(transformed);
         match self.format {
             OutputFormat::Table => {
                 let columns: Vec<_> = headers
@@ -316,6 +301,27 @@ pub fn warn_if_suspicious_filter(filter: Option<&String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::output::OutputFormat;
+    use cho_sdk::client::XeroClient;
+    use serde_json::json;
+
+    fn test_context(format: OutputFormat, precise: bool, limit: usize, all: bool) -> CliContext {
+        let client = XeroClient::builder()
+            .client_id("test")
+            .tenant_id("tenant")
+            .build()
+            .expect("test client");
+        CliContext::new(
+            client,
+            format,
+            JsonOptions {
+                raw: false,
+                precise,
+            },
+            limit,
+            all,
+        )
+    }
 
     #[test]
     fn suspicious_patterns_detected() {
@@ -334,5 +340,38 @@ mod tests {
         warn_if_suspicious_filter(Some(&"Status==\"ACTIVE\"".to_string()));
         warn_if_suspicious_filter(Some(&"Type==\"ACCREC\" AND Status==\"PAID\"".to_string()));
         warn_if_suspicious_filter(None);
+    }
+
+    #[test]
+    fn pagination_caps_limit_without_all() {
+        let ctx = test_context(OutputFormat::Json, false, 50_000, false);
+        let params = ctx.pagination_params();
+        assert_eq!(params.limit, 10_000);
+    }
+
+    #[test]
+    fn pagination_all_ignores_limit_cap() {
+        let ctx = test_context(OutputFormat::Json, false, 5, true);
+        let params = ctx.pagination_params();
+        assert_eq!(params.limit, 0);
+    }
+
+    #[test]
+    fn precise_transform_applies_for_table_csv_path() {
+        let ctx = test_context(OutputFormat::Csv, true, 100, false);
+        let input = json!([{ "Total": 123.45, "Count": 2 }]);
+
+        let transformed = ctx.serialize_and_transform(&input).expect("transform");
+        assert_eq!(
+            transformed[0]["total"],
+            serde_json::Value::String("123.45".to_string())
+        );
+        assert!(transformed[0]["count"].is_number());
+
+        let csv = ctx.format_table_csv_value(&transformed).expect("csv");
+        assert!(
+            csv.contains("123.45"),
+            "Expected precise decimal in CSV output, got: {csv}"
+        );
     }
 }

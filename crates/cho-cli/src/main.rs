@@ -56,14 +56,6 @@ struct Cli {
     #[arg(long, global = true)]
     verbose: bool,
 
-    /// Suppress non-essential output.
-    #[arg(long, global = true)]
-    quiet: bool,
-
-    /// Disable terminal colors.
-    #[arg(long, global = true)]
-    no_color: bool,
-
     /// Maximum items for list commands.
     #[arg(long, global = true, default_value = "100")]
     limit: usize,
@@ -287,7 +279,7 @@ async fn main() {
     let tenant_id = cli
         .tenant
         .or_else(load_config_tenant_id)
-        .unwrap_or_default();
+        .filter(|id| !id.trim().is_empty());
 
     let config = SdkConfig::default().with_base_url(base_url);
 
@@ -295,13 +287,15 @@ async fn main() {
     // Try to load stored tokens
     let _ = auth.load_stored_tokens().await;
 
-    let client = match XeroClient::builder()
+    let mut builder = XeroClient::builder()
         .config(config)
-        .tenant_id(tenant_id)
         .auth_manager(auth)
-        .rate_limit(RateLimitConfig::default())
-        .build()
-    {
+        .rate_limit(RateLimitConfig::default());
+    if let Some(id) = tenant_id {
+        builder = builder.tenant_id(id);
+    }
+
+    let client = match builder.build() {
         Ok(c) => c,
         Err(e) => {
             let msg = error::format_error(&e, is_json, "unknown", start);

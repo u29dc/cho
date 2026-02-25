@@ -75,18 +75,19 @@ cho reports {balance-sheet|pnl|trial-balance|aged-payables|aged-receivables}
 cho config {set|show}
 ```
 
-- Global output/behavior flags: `--json` (alias for `--format json`), `--format json|table|csv` (auto: JSON when piped, table on TTY), `--raw` (preserve PascalCase wire keys), `--precise` (money as strings), `--quiet`, `--verbose`, `--no-color`.
+- Global output/behavior flags: `--json` (alias for `--format json`), `--format json|table|csv` (auto: JSON when piped, table on TTY), `--raw` (preserve PascalCase wire keys), `--precise` (money as strings), `--verbose`.
 - Global scope flags: `--tenant <uuid>` (override config tenant), `--limit <N>` (default 100, hard cap 10,000), `--all` (fetch all pages).
 - Deprecated flag: `--meta` is hidden; envelope is default in JSON mode.
 
 - JSON success envelope: `{"ok": true, "data": <payload>, "meta": {"tool": "<category.action>", "elapsed": <ms>, ...}}`.
-- JSON error envelope: `{"ok": false, "error": {"code": "...", "message": "...", "hint": "..."}, "meta": {...}}`.
-- Tool catalog command: `cho tools --json` returns `{version, tools[], globalFlags[]}` (~55 tools).
+- JSON error envelope: `{"ok": false, "error": {"code": "...", "message": "...", "hint": "...", "retry_after": <seconds?>}, "meta": {...}}`.
+- Tool catalog command: `cho tools --json` returns `{version, tools[], globalFlags[]}` (~56 tools).
 - Health command: `cho health --json` checks `config|auth|tenant|keyring`, status `ready|degraded|blocked`, blocked exits `2`.
 
 - Config path: `~/.config/cho/config.toml` (`XDG_CONFIG_HOME` respected).
 - Precedence: CLI flags > env > config > defaults.
-- Key env vars: `CHO_TENANT_ID`, `CHO_CLIENT_ID`, `CHO_CLIENT_SECRET`, `CHO_FORMAT`, `CHO_BASE_URL`.
+- Key env vars: `CHO_TENANT_ID`, `CHO_CLIENT_ID`, `CHO_CLIENT_SECRET`, `CHO_FORMAT`, `CHO_BASE_URL`, `CHO_SCOPES`.
+- Auth scopes default to read-only; set `CHO_SCOPES` explicitly to opt into write scopes.
 - Write safety contract: mutating operations require `[safety] allow_writes = true`; default deny.
 
 ```toml
@@ -108,7 +109,7 @@ allow_writes = false
 ```
 
 - Exit code contract: `0` success; `1` runtime/validation/usage/API/network failure; `2` blocked prerequisites (`AUTH_REQUIRED`, `TOKEN_EXPIRED`, `WRITE_NOT_ALLOWED`).
-- Error code mapping: `AUTH_REQUIRED` -> run `cho auth login`; `TOKEN_EXPIRED` -> re-authenticate; `WRITE_NOT_ALLOWED` -> enable safety gate; `RATE_LIMITED` -> wait/retry (`--verbose` for headers); `NOT_FOUND` -> verify ID/number; `VALIDATION_ERROR` -> fix payload; `API_ERROR` -> retry/check Xero status; `NETWORK_ERROR` -> verify connectivity; `PARSE_ERROR` -> rerun verbose/report; `CONFIG_ERROR` -> repair config; `USAGE_ERROR` -> run command help.
+- Error code mapping: `AUTH_REQUIRED` -> run `cho auth login`; `TOKEN_EXPIRED` -> re-authenticate; `WRITE_NOT_ALLOWED` -> enable safety gate; `RATE_LIMITED` -> wait/retry using `error.retry_after`; `DAILY_QUOTA_EXCEEDED` -> wait for Xero daily quota reset; `NOT_FOUND` -> verify ID/number; `VALIDATION_ERROR` -> fix payload; `API_ERROR` -> retry/check Xero status; `NETWORK_ERROR` -> verify connectivity; `PARSE_ERROR` -> rerun verbose/report; `CONFIG_ERROR` -> repair config; `USAGE_ERROR` -> run command help.
 
 ## 5. Architecture
 

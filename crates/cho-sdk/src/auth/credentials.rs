@@ -22,7 +22,10 @@ pub struct ClientCredentialsParams {
 }
 
 /// Default scopes for client credentials (no offline_access needed).
-const DEFAULT_SCOPES: &str = "accounting.transactions.read accounting.contacts.read accounting.settings.read accounting.reports.read accounting.journals.read files.read assets.read projects.read payroll.employees payroll.timesheets payroll.settings";
+///
+/// Defaults are read-only to follow least privilege. Use `CHO_SCOPES` to
+/// explicitly opt into write scopes when required.
+const DEFAULT_SCOPES: &str = "accounting.transactions.read accounting.contacts.read accounting.settings.read accounting.reports.read accounting.journals.read accounting.budgets.read";
 
 /// Authenticates using the client_credentials grant type.
 ///
@@ -32,12 +35,20 @@ pub(crate) async fn authenticate(
     client: &reqwest::Client,
     params: &ClientCredentialsParams,
 ) -> crate::error::Result<TokenResponse> {
+    authenticate_at(client, params, TOKEN_ENDPOINT).await
+}
+
+pub(crate) async fn authenticate_at(
+    client: &reqwest::Client,
+    params: &ClientCredentialsParams,
+    endpoint: &str,
+) -> crate::error::Result<TokenResponse> {
     let scopes = params.scopes.as_deref().unwrap_or(DEFAULT_SCOPES);
 
     debug!("Requesting client_credentials token");
 
     let response = client
-        .post(TOKEN_ENDPOINT)
+        .post(endpoint)
         .basic_auth(
             &params.client_id,
             Some(params.client_secret.expose_secret()),
@@ -66,9 +77,59 @@ pub(crate) async fn authenticate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wiremock::matchers::{body_string_contains, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn default_scopes_do_not_include_offline_access() {
         assert!(!DEFAULT_SCOPES.contains("offline_access"));
+    }
+
+    #[test]
+    fn default_scopes_exclude_payroll_and_projects() {
+        assert!(!DEFAULT_SCOPES.contains("payroll."));
+        assert!(!DEFAULT_SCOPES.contains("projects."));
+    }
+
+    #[test]
+    fn default_scopes_are_read_only() {
+        let scopes: std::collections::HashSet<&str> = DEFAULT_SCOPES.split_whitespace().collect();
+        assert!(scopes.contains("accounting.transactions.read"));
+        assert!(scopes.contains("accounting.contacts.read"));
+        assert!(scopes.contains("accounting.settings.read"));
+        assert!(!scopes.contains("accounting.transactions"));
+        assert!(!scopes.contains("accounting.contacts"));
+        assert!(!scopes.contains("accounting.settings"));
+    }
+
+    #[tokio::test]
+    async fn authenticate_at_success_with_scope_override() {
+        let server = MockServer::start().await;
+        let endpoint = format!("{}/connect/token", server.uri());
+
+        Mock::given(method("POST"))
+            .and(path("/connect/token"))
+            .and(body_string_contains("grant_type=client_credentials"))
+            .and(body_string_contains("scope=accounting.transactions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "cc-access",
+                "expires_in": 1800,
+                "token_type": "Bearer",
+                "scope": "accounting.transactions accounting.contacts"
+            })))
+            .mount(&server)
+            .await;
+
+        let client = reqwest::Client::new();
+        let params = ClientCredentialsParams {
+            client_id: "test-client-id".to_string(),
+            client_secret: SecretString::from("secret".to_string()),
+            scopes: Some("accounting.transactions accounting.contacts".to_string()),
+        };
+
+        let response = authenticate_at(&client, &params, &endpoint)
+            .await
+            .expect("authenticate succeeds");
+        assert_eq!(response.access_token, "cc-access");
     }
 }

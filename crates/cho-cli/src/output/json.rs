@@ -18,19 +18,15 @@ pub struct JsonOptions {
     pub precise: bool,
 }
 
+/// Applies all configured JSON output transforms in a single traversal.
+pub fn apply_json_options(value: Value, options: &JsonOptions) -> Value {
+    transform_value(value, !options.raw, options.precise)
+}
+
 /// Recursively converts all object keys from PascalCase to snake_case.
+#[allow(dead_code)]
 pub fn pascal_to_snake_keys(value: Value) -> Value {
-    match value {
-        Value::Object(map) => {
-            let new_map: serde_json::Map<String, Value> = map
-                .into_iter()
-                .map(|(k, v)| (pascal_to_snake(&k), pascal_to_snake_keys(v)))
-                .collect();
-            Value::Object(new_map)
-        }
-        Value::Array(arr) => Value::Array(arr.into_iter().map(pascal_to_snake_keys).collect()),
-        other => other,
-    }
+    transform_value(value, true, false)
 }
 
 /// Converts a PascalCase string to snake_case.
@@ -66,22 +62,42 @@ fn pascal_to_snake(s: &str) -> String {
 
 /// Recursively converts numeric values that look like money (have decimal places)
 /// to string representations for precise output.
+#[allow(dead_code)]
 pub fn money_to_strings(value: Value) -> Value {
+    transform_value(value, false, true)
+}
+
+fn transform_value(value: Value, transform_keys: bool, precise: bool) -> Value {
     match value {
         Value::Object(map) => {
             let new_map: serde_json::Map<String, Value> = map
                 .into_iter()
-                .map(|(k, v)| (k, money_to_strings(v)))
+                .map(|(k, v)| {
+                    let key = if transform_keys {
+                        pascal_to_snake(&k)
+                    } else {
+                        k
+                    };
+                    (key, transform_value(v, transform_keys, precise))
+                })
                 .collect();
             Value::Object(new_map)
         }
-        Value::Array(arr) => Value::Array(arr.into_iter().map(money_to_strings).collect()),
+        Value::Array(arr) => Value::Array(
+            arr.into_iter()
+                .map(|v| transform_value(v, transform_keys, precise))
+                .collect(),
+        ),
         Value::Number(n) => {
-            // Convert numbers with decimals to strings, avoiding f64 intermediate
-            // which can lose precision for large Decimal values.
-            let s = n.to_string();
-            if s.contains('.') {
-                Value::String(s)
+            if precise {
+                // Convert numbers with decimals to strings, avoiding f64 intermediate
+                // which can lose precision for large Decimal values.
+                let s = n.to_string();
+                if s.contains('.') {
+                    Value::String(s)
+                } else {
+                    Value::Number(n)
+                }
             } else {
                 Value::Number(n)
             }
@@ -128,5 +144,24 @@ mod tests {
         assert_eq!(output["amount"], Value::String("123.45".to_string()));
         assert!(output["count"].is_number()); // integers stay as numbers
         assert_eq!(output["nested"]["total"], Value::String("0.01".to_string()));
+    }
+
+    #[test]
+    fn apply_json_options_combines_transforms() {
+        let input = serde_json::json!({
+            "InvoiceID": "inv-1",
+            "Total": 123.45,
+            "Count": 2
+        });
+        let output = apply_json_options(
+            input,
+            &JsonOptions {
+                raw: false,
+                precise: true,
+            },
+        );
+        assert_eq!(output["invoice_id"], "inv-1");
+        assert_eq!(output["total"], Value::String("123.45".to_string()));
+        assert!(output["count"].is_number());
     }
 }

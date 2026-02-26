@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use cho_sdk::api::specs::{ResourceSpec, by_name};
 use cho_sdk::error::{ChoSdkError, Result};
+use cho_sdk::models::ListResult;
 use clap::{Args, Subcommand};
 
 use crate::context::CliContext;
@@ -230,6 +231,18 @@ pub async fn run_resource(
     ctx: &CliContext,
     start: Instant,
 ) -> Result<()> {
+    if resource == "categories" {
+        return run_categories_resource(command, ctx, start).await;
+    }
+    if resource == "bank-transaction-explanations"
+        && let ResourceCommands::List(args) = command
+        && !has_bank_account_filter(args)
+    {
+        return Err(ChoSdkError::Config {
+            message: "bank-transaction-explanations list requires --bank-account <url>".to_string(),
+        });
+    }
+
     let spec = by_name(resource).ok_or_else(|| ChoSdkError::Config {
         message: format!("Unsupported resource '{resource}'"),
     })?;
@@ -418,6 +431,11 @@ pub async fn run_bank_transactions(
 ) -> Result<()> {
     match command {
         BankTransactionCommands::List(args) => {
+            if !has_bank_account_filter(args) {
+                return Err(ChoSdkError::Config {
+                    message: "bank-transactions list requires --bank-account <url>".to_string(),
+                });
+            }
             run_resource(
                 "bank-transactions",
                 &ResourceCommands::List((**args).clone()),
@@ -622,6 +640,60 @@ async fn run_resource_with_spec(
     }
 }
 
+async fn run_categories_resource(
+    command: &ResourceCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> Result<()> {
+    match command {
+        ResourceCommands::List(list_args) => {
+            let query = list_query(list_args)?;
+            let value = ctx.client().get_json("categories", &query).await?;
+
+            let mut items = flatten_category_groups(&value);
+            let total = items.len();
+            let mut has_more = false;
+
+            let pagination = ctx.pagination();
+            if !pagination.all && pagination.limit > 0 && total > pagination.limit {
+                items.truncate(pagination.limit);
+                has_more = true;
+            }
+
+            let result = ListResult {
+                items,
+                total: Some(total),
+                has_more,
+                page: 1,
+                per_page: pagination.per_page,
+            };
+
+            ctx.emit_list("categories.list", &result, start)
+        }
+        ResourceCommands::Get { id } => {
+            let value = ctx
+                .client()
+                .get_json(&format!("categories/{}", encode_path_segment(id)), &[])
+                .await?;
+
+            let items = flatten_category_groups(&value);
+            if let Some(first) = items.into_iter().next() {
+                ctx.emit_success("categories.get", &first, start)
+            } else {
+                ctx.emit_success("categories.get", &value, start)
+            }
+        }
+        ResourceCommands::Create { .. }
+        | ResourceCommands::Update { .. }
+        | ResourceCommands::Delete { .. } => {
+            let spec = by_name("categories").ok_or_else(|| ChoSdkError::Config {
+                message: "Missing categories resource spec".to_string(),
+            })?;
+            run_resource_with_spec(spec, command, ctx, start).await
+        }
+    }
+}
+
 async fn search_contacts(
     term: &str,
     per_page: Option<u32>,
@@ -704,4 +776,132 @@ fn push_if_some(query: &mut Vec<(String, String)>, key: &str, value: Option<&Str
 
 fn encode_path_segment(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+fn has_bank_account_filter(args: &ListArgs) -> bool {
+    if args
+        .bank_account
+        .as_ref()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return true;
+    }
+
+    args.query.iter().any(|entry| {
+        entry
+            .split_once('=')
+            .is_some_and(|(key, value)| key == "bank_account" && !value.trim().is_empty())
+    })
+}
+
+fn flatten_category_groups(value: &serde_json::Value) -> Vec<serde_json::Value> {
+    let Some(object) = value.as_object() else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for (group_name, group_value) in object {
+        if let Some(items) = group_value.as_array() {
+            for item in items {
+                let mut item_value = item.clone();
+                if let serde_json::Value::Object(map) = &mut item_value
+                    && !map.contains_key("category_group")
+                {
+                    map.insert(
+                        "category_group".to_string(),
+                        serde_json::Value::String(group_name.clone()),
+                    );
+                }
+                out.push(item_value);
+            }
+        } else if group_value.is_object() {
+            let mut item_value = group_value.clone();
+            if let serde_json::Value::Object(map) = &mut item_value
+                && !map.contains_key("category_group")
+            {
+                map.insert(
+                    "category_group".to_string(),
+                    serde_json::Value::String(group_name.clone()),
+                );
+            }
+            out.push(item_value);
+        }
+    }
+
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn has_bank_account_filter_detects_direct_flag() {
+        let args = ListArgs {
+            view: None,
+            sort: None,
+            from_date: None,
+            to_date: None,
+            updated_since: None,
+            contact: None,
+            project: None,
+            bank_account: Some("https://api.freeagent.com/v2/bank_accounts/1".to_string()),
+            user: None,
+            per_page: None,
+            query: vec![],
+        };
+
+        assert!(has_bank_account_filter(&args));
+    }
+
+    #[test]
+    fn has_bank_account_filter_detects_query_pair() {
+        let args = ListArgs {
+            view: None,
+            sort: None,
+            from_date: None,
+            to_date: None,
+            updated_since: None,
+            contact: None,
+            project: None,
+            bank_account: None,
+            user: None,
+            per_page: None,
+            query: vec!["bank_account=https://api.freeagent.com/v2/bank_accounts/1".to_string()],
+        };
+
+        assert!(has_bank_account_filter(&args));
+    }
+
+    #[test]
+    fn flatten_category_groups_flattens_array_groups() {
+        let value = serde_json::json!({
+            "general_categories": [
+                {
+                    "nominal_code": "051",
+                    "description": "Interest Received"
+                }
+            ]
+        });
+
+        let items = flatten_category_groups(&value);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["nominal_code"], "051");
+        assert_eq!(items[0]["category_group"], "general_categories");
+    }
+
+    #[test]
+    fn flatten_category_groups_flattens_single_object_groups() {
+        let value = serde_json::json!({
+            "general_categories": {
+                "nominal_code": "051",
+                "description": "Interest Received"
+            }
+        });
+
+        let items = flatten_category_groups(&value);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["nominal_code"], "051");
+        assert_eq!(items[0]["category_group"], "general_categories");
+    }
 }

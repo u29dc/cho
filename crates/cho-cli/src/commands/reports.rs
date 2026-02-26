@@ -42,6 +42,9 @@ pub enum ReportCommands {
         /// End date (YYYY-MM-DD).
         #[arg(long)]
         to_date: Option<String>,
+        /// Number of months to project when no date range is provided.
+        #[arg(long)]
+        months: Option<u32>,
     },
 }
 
@@ -87,10 +90,23 @@ pub async fn run(command: &ReportCommands, ctx: &CliContext, start: Instant) -> 
                 .await?;
             ctx.emit_success("reports.trial-balance", &value, start)
         }
-        ReportCommands::Cashflow { from_date, to_date } => {
+        ReportCommands::Cashflow {
+            from_date,
+            to_date,
+            months,
+        } => {
             let mut query = Vec::new();
-            maybe_push(&mut query, "from_date", from_date);
-            maybe_push(&mut query, "to_date", to_date);
+
+            if let Some(months) = months {
+                query.push(("months".to_string(), months.to_string()));
+            } else {
+                maybe_push(&mut query, "from_date", from_date);
+                maybe_push(&mut query, "to_date", to_date);
+            }
+
+            if query.is_empty() {
+                query.push(("months".to_string(), "12".to_string()));
+            }
             let value = ctx.client().get_json("cashflow", &query).await?;
             ctx.emit_success("reports.cashflow", &value, start)
         }

@@ -191,28 +191,117 @@ fn escape_field(value: &str) -> String {
 fn sanitize_argv(argv: &[String]) -> Vec<String> {
     let mut sanitized = Vec::with_capacity(argv.len());
     let mut redact_next = false;
+    let mut window = std::collections::VecDeque::with_capacity(3);
 
     for arg in argv {
         if redact_next {
             sanitized.push("[REDACTED]".to_string());
             redact_next = false;
+            window.push_back("[REDACTED]".to_string());
+            if window.len() > 3 {
+                let _ = window.pop_front();
+            }
             continue;
         }
 
-        if arg == "--client-secret" {
+        let is_config_set_secret_key = window.len() >= 3
+            && window[window.len() - 3] == "config"
+            && window[window.len() - 2] == "set"
+            && window[window.len() - 1] == "auth.client_secret";
+
+        if is_config_set_secret_key {
+            sanitized.push("[REDACTED]".to_string());
+            window.push_back("[REDACTED]".to_string());
+            if window.len() > 3 {
+                let _ = window.pop_front();
+            }
+            continue;
+        }
+
+        if arg == "--client-secret" || arg == "auth.client_secret" {
             sanitized.push(arg.clone());
             redact_next = true;
+            window.push_back(arg.clone());
+            if window.len() > 3 {
+                let _ = window.pop_front();
+            }
             continue;
         }
 
         if let Some((prefix, _)) = arg.split_once("--client-secret=") {
             let _ = prefix;
             sanitized.push("--client-secret=[REDACTED]".to_string());
+            window.push_back("--client-secret=[REDACTED]".to_string());
+            if window.len() > 3 {
+                let _ = window.pop_front();
+            }
+            continue;
+        }
+
+        if let Some((prefix, _)) = arg.split_once("auth.client_secret=") {
+            let _ = prefix;
+            sanitized.push("auth.client_secret=[REDACTED]".to_string());
+            window.push_back("auth.client_secret=[REDACTED]".to_string());
+            if window.len() > 3 {
+                let _ = window.pop_front();
+            }
             continue;
         }
 
         sanitized.push(arg.clone());
+        window.push_back(arg.clone());
+        if window.len() > 3 {
+            let _ = window.pop_front();
+        }
     }
 
     sanitized
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_argv;
+
+    fn to_vec(args: &[&str]) -> Vec<String> {
+        args.iter().map(|arg| (*arg).to_string()).collect()
+    }
+
+    #[test]
+    fn sanitize_argv_redacts_client_secret_flag_forms() {
+        let sanitized = sanitize_argv(&to_vec(&["cho", "--client-secret", "topsecret"]));
+        assert_eq!(sanitized, to_vec(&["cho", "--client-secret", "[REDACTED]"]));
+
+        let sanitized = sanitize_argv(&to_vec(&["cho", "--client-secret=topsecret"]));
+        assert_eq!(sanitized, to_vec(&["cho", "--client-secret=[REDACTED]"]));
+    }
+
+    #[test]
+    fn sanitize_argv_redacts_config_set_secret_value() {
+        let sanitized = sanitize_argv(&to_vec(&[
+            "cho",
+            "config",
+            "set",
+            "auth.client_secret",
+            "topsecret",
+            "--json",
+        ]));
+
+        assert_eq!(
+            sanitized,
+            to_vec(&[
+                "cho",
+                "config",
+                "set",
+                "auth.client_secret",
+                "[REDACTED]",
+                "--json",
+            ])
+        );
+    }
+
+    #[test]
+    fn sanitize_argv_redacts_inline_config_key_value_form() {
+        let sanitized = sanitize_argv(&to_vec(&["cho", "auth.client_secret=topsecret"]));
+        assert_eq!(sanitized, to_vec(&["cho", "auth.client_secret=[REDACTED]"]));
+    }
 }

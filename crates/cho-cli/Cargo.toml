@@ -1,0 +1,13 @@
+[package]
+name = "cho-cli"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "cho"
+path = "src/main.rs"
+
+[dependencies]
+cho-sdk = { path = "../cho-sdk" }

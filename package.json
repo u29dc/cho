@@ -1,0 +1,30 @@
+{
+	"name": "cho",
+	"version": "0.0.1",
+	"type": "module",
+	"private": true,
+	"repository": {
+		"type": "git",
+		"url": "."
+	},
+	"scripts": {
+		"prepare": "husky",
+		"cho:dev": "cargo run -p cho-cli --",
+		"build": "cargo build --workspace --release && mkdir -p \"${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}\" && cp target/release/cho \"${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}/cho\"",
+		"util:format": "cargo fmt --all",
+		"util:lint": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+		"util:types": "cargo check --workspace",
+		"util:test": "cargo test --workspace",
+		"util:build": "cargo build --workspace",
+		"util:check": "bun run util:format && bun run util:lint && bun run util:types && bun run util:test && bun run util:build"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.4",
+		"@commitlint/cli": "^20.4.2",
+		"@commitlint/config-conventional": "^20.4.2",
+		"@typescript/native-preview": "^7.0.0-dev.20260226.1",
+		"bun-types": "^1.3.10",
+		"husky": "^9.1.7",
+		"lint-staged": "^16.2.7"
+	}
+}

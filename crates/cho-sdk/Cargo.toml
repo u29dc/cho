@@ -1,0 +1,12 @@
+[package]
+name = "cho-sdk"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+name = "cho_sdk"
+path = "src/lib.rs"
+
+[dependencies]

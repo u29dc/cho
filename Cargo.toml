@@ -1,0 +1,9 @@
+[workspace]
+members = ["crates/cho-sdk", "crates/cho-cli", "crates/cho-tui"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.85.0"
+version = "0.1.0"

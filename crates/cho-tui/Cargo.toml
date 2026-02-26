@@ -1,0 +1,12 @@
+[package]
+name = "cho-tui"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "cho-tui"
+path = "src/main.rs"
+
+[dependencies]

@@ -1,5 +1,16 @@
+#![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
-pub fn ping() -> &'static str {
-    "cho-sdk"
-}
+//! cho-sdk: FreeAgent API client core.
+//!
+//! This crate provides authentication, transport, pagination, and a generic
+//! resource API surface that powers the `cho` CLI.
+
+pub mod api;
+pub mod auth;
+pub mod blocking;
+pub mod client;
+pub mod config;
+pub mod error;
+pub mod home;
+pub mod models;

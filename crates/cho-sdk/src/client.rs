@@ -194,7 +194,9 @@ impl FreeAgentClient {
         let url = build_url(&self.config.base_url, path)?;
         let mut did_refresh = false;
 
-        for attempt in 0..=max_retries {
+        let mut attempt: u32 = 0;
+
+        loop {
             let started = Instant::now();
             let access_token = self.auth.get_access_token().await?;
 
@@ -246,6 +248,7 @@ impl FreeAgentClient {
                             delay_ms = delay.as_millis() as u64,
                             "network error, retrying"
                         );
+                        attempt += 1;
                         tokio::time::sleep(delay).await;
                         continue;
                     }
@@ -286,6 +289,7 @@ impl FreeAgentClient {
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
                 let wait = retry_after.unwrap_or(60);
                 if attempt < max_retries {
+                    attempt += 1;
                     tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                     continue;
                 }
@@ -317,11 +321,6 @@ impl FreeAgentClient {
 
             return Ok(RawResponse { body, headers });
         }
-
-        Err(ChoSdkError::ApiError {
-            status: 0,
-            message: "Request failed after retries".to_string(),
-        })
     }
 }
 

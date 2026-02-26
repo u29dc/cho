@@ -12,11 +12,13 @@ const TOKENS_KEY: &str = "freeagent_tokens";
 
 /// Loads stored tokens from keyring, then fallback file.
 pub fn load_tokens() -> Result<Option<StoredTokens>> {
-    match load_from_keyring() {
-        Ok(Some(tokens)) => return Ok(Some(tokens)),
-        Ok(None) => {}
-        Err(err) => {
-            tracing::debug!("keyring token load failed: {err}");
+    if !keyring_disabled() {
+        match load_from_keyring() {
+            Ok(Some(tokens)) => return Ok(Some(tokens)),
+            Ok(None) => {}
+            Err(err) => {
+                tracing::debug!("keyring token load failed: {err}");
+            }
         }
     }
 
@@ -25,7 +27,9 @@ pub fn load_tokens() -> Result<Option<StoredTokens>> {
 
 /// Stores tokens in file storage and attempts keyring storage as best-effort.
 pub fn store_tokens(tokens: &StoredTokens) -> Result<()> {
-    if let Err(keyring_err) = store_to_keyring(tokens) {
+    if !keyring_disabled()
+        && let Err(keyring_err) = store_to_keyring(tokens)
+    {
         warn!("Keyring unavailable, using file fallback token storage: {keyring_err}");
     }
 
@@ -34,7 +38,9 @@ pub fn store_tokens(tokens: &StoredTokens) -> Result<()> {
 
 /// Clears stored tokens from keyring and file fallback.
 pub fn clear_tokens() -> Result<()> {
-    if let Err(err) = clear_keyring() {
+    if !keyring_disabled()
+        && let Err(err) = clear_keyring()
+    {
         tracing::debug!("keyring clear failed: {err}");
     }
 
@@ -130,4 +136,34 @@ fn clear_file() -> Result<()> {
         })?;
     }
     Ok(())
+}
+
+fn keyring_disabled() -> bool {
+    parse_truthy_env(std::env::var("CHO_DISABLE_KEYRING").ok())
+}
+
+fn parse_truthy_env(value: Option<String>) -> bool {
+    matches!(
+        value.map(|value| value.trim().to_ascii_lowercase()),
+        Some(value) if matches!(value.as_str(), "1" | "true" | "yes" | "on")
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_truthy_env;
+
+    #[test]
+    fn parse_truthy_env_defaults_to_false() {
+        assert!(!parse_truthy_env(None));
+        assert!(!parse_truthy_env(Some("false".to_string())));
+    }
+
+    #[test]
+    fn parse_truthy_env_accepts_expected_values() {
+        assert!(parse_truthy_env(Some("true".to_string())));
+        assert!(parse_truthy_env(Some("1".to_string())));
+        assert!(parse_truthy_env(Some("yes".to_string())));
+        assert!(parse_truthy_env(Some("on".to_string())));
+    }
 }

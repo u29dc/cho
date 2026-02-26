@@ -31,6 +31,7 @@ pub struct AuthManager {
     config: SdkConfig,
     http_client: reqwest::Client,
     token: Arc<RwLock<Option<TokenPair>>>,
+    persist_tokens: bool,
     refresh_lock: Mutex<()>,
 }
 
@@ -60,8 +61,15 @@ impl AuthManager {
             config,
             http_client,
             token: Arc::new(RwLock::new(None)),
+            persist_tokens: true,
             refresh_lock: Mutex::new(()),
         })
+    }
+
+    /// Enables or disables persistent token storage side effects.
+    pub fn with_token_persistence(mut self, persist_tokens: bool) -> Self {
+        self.persist_tokens = persist_tokens;
+        self
     }
 
     /// Returns client ID.
@@ -113,6 +121,12 @@ impl AuthManager {
             .as_ref()
             .map(|pair| !pair.is_expired())
             .unwrap_or(false)
+    }
+
+    /// Seeds in-memory tokens without touching persistent storage.
+    pub async fn set_tokens_in_memory(&self, stored: token::StoredTokens) {
+        let mut guard = self.token.write().await;
+        *guard = Some(TokenPair::from_stored(&stored));
     }
 
     /// Runs browser login flow and stores resulting token pair.
@@ -241,7 +255,9 @@ impl AuthManager {
     }
 
     async fn store_pair(&self, pair: TokenPair) -> Result<()> {
-        storage::store_tokens(&pair.to_stored())?;
+        if self.persist_tokens {
+            storage::store_tokens(&pair.to_stored())?;
+        }
         let mut guard = self.token.write().await;
         *guard = Some(pair);
         Ok(())
@@ -255,6 +271,7 @@ impl std::fmt::Debug for AuthManager {
             .field("client_secret", &"[REDACTED]")
             .field("config", &self.config)
             .field("token", &"[REDACTED]")
+            .field("persist_tokens", &self.persist_tokens)
             .finish()
     }
 }

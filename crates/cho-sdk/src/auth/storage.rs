@@ -23,15 +23,13 @@ pub fn load_tokens() -> Result<Option<StoredTokens>> {
     load_from_file()
 }
 
-/// Stores tokens to keyring, falling back to file if keyring is unavailable.
+/// Stores tokens in file storage and attempts keyring storage as best-effort.
 pub fn store_tokens(tokens: &StoredTokens) -> Result<()> {
-    match store_to_keyring(tokens) {
-        Ok(()) => Ok(()),
-        Err(keyring_err) => {
-            warn!("Keyring unavailable, using file fallback token storage: {keyring_err}");
-            store_to_file(tokens)
-        }
+    if let Err(keyring_err) = store_to_keyring(tokens) {
+        warn!("Keyring unavailable, using file fallback token storage: {keyring_err}");
     }
+
+    store_to_file(tokens)
 }
 
 /// Clears stored tokens from keyring and file fallback.

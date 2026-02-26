@@ -13,6 +13,7 @@ build/
 .idea/
 *.log
 .tmp/
+.archive/
 .env
 .env.*
 !.env.example

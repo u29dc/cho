@@ -435,3 +435,83 @@ fn backoff_delay(attempt: u32) -> std::time::Duration {
     let base_secs = 1_u64 << attempt.min(4);
     std::time::Duration::from_secs(base_secs)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_collection_returns_array_items() {
+        let body = serde_json::json!({
+            "contacts": [
+                {"url": "https://api.freeagent.com/v2/contacts/1"}
+            ]
+        });
+
+        let items = extract_collection(&body, "contacts").expect("array should be extracted");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["url"], "https://api.freeagent.com/v2/contacts/1");
+    }
+
+    #[test]
+    fn extract_collection_errors_when_key_missing() {
+        let body = serde_json::json!({ "contact": {} });
+        let err = extract_collection(&body, "contacts").expect_err("missing key must fail");
+        assert!(
+            err.to_string()
+                .contains("missing collection key 'contacts'")
+        );
+    }
+
+    #[test]
+    fn response_has_next_link_detects_next_relation() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "Link",
+            reqwest::header::HeaderValue::from_static(
+                "<https://api.freeagent.com/v2/contacts?page=2>; rel=\"next\"",
+            ),
+        );
+
+        assert!(response_has_next_link(&headers));
+    }
+
+    #[test]
+    fn response_has_next_link_returns_false_without_next_relation() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "Link",
+            reqwest::header::HeaderValue::from_static(
+                "<https://api.freeagent.com/v2/contacts?page=1>; rel=\"prev\"",
+            ),
+        );
+
+        assert!(!response_has_next_link(&headers));
+    }
+
+    #[test]
+    fn build_url_joins_relative_path_against_base() {
+        let url = build_url("https://api.freeagent.com/v2/", "contacts/123")
+            .expect("url should be built");
+        assert_eq!(url, "https://api.freeagent.com/v2/contacts/123");
+    }
+
+    #[test]
+    fn build_url_preserves_absolute_path() {
+        let url = build_url(
+            "https://api.freeagent.com/v2/",
+            "https://api.freeagent.com/v2/contacts/123",
+        )
+        .expect("url should be preserved");
+        assert_eq!(url, "https://api.freeagent.com/v2/contacts/123");
+    }
+
+    #[test]
+    fn backoff_delay_caps_growth_at_sixteen_seconds() {
+        assert_eq!(backoff_delay(0), std::time::Duration::from_secs(1));
+        assert_eq!(backoff_delay(1), std::time::Duration::from_secs(2));
+        assert_eq!(backoff_delay(2), std::time::Duration::from_secs(4));
+        assert_eq!(backoff_delay(5), std::time::Duration::from_secs(16));
+        assert_eq!(backoff_delay(8), std::time::Duration::from_secs(16));
+    }
+}

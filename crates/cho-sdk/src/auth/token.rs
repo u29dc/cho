@@ -144,3 +144,83 @@ impl std::fmt::Debug for TokenPair {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_pair_from_response_uses_defaults_and_refresh_token() {
+        let response = TokenResponse {
+            access_token: "access-token".to_string(),
+            token_type: Some("bearer".to_string()),
+            expires_in: None,
+            refresh_token: Some("refresh-token".to_string()),
+            refresh_token_expires_in: None,
+        };
+
+        let pair = TokenPair::from_response(&response);
+        assert_eq!(pair.access_token(), "access-token");
+        assert_eq!(pair.refresh_token(), Some("refresh-token"));
+        assert!(!pair.is_expired());
+        assert!(pair.can_refresh());
+    }
+
+    #[test]
+    fn token_pair_round_trips_through_stored_representation() {
+        let response = TokenResponse {
+            access_token: "access-token".to_string(),
+            token_type: Some("bearer".to_string()),
+            expires_in: Some(3600),
+            refresh_token: Some("refresh-token".to_string()),
+            refresh_token_expires_in: Some(86_400),
+        };
+
+        let original = TokenPair::from_response(&response);
+        let stored = original.to_stored();
+        let restored = TokenPair::from_stored(&stored);
+
+        assert_eq!(restored.access_token(), "access-token");
+        assert_eq!(restored.refresh_token(), Some("refresh-token"));
+        assert_eq!(restored.expires_at(), stored.expires_at);
+    }
+
+    #[test]
+    fn token_pair_needs_refresh_when_close_to_expiry() {
+        let stored = StoredTokens {
+            access_token: "access-token".to_string(),
+            refresh_token: Some("refresh-token".to_string()),
+            expires_at: Utc::now() + Duration::seconds(30),
+            refresh_expires_at: Some(Utc::now() + Duration::hours(1)),
+        };
+
+        let pair = TokenPair::from_stored(&stored);
+        assert!(pair.needs_refresh());
+    }
+
+    #[test]
+    fn token_pair_does_not_need_refresh_when_expiry_is_far_out() {
+        let stored = StoredTokens {
+            access_token: "access-token".to_string(),
+            refresh_token: Some("refresh-token".to_string()),
+            expires_at: Utc::now() + Duration::minutes(30),
+            refresh_expires_at: Some(Utc::now() + Duration::hours(1)),
+        };
+
+        let pair = TokenPair::from_stored(&stored);
+        assert!(!pair.needs_refresh());
+    }
+
+    #[test]
+    fn token_pair_cannot_refresh_after_refresh_expiry() {
+        let stored = StoredTokens {
+            access_token: "access-token".to_string(),
+            refresh_token: Some("refresh-token".to_string()),
+            expires_at: Utc::now() + Duration::minutes(30),
+            refresh_expires_at: Some(Utc::now() - Duration::seconds(1)),
+        };
+
+        let pair = TokenPair::from_stored(&stored);
+        assert!(!pair.can_refresh());
+    }
+}

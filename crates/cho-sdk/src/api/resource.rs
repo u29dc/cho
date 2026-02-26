@@ -157,3 +157,74 @@ fn resource_target_path(resource_path: &str, id: &str) -> String {
         encode_path_segment(trimmed)
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resource_target_path_uses_absolute_url_ids_unchanged_except_trailing_slash() {
+        let url = "https://api.freeagent.com/v2/contacts/123/";
+        let path = resource_target_path("contacts", url);
+        assert_eq!(path, "https://api.freeagent.com/v2/contacts/123");
+    }
+
+    #[test]
+    fn resource_target_path_encodes_relative_ids() {
+        let path = resource_target_path("contacts", "abc/123");
+        assert_eq!(path, "contacts/abc%2F123");
+    }
+
+    #[test]
+    fn normalize_payload_wraps_unwrapped_body() {
+        let body = serde_json::json!({
+            "first_name": "Ada",
+            "last_name": "Lovelace"
+        });
+        let wrapped = normalize_payload(&body, "contact");
+        assert_eq!(
+            wrapped,
+            serde_json::json!({
+                "contact": {
+                    "first_name": "Ada",
+                    "last_name": "Lovelace"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn normalize_payload_keeps_already_wrapped_body() {
+        let body = serde_json::json!({
+            "contact": {
+                "first_name": "Ada"
+            }
+        });
+        let wrapped = normalize_payload(&body, "contact");
+        assert_eq!(wrapped, body);
+    }
+
+    #[test]
+    fn unwrap_singular_prefers_singular_key() {
+        let response = serde_json::json!({
+            "contact": {
+                "url": "https://api.freeagent.com/v2/contacts/1",
+                "first_name": "Ada"
+            }
+        });
+        let out = unwrap_singular(&response, "contact", "contacts").expect("must unwrap");
+        assert_eq!(out["first_name"], "Ada");
+    }
+
+    #[test]
+    fn unwrap_singular_falls_back_to_first_collection_item() {
+        let response = serde_json::json!({
+            "contacts": [
+                {"url": "https://api.freeagent.com/v2/contacts/1"},
+                {"url": "https://api.freeagent.com/v2/contacts/2"}
+            ]
+        });
+        let out = unwrap_singular(&response, "contact", "contacts").expect("must unwrap");
+        assert_eq!(out["url"], "https://api.freeagent.com/v2/contacts/1");
+    }
+}

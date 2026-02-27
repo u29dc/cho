@@ -2,9 +2,10 @@
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use cho_sdk::auth::AuthManager;
-use cho_sdk::client::FreeAgentClient;
+use cho_sdk::client::{FreeAgentClient, RequestPolicy};
 use cho_sdk::error::ChoSdkError;
 use cho_sdk::models::{ListResult, Pagination};
 use chrono::{DateTime, Datelike, NaiveDate};
@@ -55,6 +56,40 @@ impl Default for FetchContext {
             resource_targets: HashMap::new(),
             payroll_year: chrono::Utc::now().year(),
             payroll_period: 1,
+        }
+    }
+}
+
+/// Route load options for interactive fetches.
+#[derive(Debug, Clone, Copy)]
+pub struct RouteLoadOptions {
+    /// Max number of rows retained client-side.
+    pub limit: usize,
+    /// Requested page size for list endpoints.
+    pub per_page: usize,
+    /// Request timeout/retry policy.
+    pub request_policy: RequestPolicy,
+}
+
+impl RouteLoadOptions {
+    /// Full load defaults for explicit actions.
+    pub fn full(limit: usize) -> Self {
+        Self {
+            limit,
+            per_page: limit.clamp(1, 100),
+            request_policy: RequestPolicy::default(),
+        }
+    }
+
+    /// Fast-preview defaults for nav hover interactions.
+    pub fn preview(limit: usize, timeout: Duration, retries: u32) -> Self {
+        Self {
+            limit,
+            per_page: limit.clamp(1, 100),
+            request_policy: RequestPolicy {
+                timeout_override: Some(timeout),
+                max_retries_override: Some(retries),
+            },
         }
     }
 }
@@ -154,37 +189,71 @@ impl ApiEngine {
         context: &FetchContext,
         limit: usize,
     ) -> Result<RoutePayload, String> {
+        self.fetch_route_with_options(route, context, RouteLoadOptions::full(limit))
+    }
+
+    /// Fetches data for the provided route with interactive options.
+    pub fn fetch_route_with_options(
+        &self,
+        route: &RouteDefinition,
+        context: &FetchContext,
+        options: RouteLoadOptions,
+    ) -> Result<RoutePayload, String> {
         match route.kind {
-            RouteKind::Resource(spec) => self.fetch_resource(spec, route, context, limit),
-            RouteKind::CompanyGet => self.fetch_object("company", "company.get"),
-            RouteKind::CompanyTaxTimeline => {
-                self.fetch_object("company/tax_timeline", "company.tax-timeline")
+            RouteKind::Resource(spec) => self.fetch_resource(spec, route, context, options),
+            RouteKind::CompanyGet => {
+                self.fetch_object("company", "company.get", options.request_policy)
             }
-            RouteKind::CompanyBusinessCategories => {
-                self.fetch_object("company/business_categories", "company.business-categories")
-            }
+            RouteKind::CompanyTaxTimeline => self.fetch_object(
+                "company/tax_timeline",
+                "company.tax-timeline",
+                options.request_policy,
+            ),
+            RouteKind::CompanyBusinessCategories => self.fetch_object(
+                "company/business_categories",
+                "company.business-categories",
+                options.request_policy,
+            ),
             RouteKind::ReportProfitAndLoss => self.fetch_object(
                 "accounting/profit_and_loss/summary",
                 "reports.profit-and-loss",
+                options.request_policy,
             ),
-            RouteKind::ReportBalanceSheet => {
-                self.fetch_object("accounting/balance_sheet", "reports.balance-sheet")
+            RouteKind::ReportBalanceSheet => self.fetch_object(
+                "accounting/balance_sheet",
+                "reports.balance-sheet",
+                options.request_policy,
+            ),
+            RouteKind::ReportTrialBalance => self.fetch_object(
+                "accounting/trial_balance/summary",
+                "reports.trial-balance",
+                options.request_policy,
+            ),
+            RouteKind::ReportCashflow => self.fetch_object_with_query(
+                "cashflow",
+                &[("months", "12")],
+                "reports.cashflow",
+                options.request_policy,
+            ),
+            RouteKind::ExpenseMileageSettings => self.fetch_object(
+                "expenses/mileage_settings",
+                "expenses.mileage-settings",
+                options.request_policy,
+            ),
+            RouteKind::SelfAssessmentReturns => {
+                self.fetch_self_assessment_returns(context, options)
             }
-            RouteKind::ReportTrialBalance => {
-                self.fetch_object("accounting/trial_balance/summary", "reports.trial-balance")
+            RouteKind::PayrollPeriods => {
+                self.fetch_payroll_periods(context.payroll_year, options.request_policy)
             }
-            RouteKind::ReportCashflow => {
-                self.fetch_object_with_query("cashflow", &[("months", "12")], "reports.cashflow")
+            RouteKind::PayrollPeriodDetail => self.fetch_payroll_period_detail(
+                context.payroll_year,
+                context.payroll_period,
+                options.request_policy,
+            ),
+            RouteKind::PayrollProfiles => {
+                self.fetch_payroll_profiles(context.payroll_year, options.request_policy)
             }
-            RouteKind::ExpenseMileageSettings => {
-                self.fetch_object("expenses/mileage_settings", "expenses.mileage-settings")
-            }
-            RouteKind::SelfAssessmentReturns => self.fetch_self_assessment_returns(context, limit),
-            RouteKind::PayrollPeriods => self.fetch_payroll_periods(context.payroll_year),
-            RouteKind::PayrollPeriodDetail => {
-                self.fetch_payroll_period_detail(context.payroll_year, context.payroll_period)
-            }
-            RouteKind::PayrollProfiles => self.fetch_payroll_profiles(context.payroll_year),
             RouteKind::AuthStatus => self.fetch_auth_status(),
             RouteKind::Health => Ok(self.fetch_health_snapshot()),
             RouteKind::Config => Ok(RoutePayload::Object(self.app_config.as_redacted_json())),
@@ -235,17 +304,17 @@ impl ApiEngine {
         spec: cho_sdk::api::specs::ResourceSpec,
         route: &RouteDefinition,
         context: &FetchContext,
-        limit: usize,
+        options: RouteLoadOptions,
     ) -> Result<RoutePayload, String> {
         let client = self.client()?;
 
         if spec.name == "categories" {
             let value = self
                 .runtime
-                .block_on(client.get_json("categories", &[]))
+                .block_on(client.get_json_with_policy("categories", &[], options.request_policy))
                 .map_err(|e| format!("categories.list failed: {e}"))?;
             let items = flatten_category_groups(&value);
-            let capped = cap_items(items, limit);
+            let capped = cap_items(items, options.limit);
             return Ok(RoutePayload::List {
                 items: capped.items,
                 total: Some(capped.total),
@@ -270,14 +339,18 @@ impl ApiEngine {
             }
 
             let pagination = Pagination {
-                per_page: 100,
-                limit,
+                per_page: options.per_page.clamp(1, 100) as u32,
+                limit: options.limit,
                 all: false,
             };
 
             let result = self
                 .runtime
-                .block_on(client.resource(spec).list(&query, pagination))
+                .block_on(client.resource(spec).list_with_policy(
+                    &query,
+                    pagination,
+                    options.request_policy,
+                ))
                 .map_err(|e| format!("{}.list failed: {e}", spec.name))?;
 
             let mut items = result.items;
@@ -304,7 +377,11 @@ impl ApiEngine {
 
             let value = self
                 .runtime
-                .block_on(client.resource(spec).get(id))
+                .block_on(
+                    client
+                        .resource(spec)
+                        .get_with_policy(id, options.request_policy),
+                )
                 .map_err(|e| format!("{}.get failed: {e}", spec.name))?;
             return Ok(RoutePayload::Object(value));
         }
@@ -314,11 +391,16 @@ impl ApiEngine {
         ))
     }
 
-    fn fetch_object(&self, path: &str, tool: &str) -> Result<RoutePayload, String> {
+    fn fetch_object(
+        &self,
+        path: &str,
+        tool: &str,
+        policy: RequestPolicy,
+    ) -> Result<RoutePayload, String> {
         let client = self.client()?;
         let value = self
             .runtime
-            .block_on(client.get_json(path, &[]))
+            .block_on(client.get_json_with_policy(path, &[], policy))
             .map_err(|e| format!("{tool} failed: {e}"))?;
         Ok(RoutePayload::Object(value))
     }
@@ -328,6 +410,7 @@ impl ApiEngine {
         path: &str,
         query: &[(&str, &str)],
         tool: &str,
+        policy: RequestPolicy,
     ) -> Result<RoutePayload, String> {
         let client = self.client()?;
         let query = query
@@ -336,7 +419,7 @@ impl ApiEngine {
             .collect::<Vec<_>>();
         let value = self
             .runtime
-            .block_on(client.get_json(path, &query))
+            .block_on(client.get_json_with_policy(path, &query, policy))
             .map_err(|e| format!("{tool} failed: {e}"))?;
         Ok(RoutePayload::Object(value))
     }
@@ -344,7 +427,7 @@ impl ApiEngine {
     fn fetch_self_assessment_returns(
         &self,
         context: &FetchContext,
-        limit: usize,
+        options: RouteLoadOptions,
     ) -> Result<RoutePayload, String> {
         let client = self.client()?;
         let Some(user) = context
@@ -360,13 +443,19 @@ impl ApiEngine {
 
         let path = format!("users/{}/self_assessment_returns", user_id_segment(user));
         let pagination = Pagination {
-            per_page: 100,
-            limit,
+            per_page: options.per_page.clamp(1, 100) as u32,
+            limit: options.limit,
             all: false,
         };
         let result = self
             .runtime
-            .block_on(client.list_paginated(&path, "self_assessment_returns", &[], pagination))
+            .block_on(client.list_paginated_with_policy(
+                &path,
+                "self_assessment_returns",
+                &[],
+                pagination,
+                options.request_policy,
+            ))
             .map_err(|e| format!("self-assessment-returns.list failed: {e}"))?;
 
         let mut items = result.items;
@@ -379,29 +468,42 @@ impl ApiEngine {
         })
     }
 
-    fn fetch_payroll_periods(&self, year: i32) -> Result<RoutePayload, String> {
+    fn fetch_payroll_periods(
+        &self,
+        year: i32,
+        policy: RequestPolicy,
+    ) -> Result<RoutePayload, String> {
         let client = self.client()?;
         let value = self
             .runtime
-            .block_on(client.get_json(&format!("payroll/{year}"), &[]))
+            .block_on(client.get_json_with_policy(&format!("payroll/{year}"), &[], policy))
             .map_err(|e| format!("payroll.periods failed: {e}"))?;
         Ok(RoutePayload::Object(value))
     }
 
-    fn fetch_payroll_period_detail(&self, year: i32, period: i32) -> Result<RoutePayload, String> {
+    fn fetch_payroll_period_detail(
+        &self,
+        year: i32,
+        period: i32,
+        policy: RequestPolicy,
+    ) -> Result<RoutePayload, String> {
         let client = self.client()?;
         let value = self
             .runtime
-            .block_on(client.get_json(&format!("payroll/{year}/{period}"), &[]))
+            .block_on(client.get_json_with_policy(&format!("payroll/{year}/{period}"), &[], policy))
             .map_err(|e| format!("payroll.period failed: {e}"))?;
         Ok(RoutePayload::Object(value))
     }
 
-    fn fetch_payroll_profiles(&self, year: i32) -> Result<RoutePayload, String> {
+    fn fetch_payroll_profiles(
+        &self,
+        year: i32,
+        policy: RequestPolicy,
+    ) -> Result<RoutePayload, String> {
         let client = self.client()?;
         let value = self
             .runtime
-            .block_on(client.get_json(&format!("payroll_profiles/{year}"), &[]))
+            .block_on(client.get_json_with_policy(&format!("payroll_profiles/{year}"), &[], policy))
             .map_err(|e| format!("payroll-profiles.list failed: {e}"))?;
         Ok(RoutePayload::Object(value))
     }

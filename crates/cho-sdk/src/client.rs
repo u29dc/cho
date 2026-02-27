@@ -1,6 +1,7 @@
 //! FreeAgent API client.
 
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 
 use serde_json::Value;
@@ -54,6 +55,15 @@ pub struct HttpResponseEvent {
     pub error: Option<String>,
 }
 
+/// Per-request transport overrides for interactive use-cases.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RequestPolicy {
+    /// Optional request timeout override.
+    pub timeout_override: Option<Duration>,
+    /// Optional retry count override.
+    pub max_retries_override: Option<u32>,
+}
+
 /// Main FreeAgent API client.
 pub struct FreeAgentClient {
     config: SdkConfig,
@@ -85,8 +95,19 @@ impl FreeAgentClient {
 
     /// Fetches a singleton resource/object.
     pub async fn get_json(&self, path: &str, query: &[(String, String)]) -> Result<Value> {
+        self.get_json_with_policy(path, query, RequestPolicy::default())
+            .await
+    }
+
+    /// Fetches a singleton resource/object with request policy overrides.
+    pub async fn get_json_with_policy(
+        &self,
+        path: &str,
+        query: &[(String, String)],
+        policy: RequestPolicy,
+    ) -> Result<Value> {
         let response = self
-            .request(reqwest::Method::GET, path, query, None, false)
+            .request(reqwest::Method::GET, path, query, None, false, policy)
             .await?;
         Ok(response.body)
     }
@@ -94,7 +115,14 @@ impl FreeAgentClient {
     /// Sends POST JSON.
     pub async fn post_json(&self, path: &str, body: &Value, mutating: bool) -> Result<Value> {
         let response = self
-            .request(reqwest::Method::POST, path, &[], Some(body), mutating)
+            .request(
+                reqwest::Method::POST,
+                path,
+                &[],
+                Some(body),
+                mutating,
+                RequestPolicy::default(),
+            )
             .await?;
         Ok(response.body)
     }
@@ -102,7 +130,14 @@ impl FreeAgentClient {
     /// Sends PUT JSON.
     pub async fn put_json(&self, path: &str, body: &Value, mutating: bool) -> Result<Value> {
         let response = self
-            .request(reqwest::Method::PUT, path, &[], Some(body), mutating)
+            .request(
+                reqwest::Method::PUT,
+                path,
+                &[],
+                Some(body),
+                mutating,
+                RequestPolicy::default(),
+            )
             .await?;
         Ok(response.body)
     }
@@ -110,7 +145,14 @@ impl FreeAgentClient {
     /// Sends DELETE.
     pub async fn delete_json(&self, path: &str, mutating: bool) -> Result<Value> {
         let response = self
-            .request(reqwest::Method::DELETE, path, &[], None, mutating)
+            .request(
+                reqwest::Method::DELETE,
+                path,
+                &[],
+                None,
+                mutating,
+                RequestPolicy::default(),
+            )
             .await?;
         Ok(response.body)
     }
@@ -122,6 +164,25 @@ impl FreeAgentClient {
         collection_key: &str,
         query: &[(String, String)],
         pagination: Pagination,
+    ) -> Result<ListResult> {
+        self.list_paginated_with_policy(
+            path,
+            collection_key,
+            query,
+            pagination,
+            RequestPolicy::default(),
+        )
+        .await
+    }
+
+    /// Fetches list pages with request policy overrides.
+    pub async fn list_paginated_with_policy(
+        &self,
+        path: &str,
+        collection_key: &str,
+        query: &[(String, String)],
+        pagination: Pagination,
+        policy: RequestPolicy,
     ) -> Result<ListResult> {
         let per_page = pagination.per_page.clamp(1, 100);
         let mut page: u32 = 1;
@@ -135,7 +196,7 @@ impl FreeAgentClient {
             page_query.push(("per_page".to_string(), per_page.to_string()));
 
             let response = self
-                .request(reqwest::Method::GET, path, &page_query, None, false)
+                .request(reqwest::Method::GET, path, &page_query, None, false, policy)
                 .await?;
 
             if total.is_none() {
@@ -182,6 +243,7 @@ impl FreeAgentClient {
         query: &[(String, String)],
         body: Option<&Value>,
         mutating: bool,
+        policy: RequestPolicy,
     ) -> Result<RawResponse> {
         if mutating && !self.config.allow_writes {
             return Err(ChoSdkError::WriteNotAllowed {
@@ -191,7 +253,9 @@ impl FreeAgentClient {
             });
         }
 
-        let max_retries = self.config.max_retries;
+        let max_retries = policy
+            .max_retries_override
+            .unwrap_or(self.config.max_retries);
         let url = build_url(&self.config.base_url, path)?;
         let mut did_refresh = false;
 
@@ -219,6 +283,10 @@ impl FreeAgentClient {
                 .header(reqwest::header::USER_AGENT, &self.config.user_agent)
                 .bearer_auth(access_token)
                 .query(query);
+
+            if let Some(timeout) = policy.timeout_override {
+                request = request.timeout(timeout);
+            }
 
             if let Some(payload) = body {
                 request = request.json(payload);

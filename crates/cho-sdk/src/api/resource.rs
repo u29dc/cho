@@ -3,6 +3,7 @@
 use serde_json::Value;
 
 use crate::client::FreeAgentClient;
+use crate::client::RequestPolicy;
 use crate::error::{ChoSdkError, Result};
 use crate::models::{ListResult, Pagination};
 
@@ -31,15 +32,37 @@ impl<'a> ResourceApi<'a> {
         query: &[(String, String)],
         pagination: Pagination,
     ) -> Result<ListResult> {
+        self.list_with_policy(query, pagination, RequestPolicy::default())
+            .await
+    }
+
+    /// Lists resources using query params and pagination settings with policy overrides.
+    pub async fn list_with_policy(
+        &self,
+        query: &[(String, String)],
+        pagination: Pagination,
+        policy: RequestPolicy,
+    ) -> Result<ListResult> {
         self.client
-            .list_paginated(self.spec.path, self.spec.collection_key, query, pagination)
+            .list_paginated_with_policy(
+                self.spec.path,
+                self.spec.collection_key,
+                query,
+                pagination,
+                policy,
+            )
             .await
     }
 
     /// Gets a single resource by identifier.
     pub async fn get(&self, id: &str) -> Result<Value> {
+        self.get_with_policy(id, RequestPolicy::default()).await
+    }
+
+    /// Gets a single resource by identifier with policy overrides.
+    pub async fn get_with_policy(&self, id: &str, policy: RequestPolicy) -> Result<Value> {
         let path = resource_target_path(self.spec.path, id);
-        let response = self.client.get_json(&path, &[]).await?;
+        let response = self.client.get_json_with_policy(&path, &[], policy).await?;
         unwrap_singular(&response, self.spec.singular_key, self.spec.collection_key)
     }
 

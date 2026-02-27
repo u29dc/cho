@@ -1,13 +1,15 @@
 //! Application state machine and event handling.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 
-use crate::api::{ApiEngine, FetchContext, RoutePayload};
+use crate::api::{ApiEngine, FetchContext, RouteLoadOptions, RoutePayload};
+use crate::cache::{CacheKey, CacheTier, RouteCache};
+use crate::fetch::{FetchRequest, FetchResponse, FetchWorker, LoadReason};
 use crate::palette::{
     PaletteAction, PaletteActionKind, PaletteSection, PaletteState, build_rows,
     filtered_action_indices, workspace_context,
@@ -75,6 +77,16 @@ pub struct RouteView {
     pub error: Option<String>,
     /// Row cursor for list payloads.
     pub selected_row: usize,
+    /// True while a background fetch is pending.
+    pub loading: bool,
+    /// True when shown payload is stale.
+    pub stale: bool,
+    /// Cache tier currently shown in this view.
+    pub tier: Option<CacheTier>,
+    /// Last fetch latency in milliseconds.
+    pub last_elapsed_ms: Option<u64>,
+    /// Context fingerprint used for the currently shown payload.
+    pub context_fingerprint: Option<String>,
 }
 
 /// Runtime application.
@@ -99,10 +111,34 @@ pub struct App {
     pub(crate) context: FetchContext,
     /// Route cache keyed by route id.
     pub(crate) views: HashMap<String, RouteView>,
+    /// Route payload cache for fast navigation.
+    pub(crate) route_cache: RouteCache,
+    /// Background route fetch worker.
+    pub(crate) fetch_worker: FetchWorker,
+    /// Monotonic request id generator.
+    pub(crate) next_request_id: u64,
+    /// Latest request id per cache key for stale-response suppression.
+    pub(crate) latest_request_by_key: HashMap<CacheKey, u64>,
+    /// In-flight nav-preview request id.
+    pub(crate) in_flight_nav_request: Option<u64>,
+    /// Pending nav target while debounce window is open.
+    pub(crate) pending_nav_target: Option<usize>,
+    /// Debounce deadline for pending nav target.
+    pub(crate) pending_nav_deadline: Option<Instant>,
     /// Status line text.
     pub(crate) status: String,
     /// Max list limit.
     pub(crate) list_limit: usize,
+    /// Fast preview list limit for nav hover.
+    pub(crate) preview_limit: usize,
+    /// Debounce window for nav hover fetches.
+    pub(crate) nav_debounce: Duration,
+    /// Preview cache freshness window.
+    pub(crate) preview_cache_ttl: Duration,
+    /// Full cache freshness window.
+    pub(crate) full_cache_ttl: Duration,
+    /// Timeout for preview fetches.
+    pub(crate) preview_timeout: Duration,
     /// Palette action catalog for current open context.
     pub(crate) palette_actions: Vec<PaletteAction>,
     /// Filtered palette action indices.
@@ -115,14 +151,17 @@ impl App {
     /// Creates and initializes the app.
     pub fn new() -> Result<Self, String> {
         let api = ApiEngine::new()?;
+        let fetch_worker = FetchWorker::new()?;
         let routes = build_routes();
         if routes.is_empty() {
             return Err("Route catalog is empty; cannot start cho-tui".to_string());
         }
 
         let list_limit = 100;
+        let preview_limit = 25;
         let mut app = Self {
             api,
+            fetch_worker,
             routes,
             active_route: 0,
             nav_cursor: 0,
@@ -132,8 +171,19 @@ impl App {
             prompt: None,
             context: FetchContext::default(),
             views: HashMap::new(),
+            route_cache: RouteCache::new(128),
+            next_request_id: 1,
+            latest_request_by_key: HashMap::new(),
+            in_flight_nav_request: None,
+            pending_nav_target: None,
+            pending_nav_deadline: None,
             status: "Ready".to_string(),
             list_limit,
+            preview_limit,
+            nav_debounce: Duration::from_millis(120),
+            preview_cache_ttl: Duration::from_secs(15),
+            full_cache_ttl: Duration::from_secs(45),
+            preview_timeout: Duration::from_secs(3),
             palette_actions: Vec::new(),
             palette_filtered: Vec::new(),
             should_quit: false,
@@ -143,18 +193,27 @@ impl App {
             app.status = app.api.startup_warnings().join(" | ");
         }
 
-        app.load_active_route();
+        app.request_route_load(
+            app.active_route,
+            CacheTier::Full,
+            LoadReason::Startup,
+            true,
+            true,
+        );
         Ok(app)
     }
 
     /// Main event/render loop.
     pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), String> {
         while !self.should_quit {
+            self.process_fetch_results();
+            self.maybe_dispatch_pending_nav_preview();
+
             terminal
                 .draw(|frame| crate::ui::render(frame, self))
                 .map_err(|e| format!("render failed: {e}"))?;
 
-            if !event::poll(Duration::from_millis(30))
+            if !event::poll(self.next_poll_timeout())
                 .map_err(|e| format!("event poll failed: {e}"))?
             {
                 continue;
@@ -207,7 +266,13 @@ impl App {
                 return;
             }
             KeyCode::Char('r') => {
-                self.load_active_route();
+                self.request_route_load(
+                    self.active_route,
+                    CacheTier::Full,
+                    LoadReason::ManualRefresh,
+                    true,
+                    true,
+                );
                 return;
             }
             KeyCode::Char('t') => {
@@ -271,7 +336,43 @@ impl App {
             return;
         }
 
-        self.load_active_route();
+        if force_reload {
+            self.pending_nav_target = None;
+            self.pending_nav_deadline = None;
+            self.request_route_load(
+                self.active_route,
+                CacheTier::Full,
+                LoadReason::NavEnterReload,
+                true,
+                true,
+            );
+            return;
+        }
+
+        let route = self.current_route().clone();
+        let context = self.context_fingerprint(&route);
+        let cache_hit = self.route_cache.best_for_route(
+            &route.id,
+            &context,
+            self.preview_cache_ttl,
+            self.full_cache_ttl,
+        );
+        if let Some(snapshot) = cache_hit {
+            self.apply_cache_snapshot(self.active_route, context.clone(), snapshot.clone());
+            if snapshot.fresh {
+                self.status = format!("Loaded {} (cache)", route.label);
+                self.pending_nav_target = None;
+                self.pending_nav_deadline = None;
+                return;
+            }
+
+            self.status = format!("Loaded {} (stale cache; revalidating)", route.label);
+        } else {
+            self.mark_view_loading(self.active_route, context.clone());
+        }
+
+        self.pending_nav_target = Some(self.active_route);
+        self.pending_nav_deadline = Some(Instant::now() + self.nav_debounce);
     }
 
     fn handle_main_key(&mut self, key: KeyEvent) {
@@ -336,30 +437,302 @@ impl App {
         }
     }
 
-    fn load_active_route(&mut self) {
-        let route = self.current_route().clone();
-        let entry = self.views.entry(route.id.clone()).or_default();
-        entry.error = None;
-        self.status = format!("Loading {}", route.label);
+    fn next_poll_timeout(&self) -> Duration {
+        let base = Duration::from_millis(30);
+        let Some(deadline) = self.pending_nav_deadline else {
+            return base;
+        };
+        let now = Instant::now();
+        if deadline <= now {
+            return Duration::from_millis(1);
+        }
+        let until = deadline.saturating_duration_since(now);
+        until.min(base)
+    }
 
-        match self.api.fetch_route(&route, &self.context, self.list_limit) {
+    fn maybe_dispatch_pending_nav_preview(&mut self) {
+        let Some(target) = self.pending_nav_target else {
+            return;
+        };
+        let Some(deadline) = self.pending_nav_deadline else {
+            return;
+        };
+        if Instant::now() < deadline {
+            return;
+        }
+        if self.in_flight_nav_request.is_some() {
+            return;
+        }
+
+        self.pending_nav_target = None;
+        self.pending_nav_deadline = None;
+        self.request_route_load(
+            target,
+            CacheTier::Preview,
+            LoadReason::NavPreview,
+            true,
+            false,
+        );
+    }
+
+    fn process_fetch_results(&mut self) {
+        while let Some(response) = self.fetch_worker.try_recv() {
+            self.handle_fetch_response(response);
+        }
+    }
+
+    fn handle_fetch_response(&mut self, response: FetchResponse) {
+        let FetchResponse {
+            request_id,
+            route_id,
+            cache_key,
+            reason,
+            elapsed_ms,
+            payload,
+        } = response;
+
+        if self.in_flight_nav_request == Some(request_id) {
+            self.in_flight_nav_request = None;
+        }
+
+        let expected = self
+            .latest_request_by_key
+            .get(&cache_key)
+            .copied()
+            .unwrap_or_default();
+        if expected != request_id {
+            return;
+        }
+
+        match payload {
             Ok(payload) => {
-                entry.payload = Some(payload);
-                entry.error = None;
-                self.status = format!("Loaded {}", route.label);
-                if let Some(RoutePayload::List { items, .. }) = entry.payload.as_ref() {
-                    if items.is_empty() {
-                        entry.selected_row = 0;
-                    } else if entry.selected_row >= items.len() {
-                        entry.selected_row = items.len().saturating_sub(1);
-                    }
-                }
+                self.route_cache.insert(cache_key.clone(), payload.clone());
+                self.apply_fetch_success(&route_id, &cache_key, reason, elapsed_ms, payload);
             }
             Err(err) => {
-                entry.error = Some(err.clone());
-                entry.payload = None;
-                self.status = format!("Error: {err}");
+                self.apply_fetch_error(&route_id, &cache_key, err);
             }
+        }
+    }
+
+    fn apply_fetch_success(
+        &mut self,
+        route_id: &str,
+        cache_key: &CacheKey,
+        reason: LoadReason,
+        elapsed_ms: u64,
+        payload: RoutePayload,
+    ) {
+        let Some(route_index) = self.routes.iter().position(|route| route.id == route_id) else {
+            return;
+        };
+
+        let current_context = self.context_fingerprint(&self.routes[route_index]);
+        let entry = self.views.entry(route_id.to_string()).or_default();
+
+        if current_context != cache_key.context {
+            return;
+        }
+
+        if cache_key.tier == CacheTier::Preview
+            && matches!(entry.tier, Some(CacheTier::Full))
+            && !entry.stale
+        {
+            return;
+        }
+
+        entry.payload = Some(payload);
+        entry.error = None;
+        entry.loading = false;
+        entry.stale = false;
+        entry.tier = Some(cache_key.tier);
+        entry.last_elapsed_ms = Some(elapsed_ms);
+        entry.context_fingerprint = Some(cache_key.context.clone());
+        clamp_selected_row(entry);
+
+        let label = self.routes[route_index].label.clone();
+        let mode = match reason {
+            LoadReason::NavPreview => "preview",
+            LoadReason::Startup => "startup",
+            LoadReason::NavEnterReload | LoadReason::ManualRefresh => "reload",
+            LoadReason::PaletteNavigate => "navigate",
+            LoadReason::ContextChanged => "context",
+        };
+        self.status = format!("Loaded {label} ({mode}, {elapsed_ms}ms)");
+    }
+
+    fn apply_fetch_error(&mut self, route_id: &str, cache_key: &CacheKey, err: String) {
+        let Some(route_index) = self.routes.iter().position(|route| route.id == route_id) else {
+            return;
+        };
+
+        let route = self.routes[route_index].clone();
+        let current_context = self.context_fingerprint(&route);
+        if current_context != cache_key.context {
+            return;
+        }
+
+        let entry = self.views.entry(route.id.clone()).or_default();
+        entry.error = Some(err.clone());
+        entry.loading = false;
+        self.status = format!("Error loading {}: {err}", route.label);
+    }
+
+    fn request_route_load(
+        &mut self,
+        route_index: usize,
+        tier: CacheTier,
+        reason: LoadReason,
+        use_cache: bool,
+        force_network: bool,
+    ) {
+        let Some(route) = self.routes.get(route_index).cloned() else {
+            return;
+        };
+        let context_fingerprint = self.context_fingerprint(&route);
+
+        if use_cache {
+            if let Some(snapshot) = self.route_cache.best_for_route(
+                &route.id,
+                &context_fingerprint,
+                self.preview_cache_ttl,
+                self.full_cache_ttl,
+            ) {
+                self.apply_cache_snapshot(
+                    route_index,
+                    context_fingerprint.clone(),
+                    snapshot.clone(),
+                );
+                if snapshot.fresh && !force_network {
+                    self.status = format!("Loaded {} (cache)", route.label);
+                    return;
+                }
+            } else {
+                self.mark_view_loading(route_index, context_fingerprint.clone());
+            }
+        } else {
+            self.mark_view_loading(route_index, context_fingerprint.clone());
+        }
+
+        let options = self.route_load_options(tier, reason);
+        let cache_key = CacheKey::new(route.id.clone(), context_fingerprint, tier);
+        let request_id = self.next_request_id;
+        self.next_request_id = self.next_request_id.saturating_add(1);
+        self.latest_request_by_key
+            .insert(cache_key.clone(), request_id);
+        if matches!(reason, LoadReason::NavPreview) {
+            self.in_flight_nav_request = Some(request_id);
+        }
+
+        let request = FetchRequest {
+            request_id,
+            route: route.clone(),
+            context: self.context.clone(),
+            options,
+            cache_key,
+            reason,
+        };
+        if let Err(err) = self.fetch_worker.request(request) {
+            self.status = format!("Error: {err}");
+            let entry = self.views.entry(route.id).or_default();
+            entry.loading = false;
+        } else {
+            self.status = format!("Loading {}", route.label);
+        }
+    }
+
+    fn route_load_options(&self, tier: CacheTier, reason: LoadReason) -> RouteLoadOptions {
+        match reason {
+            LoadReason::NavPreview => {
+                RouteLoadOptions::preview(self.preview_limit, self.preview_timeout, 0)
+            }
+            LoadReason::Startup => RouteLoadOptions::full(self.list_limit),
+            LoadReason::NavEnterReload | LoadReason::ManualRefresh | LoadReason::ContextChanged => {
+                RouteLoadOptions::full(self.list_limit)
+            }
+            LoadReason::PaletteNavigate => {
+                if matches!(tier, CacheTier::Preview) {
+                    RouteLoadOptions::preview(self.preview_limit, self.preview_timeout, 0)
+                } else {
+                    RouteLoadOptions::full(self.list_limit)
+                }
+            }
+        }
+    }
+
+    fn mark_view_loading(&mut self, route_index: usize, context: String) {
+        let Some(route) = self.routes.get(route_index) else {
+            return;
+        };
+        let entry = self.views.entry(route.id.clone()).or_default();
+        entry.loading = true;
+        entry.error = None;
+        entry.stale = false;
+        entry.context_fingerprint = Some(context);
+    }
+
+    fn apply_cache_snapshot(
+        &mut self,
+        route_index: usize,
+        context: String,
+        snapshot: crate::cache::CacheSnapshot,
+    ) {
+        let Some(route) = self.routes.get(route_index) else {
+            return;
+        };
+        let entry = self.views.entry(route.id.clone()).or_default();
+        entry.payload = Some(snapshot.payload);
+        entry.error = None;
+        entry.loading = !snapshot.fresh;
+        entry.stale = !snapshot.fresh;
+        entry.tier = Some(snapshot.tier);
+        entry.context_fingerprint = Some(context);
+        clamp_selected_row(entry);
+    }
+
+    fn context_fingerprint(&self, route: &RouteDefinition) -> String {
+        match route.kind {
+            RouteKind::Resource(spec) => {
+                if spec.name == "bank-transactions" || spec.name == "bank-transaction-explanations"
+                {
+                    return format!(
+                        "bank_account={}",
+                        self.context
+                            .bank_account_filter
+                            .as_deref()
+                            .unwrap_or("")
+                            .trim()
+                    );
+                }
+                if !spec.capabilities.list && spec.capabilities.get {
+                    return format!(
+                        "target={}",
+                        self.context
+                            .resource_targets
+                            .get(&route.id)
+                            .map(String::as_str)
+                            .unwrap_or("")
+                            .trim()
+                    );
+                }
+                "resource=static".to_string()
+            }
+            RouteKind::SelfAssessmentReturns => format!(
+                "self_assessment_user={}",
+                self.context
+                    .self_assessment_user
+                    .as_deref()
+                    .unwrap_or("")
+                    .trim()
+            ),
+            RouteKind::PayrollPeriods | RouteKind::PayrollProfiles => {
+                format!("payroll_year={}", self.context.payroll_year)
+            }
+            RouteKind::PayrollPeriodDetail => format!(
+                "payroll_year={};payroll_period={}",
+                self.context.payroll_year, self.context.payroll_period
+            ),
+            _ => "static".to_string(),
         }
     }
 
@@ -662,12 +1035,24 @@ impl App {
                     self.active_route = index;
                     self.nav_cursor = index;
                     self.close_palette();
-                    self.load_active_route();
+                    self.request_route_load(
+                        index,
+                        CacheTier::Preview,
+                        LoadReason::PaletteNavigate,
+                        true,
+                        false,
+                    );
                 }
             }
             PaletteActionKind::Refresh => {
                 self.close_palette();
-                self.load_active_route();
+                self.request_route_load(
+                    self.active_route,
+                    CacheTier::Full,
+                    LoadReason::ManualRefresh,
+                    true,
+                    true,
+                );
             }
             PaletteActionKind::Quit => self.should_quit = true,
             PaletteActionKind::ToggleTree => {
@@ -799,7 +1184,13 @@ impl App {
                     self.context.bank_account_filter = Some(value);
                     self.status = "Updated bank account filter".to_string();
                 }
-                self.load_active_route();
+                self.request_route_load(
+                    self.active_route,
+                    CacheTier::Full,
+                    LoadReason::ContextChanged,
+                    true,
+                    true,
+                );
             }
             PromptField::SelfAssessmentUser => {
                 if value.is_empty() {
@@ -809,13 +1200,25 @@ impl App {
                     self.context.self_assessment_user = Some(value);
                     self.status = "Updated self-assessment user".to_string();
                 }
-                self.load_active_route();
+                self.request_route_load(
+                    self.active_route,
+                    CacheTier::Full,
+                    LoadReason::ContextChanged,
+                    true,
+                    true,
+                );
             }
             PromptField::PayrollYear => match value.parse::<i32>() {
                 Ok(year) => {
                     self.context.payroll_year = year;
                     self.status = format!("Set payroll year to {year}");
-                    self.load_active_route();
+                    self.request_route_load(
+                        self.active_route,
+                        CacheTier::Full,
+                        LoadReason::ContextChanged,
+                        true,
+                        true,
+                    );
                 }
                 Err(_) => self.status = format!("Invalid payroll year '{value}'"),
             },
@@ -823,7 +1226,13 @@ impl App {
                 Ok(period) => {
                     self.context.payroll_period = period;
                     self.status = format!("Set payroll period to {period}");
-                    self.load_active_route();
+                    self.request_route_load(
+                        self.active_route,
+                        CacheTier::Full,
+                        LoadReason::ContextChanged,
+                        true,
+                        true,
+                    );
                 }
                 Err(_) => self.status = format!("Invalid payroll period '{value}'"),
             },
@@ -835,7 +1244,13 @@ impl App {
                     self.context.resource_targets.insert(route_id, value);
                     self.status = "Updated target id".to_string();
                 }
-                self.load_active_route();
+                self.request_route_load(
+                    self.active_route,
+                    CacheTier::Full,
+                    LoadReason::ContextChanged,
+                    true,
+                    true,
+                );
             }
         }
     }
@@ -996,6 +1411,17 @@ fn disabled_action(title: &str, route: &RouteDefinition, reason: String) -> Pale
         kind: PaletteActionKind::DisabledWriteAction,
         keywords: vec!["write".to_string(), "mutate".to_string(), title.to_string()],
         disabled_reason: Some(reason),
+    }
+}
+
+fn clamp_selected_row(view: &mut RouteView) {
+    let Some(RoutePayload::List { items, .. }) = view.payload.as_ref() else {
+        return;
+    };
+    if items.is_empty() {
+        view.selected_row = 0;
+    } else if view.selected_row >= items.len() {
+        view.selected_row = items.len().saturating_sub(1);
     }
 }
 

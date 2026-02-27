@@ -129,7 +129,14 @@ fn render_navigation(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
 fn render_main(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let route = app.current_route();
-    let title = format!(" {} ", route.label);
+    let mut title = format!(" {} ", route.label);
+    if let Some(view) = app.current_view() {
+        if view.stale {
+            title = format!(" {} [stale] ", route.label);
+        } else if view.loading {
+            title = format!(" {} [loading] ", route.label);
+        }
+    }
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Theme::BORDER))
@@ -313,8 +320,13 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     } else {
         "off"
     };
+    let fetch = if app.in_flight_nav_request.is_some() {
+        "busy"
+    } else {
+        "idle"
+    };
     let status = format!(
-        "auth:{auth} | writes:{writes} | route:{}/{} | {}",
+        "auth:{auth} | writes:{writes} | fetch:{fetch} | route:{}/{} | {}",
         app.active_route + 1,
         app.routes.len(),
         app.status

@@ -4,7 +4,9 @@
 
 mod api;
 mod app;
+mod cache;
 mod config;
+mod fetch;
 mod palette;
 mod routes;
 mod theme;

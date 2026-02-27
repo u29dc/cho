@@ -1,12 +1,13 @@
 //! Data access layer for `cho-tui`.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use cho_sdk::auth::AuthManager;
 use cho_sdk::client::FreeAgentClient;
 use cho_sdk::error::ChoSdkError;
 use cho_sdk::models::{ListResult, Pagination};
-use chrono::Datelike;
+use chrono::{DateTime, Datelike, NaiveDate};
 use secrecy::SecretString;
 use serde_json::Value;
 
@@ -279,8 +280,11 @@ impl ApiEngine {
                 .block_on(client.resource(spec).list(&query, pagination))
                 .map_err(|e| format!("{}.list failed: {e}", spec.name))?;
 
+            let mut items = result.items;
+            sort_items_by_latest_date(&mut items);
+
             return Ok(RoutePayload::List {
-                items: result.items,
+                items,
                 total: result.total,
                 has_more: result.has_more,
             });
@@ -365,8 +369,11 @@ impl ApiEngine {
             .block_on(client.list_paginated(&path, "self_assessment_returns", &[], pagination))
             .map_err(|e| format!("self-assessment-returns.list failed: {e}"))?;
 
+        let mut items = result.items;
+        sort_items_by_latest_date(&mut items);
+
         Ok(RoutePayload::List {
-            items: result.items,
+            items,
             total: result.total,
             has_more: result.has_more,
         })
@@ -499,6 +506,81 @@ fn cap_items(items: Vec<Value>, limit: usize) -> CappedItems {
         total,
         has_more: true,
     }
+}
+
+fn sort_items_by_latest_date(items: &mut [Value]) {
+    let Some(date_key) = infer_date_key(items) else {
+        return;
+    };
+
+    items.sort_by(|left, right| {
+        compare_date_values(
+            left.get(date_key).and_then(parse_date_value),
+            right.get(date_key).and_then(parse_date_value),
+        )
+    });
+}
+
+fn infer_date_key(items: &[Value]) -> Option<&'static str> {
+    const DATE_KEYS: &[&str] = &[
+        "dated_on",
+        "date",
+        "created_at",
+        "updated_at",
+        "period_ends_on",
+        "period_end",
+        "starts_on",
+        "ends_on",
+        "due_on",
+        "paid_on",
+        "submitted_on",
+        "filed_on",
+        "payment_date",
+        "statement_date",
+    ];
+
+    for key in DATE_KEYS {
+        let count = items
+            .iter()
+            .filter_map(|item| item.get(*key).and_then(parse_date_value))
+            .take(2)
+            .count();
+        if count >= 2 {
+            return Some(*key);
+        }
+    }
+    None
+}
+
+fn compare_date_values(left: Option<i64>, right: Option<i64>) -> Ordering {
+    match (left, right) {
+        (Some(left), Some(right)) => right.cmp(&left),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
+fn parse_date_value(value: &Value) -> Option<i64> {
+    match value {
+        Value::String(text) => parse_date_text(text),
+        Value::Number(number) => number.as_i64(),
+        _ => None,
+    }
+}
+
+fn parse_date_text(text: &str) -> Option<i64> {
+    if let Ok(datetime) = DateTime::parse_from_rfc3339(text) {
+        return Some(datetime.timestamp());
+    }
+
+    if let Ok(date) = NaiveDate::parse_from_str(text, "%Y-%m-%d") {
+        return date
+            .and_hms_opt(0, 0, 0)
+            .map(|datetime| datetime.and_utc().timestamp());
+    }
+
+    None
 }
 
 struct CappedItems {

@@ -290,6 +290,8 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let hints = Paragraph::new(Line::from(vec![
         Span::styled("tab ", Theme::section_heading()),
         Span::styled("focus ", Theme::muted()),
+        Span::styled("pgup/pgdn ", Theme::section_heading()),
+        Span::styled("jump ", Theme::muted()),
         Span::styled("cmd/ctrl+p ", Theme::section_heading()),
         Span::styled("palette ", Theme::muted()),
         Span::styled("enter ", Theme::section_heading()),
@@ -322,7 +324,7 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
 }
 
 fn render_palette(frame: &mut Frame<'_>, app: &App) {
-    let area = centered_rect(62, 60, frame.area());
+    let area = centered_rect_with_min(50, 50, 56, 16, frame.area());
     frame.render_widget(Clear, area);
 
     let block = Block::default()
@@ -345,23 +347,44 @@ fn render_palette(frame: &mut Frame<'_>, app: &App) {
 
     let selected_source = app.palette_filtered.get(app.palette.selected).copied();
     let rows = app.palette_rows();
+    let selected_visual = selected_source.and_then(|selected| {
+        rows.iter().position(|row| match row {
+            PaletteRow::Action(index) => *index == selected,
+            _ => false,
+        })
+    });
+
+    let visible_rows = chunks[1].height.max(1) as usize;
+    let offset = if let Some(selected_index) = selected_visual {
+        if selected_index >= visible_rows {
+            selected_index + 1 - visible_rows
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    let end = (offset + visible_rows).min(rows.len());
+    let visible_rows = &rows[offset..end];
+
     let mut items = Vec::new();
-    for row in rows {
+    for row in visible_rows {
         match row {
             PaletteRow::Section(section) => {
                 items.push(ListItem::new(Line::from(Span::styled(
-                    format!(" {} ", section.label()),
+                    format!("{}:", section.label()),
                     Theme::section_heading(),
                 ))));
             }
             PaletteRow::Separator => {
+                let line = "─".repeat(chunks[1].width.saturating_sub(1) as usize);
                 items.push(ListItem::new(Line::from(Span::styled(
-                    "────────────────────────────",
+                    line,
                     Theme::muted(),
                 ))));
             }
             PaletteRow::Action(index) => {
-                let Some(action) = app.palette_actions.get(index) else {
+                let Some(action) = app.palette_actions.get(*index) else {
                     continue;
                 };
                 let left = if let Some(reason) = &action.disabled_reason {
@@ -374,18 +397,25 @@ fn render_palette(frame: &mut Frame<'_>, app: &App) {
                 } else {
                     Theme::text()
                 };
-                if Some(index) == selected_source {
+                if Some(*index) == selected_source {
                     style = Theme::selected();
                 }
 
                 let line = if action.context.is_empty() {
                     Line::from(Span::styled(left, style))
                 } else {
-                    Line::from(vec![
-                        Span::styled(left, style),
-                        Span::styled("  ", style),
-                        Span::styled(action.context.clone(), Theme::muted()),
-                    ])
+                    let context_style = if Some(*index) == selected_source {
+                        style
+                    } else {
+                        Theme::muted()
+                    };
+                    palette_two_column_line(
+                        &left,
+                        &action.context,
+                        style,
+                        context_style,
+                        chunks[1].width.saturating_sub(1) as usize,
+                    )
                 };
                 items.push(ListItem::new(line));
             }
@@ -401,7 +431,11 @@ fn render_prompt(frame: &mut Frame<'_>, app: &App) {
         return;
     };
 
-    let area = centered_rect(58, 24, frame.area());
+    let area = if prompt.options.is_empty() {
+        centered_rect_with_min(58, 24, 58, 8, frame.area())
+    } else {
+        centered_rect_with_min(62, 42, 64, 16, frame.area())
+    };
     frame.render_widget(Clear, area);
     let block = Block::default()
         .borders(Borders::ALL)
@@ -418,6 +452,7 @@ fn render_prompt(frame: &mut Frame<'_>, app: &App) {
         .constraints([
             Constraint::Length(1),
             Constraint::Length(1),
+            Constraint::Min(1),
             Constraint::Length(1),
         ])
         .split(inner);
@@ -433,30 +468,89 @@ fn render_prompt(frame: &mut Frame<'_>, app: &App) {
         ])),
         chunks[1],
     );
+
+    if prompt.options.is_empty() {
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "No suggestions available for this prompt",
+                Theme::muted(),
+            )),
+            chunks[2],
+        );
+    } else {
+        let visible_rows = chunks[2].height.max(1) as usize;
+        let selected = prompt
+            .selected_option
+            .min(prompt.options.len().saturating_sub(1));
+        let offset = if selected >= visible_rows {
+            selected + 1 - visible_rows
+        } else {
+            0
+        };
+        let end = (offset + visible_rows).min(prompt.options.len());
+
+        let mut items = Vec::new();
+        for (local_index, option) in prompt.options[offset..end].iter().enumerate() {
+            let index = offset + local_index;
+            let style = if index == selected {
+                Theme::selected()
+            } else {
+                Theme::text()
+            };
+            let line = if option.meta.is_empty() {
+                Line::from(Span::styled(option.label.clone(), style))
+            } else {
+                let meta_style = if index == selected {
+                    style
+                } else {
+                    Theme::muted()
+                };
+                palette_two_column_line(
+                    &option.label,
+                    &option.meta,
+                    style,
+                    meta_style,
+                    chunks[2].width.saturating_sub(1) as usize,
+                )
+            };
+            items.push(ListItem::new(line));
+        }
+        frame.render_widget(List::new(items), chunks[2]);
+    }
+
     frame.render_widget(
-        Paragraph::new(Span::styled("enter confirm | esc cancel", Theme::muted())),
-        chunks[2],
+        Paragraph::new(Span::styled(
+            "up/down select | type jump | enter confirm | esc cancel",
+            Theme::muted(),
+        )),
+        chunks[3],
     );
 }
 
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let vertical = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(area);
-    let horizontal = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(vertical[1]);
-    horizontal[1]
+fn centered_rect_with_min(
+    percent_x: u16,
+    percent_y: u16,
+    min_width: u16,
+    min_height: u16,
+    area: Rect,
+) -> Rect {
+    let desired_width = ((area.width as u32 * percent_x as u32) / 100) as u16;
+    let desired_height = ((area.height as u32 * percent_y as u32) / 100) as u16;
+
+    let width = desired_width.max(min_width.min(area.width)).min(area.width);
+    let height = desired_height
+        .max(min_height.min(area.height))
+        .min(area.height);
+
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+
+    Rect {
+        x,
+        y,
+        width,
+        height,
+    }
 }
 
 fn derive_columns(items: &[serde_json::Value], max_columns: usize) -> Vec<String> {
@@ -516,13 +610,50 @@ fn compact_cell(value: Option<&serde_json::Value>, max_len: usize) -> String {
         Some(other) => other.to_string(),
     };
 
-    if raw.chars().count() <= max_len {
-        return raw;
+    truncate_with_ellipsis(&raw, max_len)
+}
+
+fn palette_two_column_line(
+    left: &str,
+    right: &str,
+    left_style: Style,
+    right_style: Style,
+    width: usize,
+) -> Line<'static> {
+    if right.is_empty() || width == 0 {
+        return Line::from(Span::styled(left.to_string(), left_style));
+    }
+
+    let min_gap = 2usize;
+    let right_max = width.saturating_sub(min_gap + 1).max(1);
+    let right_text = truncate_with_ellipsis(right, right_max);
+    let right_width = right_text.chars().count();
+    let left_max = width.saturating_sub(right_width + min_gap).max(1);
+    let left_text = truncate_with_ellipsis(left, left_max);
+    let left_width = left_text.chars().count();
+    let gap = width.saturating_sub(left_width + right_width).max(min_gap);
+
+    Line::from(vec![
+        Span::styled(left_text, left_style),
+        Span::styled(" ".repeat(gap), left_style),
+        Span::styled(right_text, right_style),
+    ])
+}
+
+fn truncate_with_ellipsis(text: &str, max_len: usize) -> String {
+    if max_len == 0 {
+        return String::new();
+    }
+    if text.chars().count() <= max_len {
+        return text.to_string();
+    }
+    if max_len == 1 {
+        return "…".to_string();
     }
 
     let mut out = String::new();
-    for (index, ch) in raw.chars().enumerate() {
-        if index + 1 >= max_len.saturating_sub(1) {
+    for (index, ch) in text.chars().enumerate() {
+        if index + 1 >= max_len {
             break;
         }
         out.push(ch);
@@ -532,43 +663,203 @@ fn compact_cell(value: Option<&serde_json::Value>, max_len: usize) -> String {
 }
 
 fn format_object_lines(value: &serde_json::Value, max_lines: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    if max_lines == 0 {
+        return lines;
+    }
+
+    let mut truncated = false;
+    write_value_block(&mut lines, None, value, 0, max_lines, &mut truncated);
+
+    if truncated {
+        if lines.len() >= max_lines {
+            lines.pop();
+        }
+        lines.push(Line::from(Span::styled(
+            "… output truncated",
+            Theme::muted(),
+        )));
+    }
+
+    lines
+}
+
+fn write_value_block(
+    lines: &mut Vec<Line<'static>>,
+    key: Option<&str>,
+    value: &serde_json::Value,
+    indent: usize,
+    max_lines: usize,
+    truncated: &mut bool,
+) {
     match value {
         serde_json::Value::Object(map) => {
+            if map.is_empty() {
+                if let Some(key) = key {
+                    push_key_value_line(lines, key, "{}", indent, max_lines, truncated);
+                } else {
+                    push_plain_line(lines, "{}", Theme::text(), indent, max_lines, truncated);
+                }
+                return;
+            }
+
+            let child_indent = if let Some(key) = key {
+                push_key_line(lines, key, indent, max_lines, truncated);
+                indent + 2
+            } else {
+                indent
+            };
+            if *truncated {
+                return;
+            }
+
             let mut keys = map.keys().cloned().collect::<Vec<_>>();
             keys.sort();
-            let mut lines = Vec::new();
-            for key in keys.into_iter().take(max_lines.saturating_sub(1)) {
-                let cell = compact_cell(map.get(&key), 120);
-                lines.push(Line::from(vec![
-                    Span::styled(format!("{key}: "), Theme::section_heading()),
-                    Span::styled(cell, Theme::text()),
-                ]));
+            for child_key in keys {
+                let Some(child_value) = map.get(&child_key) else {
+                    continue;
+                };
+                write_value_block(
+                    lines,
+                    Some(&child_key),
+                    child_value,
+                    child_indent,
+                    max_lines,
+                    truncated,
+                );
+                if *truncated {
+                    return;
+                }
             }
-            if map.len() > lines.len() {
-                lines.push(Line::from(Span::styled(
-                    format!("… {} more fields", map.len() - lines.len()),
-                    Theme::muted(),
-                )));
-            }
-            lines
         }
         serde_json::Value::Array(items) => {
-            let mut lines = Vec::new();
-            lines.push(Line::from(Span::styled(
-                format!("Array[{}]", items.len()),
-                Theme::section_heading(),
-            )));
-            for item in items.iter().take(max_lines.saturating_sub(2)) {
-                lines.push(Line::from(Span::styled(
-                    compact_cell(Some(item), 120),
-                    Theme::text(),
-                )));
+            if items.is_empty() {
+                if let Some(key) = key {
+                    push_key_value_line(lines, key, "[]", indent, max_lines, truncated);
+                } else {
+                    push_plain_line(lines, "[]", Theme::text(), indent, max_lines, truncated);
+                }
+                return;
             }
-            lines
+
+            let header = format!("[{}]", items.len());
+            if let Some(key) = key {
+                push_key_value_line(lines, key, &header, indent, max_lines, truncated);
+            } else {
+                push_plain_line(lines, &header, Theme::text(), indent, max_lines, truncated);
+            }
+            if *truncated {
+                return;
+            }
+
+            for item in items {
+                match item {
+                    serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                        push_plain_line(
+                            lines,
+                            "-",
+                            Theme::muted(),
+                            indent + 2,
+                            max_lines,
+                            truncated,
+                        );
+                        if *truncated {
+                            return;
+                        }
+                        write_value_block(lines, None, item, indent + 4, max_lines, truncated);
+                    }
+                    _ => {
+                        let scalar = scalar_to_text(item);
+                        push_plain_line(
+                            lines,
+                            &format!("- {scalar}"),
+                            Theme::text(),
+                            indent + 2,
+                            max_lines,
+                            truncated,
+                        );
+                    }
+                }
+                if *truncated {
+                    return;
+                }
+            }
         }
-        _ => vec![Line::from(Span::styled(
-            compact_cell(Some(value), 180),
-            Theme::text(),
-        ))],
+        _ => {
+            let scalar = scalar_to_text(value);
+            if let Some(key) = key {
+                push_key_value_line(lines, key, &scalar, indent, max_lines, truncated);
+            } else {
+                push_plain_line(lines, &scalar, Theme::text(), indent, max_lines, truncated);
+            }
+        }
+    }
+}
+
+fn push_key_line(
+    lines: &mut Vec<Line<'static>>,
+    key: &str,
+    indent: usize,
+    max_lines: usize,
+    truncated: &mut bool,
+) {
+    let line = Line::from(vec![
+        Span::raw(" ".repeat(indent)),
+        Span::styled(format!("{key}:"), Theme::section_heading()),
+    ]);
+    push_line(lines, line, max_lines, truncated);
+}
+
+fn push_key_value_line(
+    lines: &mut Vec<Line<'static>>,
+    key: &str,
+    value: &str,
+    indent: usize,
+    max_lines: usize,
+    truncated: &mut bool,
+) {
+    let line = Line::from(vec![
+        Span::raw(" ".repeat(indent)),
+        Span::styled(format!("{key}: "), Theme::section_heading()),
+        Span::styled(value.to_string(), Theme::text()),
+    ]);
+    push_line(lines, line, max_lines, truncated);
+}
+
+fn push_plain_line(
+    lines: &mut Vec<Line<'static>>,
+    text: &str,
+    style: Style,
+    indent: usize,
+    max_lines: usize,
+    truncated: &mut bool,
+) {
+    let line = Line::from(vec![
+        Span::raw(" ".repeat(indent)),
+        Span::styled(text.to_string(), style),
+    ]);
+    push_line(lines, line, max_lines, truncated);
+}
+
+fn push_line(
+    lines: &mut Vec<Line<'static>>,
+    line: Line<'static>,
+    max_lines: usize,
+    truncated: &mut bool,
+) {
+    if lines.len() >= max_lines {
+        *truncated = true;
+        return;
+    }
+    lines.push(line);
+}
+
+fn scalar_to_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Number(number) => number.to_string(),
+        serde_json::Value::Bool(flag) => flag.to_string(),
+        serde_json::Value::Null => "null".to_string(),
+        other => compact_cell(Some(other), 180),
     }
 }

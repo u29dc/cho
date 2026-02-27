@@ -38,6 +38,17 @@ pub enum PromptField {
     TargetId(String),
 }
 
+/// Selectable prompt option.
+#[derive(Debug, Clone)]
+pub struct PromptOption {
+    /// Primary visible label.
+    pub label: String,
+    /// Canonical value written back to context.
+    pub value: String,
+    /// Secondary text shown to aid selection.
+    pub meta: String,
+}
+
 /// Active prompt state.
 #[derive(Debug, Clone)]
 pub struct PromptState {
@@ -49,6 +60,10 @@ pub struct PromptState {
     pub value: String,
     /// Prompt target field.
     pub field: PromptField,
+    /// Optional picker entries for this prompt.
+    pub options: Vec<PromptOption>,
+    /// Selected picker row.
+    pub selected_option: usize,
 }
 
 /// Cached route view data.
@@ -139,7 +154,7 @@ impl App {
                 .draw(|frame| crate::ui::render(frame, self))
                 .map_err(|e| format!("render failed: {e}"))?;
 
-            if !event::poll(Duration::from_millis(150))
+            if !event::poll(Duration::from_millis(30))
                 .map_err(|e| format!("event poll failed: {e}"))?
             {
                 continue;
@@ -147,7 +162,7 @@ impl App {
 
             let event = event::read().map_err(|e| format!("event read failed: {e}"))?;
             if let Event::Key(key) = event
-                && key.kind == KeyEventKind::Press
+                && matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
             {
                 self.handle_key_event(key);
             }
@@ -227,6 +242,15 @@ impl App {
                     self.nav_cursor += 1;
                 }
             }
+            KeyCode::PageUp => {
+                self.nav_cursor = self.nav_cursor.saturating_sub(10);
+            }
+            KeyCode::PageDown => {
+                let max_index = self.routes.len().saturating_sub(1);
+                self.nav_cursor = (self.nav_cursor + 10).min(max_index);
+            }
+            KeyCode::Home => self.nav_cursor = 0,
+            KeyCode::End => self.nav_cursor = self.routes.len().saturating_sub(1),
             KeyCode::Enter => {
                 self.active_route = self.nav_cursor;
                 self.load_active_route();
@@ -251,6 +275,18 @@ impl App {
                     && view.selected_row + 1 < len
                 {
                     view.selected_row += 1;
+                }
+            }
+            KeyCode::PageUp => {
+                if let Some(view) = self.current_view_mut() {
+                    view.selected_row = view.selected_row.saturating_sub(10);
+                }
+            }
+            KeyCode::PageDown => {
+                if let Some(view) = self.current_view_mut()
+                    && len > 0
+                {
+                    view.selected_row = (view.selected_row + 10).min(len - 1);
                 }
             }
             KeyCode::Home => {
@@ -553,6 +589,25 @@ impl App {
                     self.palette.selected += 1;
                 }
             }
+            KeyCode::PageUp => {
+                self.palette.selected = self.palette.selected.saturating_sub(10);
+            }
+            KeyCode::PageDown => {
+                if self.palette_filtered.is_empty() {
+                    self.palette.selected = 0;
+                } else {
+                    let max_index = self.palette_filtered.len() - 1;
+                    self.palette.selected = (self.palette.selected + 10).min(max_index);
+                }
+            }
+            KeyCode::Home => self.palette.selected = 0,
+            KeyCode::End => {
+                if self.palette_filtered.is_empty() {
+                    self.palette.selected = 0;
+                } else {
+                    self.palette.selected = self.palette_filtered.len() - 1;
+                }
+            }
             KeyCode::Enter => self.execute_selected_palette_action(),
             KeyCode::Backspace => {
                 self.palette.query.pop();
@@ -605,25 +660,11 @@ impl App {
                 self.close_palette();
             }
             PaletteActionKind::PromptBankAccount => {
-                self.prompt = Some(PromptState {
-                    title: "Set Bank Account Filter".to_string(),
-                    hint: "Paste bank account URL".to_string(),
-                    value: self.context.bank_account_filter.clone().unwrap_or_default(),
-                    field: PromptField::BankAccount,
-                });
+                self.open_bank_account_prompt();
                 self.close_palette();
             }
             PaletteActionKind::PromptSelfAssessmentUser => {
-                self.prompt = Some(PromptState {
-                    title: "Set Self-Assessment User".to_string(),
-                    hint: "Paste user ID or user URL".to_string(),
-                    value: self
-                        .context
-                        .self_assessment_user
-                        .clone()
-                        .unwrap_or_default(),
-                    field: PromptField::SelfAssessmentUser,
-                });
+                self.open_self_assessment_user_prompt();
                 self.close_palette();
             }
             PaletteActionKind::PromptPayrollYear => {
@@ -632,6 +673,8 @@ impl App {
                     hint: "Example: 2026".to_string(),
                     value: self.context.payroll_year.to_string(),
                     field: PromptField::PayrollYear,
+                    options: Vec::new(),
+                    selected_option: 0,
                 });
                 self.close_palette();
             }
@@ -641,6 +684,8 @@ impl App {
                     hint: "Example: 1..12".to_string(),
                     value: self.context.payroll_period.to_string(),
                     field: PromptField::PayrollPeriod,
+                    options: Vec::new(),
+                    selected_option: 0,
                 });
                 self.close_palette();
             }
@@ -656,6 +701,8 @@ impl App {
                     hint: "Paste ID or full resource URL".to_string(),
                     value: current,
                     field: PromptField::TargetId(route_id),
+                    options: Vec::new(),
+                    selected_option: 0,
                 });
                 self.close_palette();
             }
@@ -673,14 +720,42 @@ impl App {
                 self.prompt = None;
                 self.status = "Prompt cancelled".to_string();
             }
+            KeyCode::Up => {
+                if !prompt.options.is_empty() {
+                    prompt.selected_option = prompt.selected_option.saturating_sub(1);
+                }
+            }
+            KeyCode::Down => {
+                if prompt.selected_option + 1 < prompt.options.len() {
+                    prompt.selected_option += 1;
+                }
+            }
+            KeyCode::PageUp => {
+                prompt.selected_option = prompt.selected_option.saturating_sub(10);
+            }
+            KeyCode::PageDown => {
+                if prompt.options.is_empty() {
+                    prompt.selected_option = 0;
+                } else {
+                    let max_index = prompt.options.len() - 1;
+                    prompt.selected_option = (prompt.selected_option + 10).min(max_index);
+                }
+            }
+            KeyCode::Home => prompt.selected_option = 0,
+            KeyCode::End => {
+                prompt.selected_option = prompt.options.len().saturating_sub(1);
+            }
             KeyCode::Enter => {
-                let value = prompt.value.trim().to_string();
+                let value = prompt_submit_value(prompt);
                 let field = prompt.field.clone();
                 self.prompt = None;
                 self.apply_prompt(field, value);
             }
             KeyCode::Backspace => {
                 prompt.value.pop();
+                if !prompt.options.is_empty() {
+                    select_prompt_option_from_query(prompt);
+                }
             }
             KeyCode::Char(ch) => {
                 if key.modifiers.contains(KeyModifiers::CONTROL)
@@ -689,6 +764,9 @@ impl App {
                     return true;
                 }
                 prompt.value.push(ch);
+                if !prompt.options.is_empty() {
+                    select_prompt_option_from_query(prompt);
+                }
             }
             _ => {}
         }
@@ -819,6 +897,80 @@ impl App {
     pub fn palette_rows(&self) -> Vec<crate::palette::PaletteRow> {
         build_rows(&self.palette_actions, &self.palette_filtered)
     }
+
+    fn open_bank_account_prompt(&mut self) {
+        let options = self.load_prompt_options("bank-accounts", bank_account_prompt_option);
+        let mut prompt = PromptState {
+            title: "Set Bank Account Filter".to_string(),
+            hint: if options.is_empty() {
+                "No accounts loaded. Paste bank account URL manually".to_string()
+            } else {
+                "Type to jump, arrows to select account, enter to confirm".to_string()
+            },
+            value: self.context.bank_account_filter.clone().unwrap_or_default(),
+            field: PromptField::BankAccount,
+            options,
+            selected_option: 0,
+        };
+        sync_prompt_selection_from_value(&mut prompt);
+        self.prompt = Some(prompt);
+    }
+
+    fn open_self_assessment_user_prompt(&mut self) {
+        let options = self.load_prompt_options("users", user_prompt_option);
+        let mut prompt = PromptState {
+            title: "Set Self-Assessment User".to_string(),
+            hint: if options.is_empty() {
+                "No users loaded. Paste user ID or user URL manually".to_string()
+            } else {
+                "Type to jump, arrows to select user, enter to confirm".to_string()
+            },
+            value: self
+                .context
+                .self_assessment_user
+                .clone()
+                .unwrap_or_default(),
+            field: PromptField::SelfAssessmentUser,
+            options,
+            selected_option: 0,
+        };
+        sync_prompt_selection_from_value(&mut prompt);
+        self.prompt = Some(prompt);
+    }
+
+    fn load_prompt_options(
+        &mut self,
+        route_id: &str,
+        mapper: fn(&serde_json::Value) -> Option<PromptOption>,
+    ) -> Vec<PromptOption> {
+        if let Some(view) = self.views.get(route_id)
+            && let Some(RoutePayload::List { items, .. }) = &view.payload
+        {
+            return items.iter().filter_map(mapper).collect();
+        }
+
+        let Some(route) = self
+            .routes
+            .iter()
+            .find(|route| route.id == route_id)
+            .cloned()
+        else {
+            return Vec::new();
+        };
+
+        match self.api.fetch_route(&route, &self.context, self.list_limit) {
+            Ok(RoutePayload::List { items, .. }) => items.iter().filter_map(mapper).collect(),
+            Ok(RoutePayload::Message(message)) => {
+                self.status = message;
+                Vec::new()
+            }
+            Ok(_) => Vec::new(),
+            Err(err) => {
+                self.status = err;
+                Vec::new()
+            }
+        }
+    }
 }
 
 fn disabled_action(title: &str, route: &RouteDefinition, reason: String) -> PaletteAction {
@@ -853,4 +1005,157 @@ fn infer_item_identifier(value: &serde_json::Value) -> Option<String> {
     }
 
     None
+}
+
+fn prompt_submit_value(prompt: &PromptState) -> String {
+    let typed = prompt.value.trim();
+    if prompt.options.is_empty() {
+        return typed.to_string();
+    }
+
+    if typed.is_empty() {
+        return prompt
+            .options
+            .get(prompt.selected_option)
+            .map(|option| option.value.clone())
+            .unwrap_or_default();
+    }
+
+    if prompt.options.iter().any(|option| option.value == typed) {
+        return typed.to_string();
+    }
+
+    let query = typed.to_ascii_lowercase();
+    if let Some(option) = prompt.options.get(prompt.selected_option)
+        && prompt_option_matches(option, &query)
+    {
+        return option.value.clone();
+    }
+
+    typed.to_string()
+}
+
+fn sync_prompt_selection_from_value(prompt: &mut PromptState) {
+    if prompt.options.is_empty() {
+        prompt.selected_option = 0;
+        return;
+    }
+
+    let value = prompt.value.trim();
+    if value.is_empty() {
+        prompt.selected_option = 0;
+        return;
+    }
+
+    if let Some(index) = prompt
+        .options
+        .iter()
+        .position(|option| option.value == value)
+    {
+        prompt.selected_option = index;
+        return;
+    }
+
+    select_prompt_option_from_query(prompt);
+}
+
+fn select_prompt_option_from_query(prompt: &mut PromptState) {
+    if prompt.options.is_empty() {
+        prompt.selected_option = 0;
+        return;
+    }
+
+    let query = prompt.value.trim().to_ascii_lowercase();
+    if query.is_empty() {
+        prompt.selected_option = 0;
+        return;
+    }
+
+    if let Some((index, _)) = prompt
+        .options
+        .iter()
+        .enumerate()
+        .find(|(_, option)| prompt_option_matches(option, &query))
+    {
+        prompt.selected_option = index;
+    }
+}
+
+fn prompt_option_matches(option: &PromptOption, query: &str) -> bool {
+    option.label.to_ascii_lowercase().contains(query)
+        || option.meta.to_ascii_lowercase().contains(query)
+        || option.value.to_ascii_lowercase().contains(query)
+}
+
+fn bank_account_prompt_option(item: &serde_json::Value) -> Option<PromptOption> {
+    let value = infer_item_identifier(item)?;
+    let name = item
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("Bank Account");
+    let bank_name = item
+        .get("bank_name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let account_number = item
+        .get("account_number")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+
+    let mut meta_parts = Vec::new();
+    if !bank_name.is_empty() {
+        meta_parts.push(bank_name.to_string());
+    }
+    if !account_number.is_empty() {
+        meta_parts.push(account_number.to_string());
+    }
+
+    Some(PromptOption {
+        label: name.to_string(),
+        value,
+        meta: meta_parts.join(" | "),
+    })
+}
+
+fn user_prompt_option(item: &serde_json::Value) -> Option<PromptOption> {
+    let value = infer_item_identifier(item)?;
+    let first_name = item
+        .get("first_name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let last_name = item
+        .get("last_name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let email = item
+        .get("email")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let role = item
+        .get("role")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+
+    let full_name = format!("{first_name} {last_name}").trim().to_string();
+    let label = if !full_name.is_empty() {
+        full_name
+    } else if !email.is_empty() {
+        email.to_string()
+    } else {
+        "User".to_string()
+    };
+
+    let mut meta_parts = Vec::new();
+    if !role.is_empty() {
+        meta_parts.push(role.to_string());
+    }
+    if !email.is_empty() {
+        meta_parts.push(email.to_string());
+    }
+
+    Some(PromptOption {
+        label,
+        value,
+        meta: meta_parts.join(" | "),
+    })
 }

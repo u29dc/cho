@@ -40,7 +40,10 @@ impl Theme {
 
     /// Highlight style for selected rows.
     pub fn selected() -> Style {
-        Style::default().bg(Self::ACCENT).fg(Color::Black)
+        Style::default()
+            .bg(Self::ACCENT)
+            .fg(Color::Rgb(255, 255, 255))
+            .add_modifier(Modifier::BOLD)
     }
 
     /// Section heading style.

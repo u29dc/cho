@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use serde_json::Value;
 use tracing::{debug, warn};
+use url::Url;
 
 use crate::api::resource::ResourceApi;
 use crate::api::specs::ResourceSpec;
@@ -421,13 +422,82 @@ fn response_has_next_link(headers: &reqwest::header::HeaderMap) -> bool {
 }
 
 fn build_url(base_url: &str, path: &str) -> Result<String> {
-    if path.starts_with("http://") || path.starts_with("https://") {
-        return Ok(path.to_string());
+    let base = Url::parse(base_url).map_err(|e| ChoSdkError::Config {
+        message: format!("Invalid SDK base_url '{base_url}': {e}"),
+    })?;
+
+    let candidate = if path.starts_with("http://") || path.starts_with("https://") {
+        Url::parse(path).map_err(|e| ChoSdkError::Config {
+            message: format!("Invalid absolute request path '{path}': {e}"),
+        })?
+    } else {
+        let base = base_url.trim_end_matches('/');
+        let path = path.trim_start_matches('/');
+        let raw = format!("{base}/{path}");
+        Url::parse(&raw).map_err(|e| ChoSdkError::Config {
+            message: format!("Invalid request URL '{raw}': {e}"),
+        })?
+    };
+
+    ensure_trusted_request_url(&base, &candidate)?;
+    Ok(candidate.to_string())
+}
+
+fn ensure_trusted_request_url(base: &Url, candidate: &Url) -> Result<()> {
+    if !matches!(candidate.scheme(), "https" | "http") {
+        return Err(ChoSdkError::Config {
+            message: format!(
+                "UNTRUSTED_RESOURCE_URL: unsupported scheme '{}'",
+                candidate.scheme()
+            ),
+        });
     }
 
-    let base = base_url.trim_end_matches('/');
-    let path = path.trim_start_matches('/');
-    Ok(format!("{base}/{path}"))
+    if !candidate.username().is_empty() || candidate.password().is_some() {
+        return Err(ChoSdkError::Config {
+            message: "UNTRUSTED_RESOURCE_URL: userinfo is not allowed in request URLs".to_string(),
+        });
+    }
+
+    let same_origin = base.scheme() == candidate.scheme()
+        && base.host_str() == candidate.host_str()
+        && base.port_or_known_default() == candidate.port_or_known_default();
+    if !same_origin {
+        return Err(ChoSdkError::Config {
+            message: format!(
+                "UNTRUSTED_RESOURCE_URL: request origin '{}' does not match configured API origin '{}'",
+                candidate.origin().ascii_serialization(),
+                base.origin().ascii_serialization()
+            ),
+        });
+    }
+
+    let base_prefix = normalize_base_path(base.path());
+    if !candidate.path().starts_with(&base_prefix) {
+        return Err(ChoSdkError::Config {
+            message: format!(
+                "UNTRUSTED_RESOURCE_URL: request path '{}' is outside configured API base path '{}'",
+                candidate.path(),
+                base_prefix
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+fn normalize_base_path(path: &str) -> String {
+    let mut normalized = if path.is_empty() {
+        "/".to_string()
+    } else {
+        path.to_string()
+    };
+
+    if !normalized.ends_with('/') {
+        normalized.push('/');
+    }
+
+    normalized
 }
 
 fn backoff_delay(attempt: u32) -> std::time::Duration {
@@ -503,6 +573,34 @@ mod tests {
         )
         .expect("url should be preserved");
         assert_eq!(url, "https://api.freeagent.com/v2/contacts/123");
+    }
+
+    #[test]
+    fn build_url_rejects_absolute_path_with_untrusted_origin() {
+        let err = build_url(
+            "https://api.freeagent.com/v2/",
+            "https://evil.example/v2/contacts/123",
+        )
+        .expect_err("untrusted origin must be rejected");
+
+        assert!(
+            err.to_string().contains("UNTRUSTED_RESOURCE_URL"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn build_url_rejects_absolute_path_outside_base_prefix() {
+        let err = build_url(
+            "https://api.freeagent.com/v2/",
+            "https://api.freeagent.com/oauth/token",
+        )
+        .expect_err("path outside base prefix must be rejected");
+
+        assert!(
+            err.to_string().contains("outside configured API base path"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@ use serde_json::json;
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
+use cho_sdk::api::by_name;
 use cho_sdk::auth::{AuthManager, token::StoredTokens};
 use cho_sdk::client::FreeAgentClient;
 use cho_sdk::config::SdkConfig;
@@ -284,5 +285,27 @@ async fn post_json_rejects_mutating_requests_when_writes_disabled() {
             assert!(message.contains("allow_writes"));
         }
         other => panic!("expected write-not-allowed error, got {other}"),
+    }
+}
+
+#[tokio::test]
+async fn resource_get_rejects_absolute_id_with_untrusted_origin() {
+    let trusted = MockServer::start().await;
+    let untrusted = MockServer::start().await;
+
+    let client = build_client(&trusted, "seed-access", "seed-refresh", 0, false).await;
+    let spec = by_name("contacts").expect("contacts resource spec must exist");
+
+    let err = client
+        .resource(spec)
+        .get(&format!("{}/v2/contacts/123", untrusted.uri()))
+        .await
+        .expect_err("untrusted absolute URL must be rejected");
+
+    match err {
+        ChoSdkError::Config { message } => {
+            assert!(message.contains("UNTRUSTED_RESOURCE_URL"));
+        }
+        other => panic!("expected config error, got {other}"),
     }
 }

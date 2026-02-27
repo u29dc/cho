@@ -87,11 +87,6 @@ pub const GLOBAL_FLAGS: &[GlobalFlagMeta] = &[
         default: "false",
     },
     GlobalFlagMeta {
-        name: "--raw",
-        description: "Preserve source JSON keys",
-        default: "false",
-    },
-    GlobalFlagMeta {
         name: "--precise",
         description: "Render decimal-like JSON numbers as strings",
         default: "false",

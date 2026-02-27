@@ -5,15 +5,12 @@ use serde_json::Value;
 /// JSON output options.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JsonOptions {
-    /// Keep source keys untouched.
-    pub raw: bool,
     /// Convert decimal-like numbers to strings.
     pub precise: bool,
 }
 
 /// Applies output options.
 pub fn apply_json_options(value: Value, options: &JsonOptions) -> Value {
-    let _ = options.raw;
     transform(value, options.precise)
 }
 

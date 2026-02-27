@@ -52,10 +52,6 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
-    /// Preserve source JSON keys.
-    #[arg(long, global = true)]
-    raw: bool,
-
     /// Convert decimal-like numbers to strings in JSON output.
     #[arg(long, global = true)]
     precise: bool,
@@ -408,7 +404,6 @@ async fn main() {
         client,
         format,
         JsonOptions {
-            raw: cli.raw,
             precise: cli.precise,
         },
         limit,

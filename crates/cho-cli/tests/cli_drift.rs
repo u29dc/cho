@@ -103,7 +103,6 @@ fn tools_registry_has_unique_names_and_json_examples() {
         "--limit",
         "--all",
         "--verbose",
-        "--raw",
         "--precise",
     ] {
         assert!(

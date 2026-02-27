@@ -1,8 +1,10 @@
 ## 1. Documentation
 
-cho is a Rust workspace focused on FreeAgent. Current scope is SDK + CLI (`cho-sdk`, `cho-cli`) with `cho-tui` scaffolded for later work.
+cho is a Rust workspace focused on FreeAgent. Current scope includes SDK, CLI, and a
+production TUI surface (`cho-sdk`, `cho-cli`, `cho-tui`).
 
 Primary API references:
+
 - Docs hub: https://dev.freeagent.com/docs
 - Introduction (auth, pagination, rate limits): https://dev.freeagent.com/docs/introduction
 - OAuth details: https://dev.freeagent.com/docs/oauth
@@ -25,41 +27,48 @@ Primary API references:
     ├── cho-cli/
     │   └── src/{commands,output,audit,context,envelope,error,registry,main}
     └── cho-tui/
+        └── src/{api,app,config,palette,routes,theme,ui,main}
 ```
 
 ## 3. Stack
 
-| Layer | Choice | Notes |
-| --- | --- | --- |
-| Language | Rust 2024 | workspace-based |
-| Runtime | tokio | async CLI + SDK |
-| HTTP | reqwest + rustls | retries + 401 refresh + 429 handling |
-| CLI | clap | command tree for agent primitives |
-| Serialization | serde/serde_json | FreeAgent snake_case wire format |
-| Secrets | secrecy + keyring | token fallback file when keyring unavailable |
-| Logging | custom audit log + tracing | append-only history at `~/.tools/cho/history.log` |
-| JS Tooling | bun + biome + commitlint + husky | quality-gate orchestration |
+| Layer         | Choice                           | Notes                                             |
+| ------------- | -------------------------------- | ------------------------------------------------- |
+| Language      | Rust 2024                        | workspace-based                                   |
+| Runtime       | tokio                            | async CLI + SDK                                   |
+| HTTP          | reqwest + rustls                 | retries + 401 refresh + 429 handling              |
+| CLI           | clap                             | command tree for agent primitives                 |
+| TUI           | ratatui + crossterm              | full-screen workspace navigator + command palette |
+| Serialization | serde/serde_json                 | FreeAgent snake_case wire format                  |
+| Secrets       | secrecy + keyring                | token fallback file when keyring unavailable      |
+| Logging       | custom audit log + tracing       | append-only history at `~/.tools/cho/history.log` |
+| JS Tooling    | bun + biome + commitlint + husky | quality-gate orchestration                        |
 
 ## 4. Commands
 
 Core orientation commands:
+
 - `cho tools --json`
 - `cho tools <name> --json`
 - `cho health --json`
 - `cho config show --json`
 - `cho config set <key> <value> --json`
+- `cho start` (launches `cho-tui`)
 
 Auth:
+
 - `cho auth login [--port <n>] [--no-browser] --json`
 - `cho auth status --json`
 - `cho auth refresh --json`
 - `cho auth logout --json`
 
 Company and reports:
+
 - `cho company {get|tax-timeline|business-categories} --json`
 - `cho reports {profit-and-loss|balance-sheet|trial-balance|cashflow} --json`
 
 Resource groups (agent primitives):
+
 - `contacts {list|get|create|update|delete|search}`
 - `invoices {list|get|create|update|delete|transition|send-email}`
 - `bank-accounts {list|get|create|update|delete}`
@@ -82,6 +91,7 @@ Resource groups (agent primitives):
 - `attachments {get|delete}`
 
 Tax and payroll:
+
 - `corporation-tax-returns {list|get|mark-filed|mark-unfiled|mark-paid|mark-unpaid}`
 - `self-assessment-returns {list|get|mark-filed|mark-unfiled|mark-payment-paid|mark-payment-unpaid}`
 - `vat-returns {list|get|mark-filed|mark-unfiled|mark-payment-paid|mark-payment-unpaid}`
@@ -94,7 +104,7 @@ Tax and payroll:
 Runtime flow:
 
 ```text
-Agent/Human -> cho-cli
+Agent/Human -> cho-cli / cho-tui
   -> cho-sdk::FreeAgentClient
     -> AuthManager (OAuth + token refresh)
     -> reqwest transport (retry/rate-limit handling)
@@ -102,8 +112,10 @@ Agent/Human -> cho-cli
 ```
 
 Invariants:
+
 - `cho-sdk` is interface-agnostic and reusable.
 - `cho-cli` is a thin command adapter around SDK primitives.
+- `cho-tui` is a read-first terminal UI over SDK routes with command-palette navigation.
 - JSON mode prints one compact envelope line to stdout.
 - Error envelopes use stable codes + hints.
 - Mutating operations require `[safety] allow_writes = true`.
@@ -112,6 +124,7 @@ Invariants:
 ## 6. Quality
 
 Required checks before completion:
+
 - `cargo fmt --all`
 - `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 - `cargo check --workspace`
@@ -119,10 +132,14 @@ Required checks before completion:
 - `bun run util:check`
 
 Build/install helper:
-- `bun run build` compiles release binaries and copies `cho` to `${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}/cho`.
+
+- `bun run build` compiles release binaries and copies both `cho` and `cho-tui` to
+  `${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}/`.
 
 Config path:
+
 - `~/.tools/cho/config.toml` (or `CHO_HOME/config.toml`)
 
 Audit path:
+
 - `~/.tools/cho/history.log` (or `CHO_HOME/history.log`)

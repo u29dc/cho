@@ -60,6 +60,28 @@ fn seed_tokens(home: &Path, access_token: &str, refresh_token: &str) {
     .expect("token file should be written");
 }
 
+fn enable_writes(home: &Path) {
+    fs::write(home.join("config.toml"), "[safety]\nallow_writes = true\n")
+        .expect("config file should be written");
+}
+
+fn run_help(home: &Path, args: &[&str]) -> (i32, String) {
+    let mut cmd = assert_cmd::cargo::cargo_bin_cmd!("cho");
+    cmd.args(args)
+        .env("CHO_HOME", home)
+        .env("CHO_DISABLE_KEYRING", "1")
+        .env("CHO_ALLOW_INSECURE_FILE_TOKENS", "1")
+        .env_remove("TOOLS_HOME")
+        .env_remove("CHO_CLIENT_ID")
+        .env_remove("CHO_CLIENT_SECRET")
+        .env_remove("CHO_BASE_URL");
+
+    let output = cmd.output().expect("command must execute");
+    let code = output.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be valid utf8");
+    (code, stdout)
+}
+
 #[test]
 fn tools_registry_has_unique_names_and_json_examples() {
     let home = TempDir::new().expect("temp home");
@@ -250,4 +272,111 @@ async fn reports_cashflow_defaults_to_months_12_when_no_dates_are_provided() {
     assert_eq!(code, 0);
     assert_eq!(json["ok"], true);
     assert_eq!(json["data"]["cashflow"]["balance"], "123.45");
+}
+
+#[test]
+fn help_for_read_only_resources_hides_mutating_commands() {
+    let home = TempDir::new().expect("temp home");
+
+    let (recurring_code, recurring_help) = run_help(home.path(), &["recurring-invoices", "--help"]);
+    assert_eq!(recurring_code, 0);
+    assert!(recurring_help.contains("\n  list"));
+    assert!(recurring_help.contains("\n  get"));
+    assert!(!recurring_help.contains("\n  create"));
+    assert!(!recurring_help.contains("\n  update"));
+    assert!(!recurring_help.contains("\n  delete"));
+
+    let (capital_code, capital_help) = run_help(home.path(), &["capital-assets", "--help"]);
+    assert_eq!(capital_code, 0);
+    assert!(capital_help.contains("\n  list"));
+    assert!(capital_help.contains("\n  get"));
+    assert!(!capital_help.contains("\n  create"));
+    assert!(!capital_help.contains("\n  update"));
+    assert!(!capital_help.contains("\n  delete"));
+}
+
+#[test]
+fn help_for_get_delete_resources_exposes_only_supported_commands() {
+    let home = TempDir::new().expect("temp home");
+    let (code, help) = run_help(home.path(), &["attachments", "--help"]);
+
+    assert_eq!(code, 0);
+    assert!(help.contains("\n  get"));
+    assert!(help.contains("\n  delete"));
+    assert!(!help.contains("\n  list"));
+    assert!(!help.contains("\n  create"));
+    assert!(!help.contains("\n  update"));
+}
+
+#[tokio::test]
+async fn payroll_mark_payment_paid_uses_put_endpoint() {
+    let home = TempDir::new().expect("temp home");
+    enable_writes(home.path());
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("PUT"))
+        .and(path("/v2/payroll/2026/payments/2026-04-30/mark_as_paid"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "paid"
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &[
+            "payroll",
+            "mark-payment-paid",
+            "2026",
+            "2026-04-30",
+            "--json",
+        ],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["data"]["status"], "paid");
+}
+
+#[tokio::test]
+async fn vat_mark_payment_paid_uses_put_endpoint() {
+    let home = TempDir::new().expect("temp home");
+    enable_writes(home.path());
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("PUT"))
+        .and(path(
+            "/v2/vat_returns/2026-03-31/payments/2026-05-07/mark_as_paid",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "vat_return": {
+                "url": "https://api.freeagent.com/v2/vat_returns/2026-03-31"
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &[
+            "vat-returns",
+            "mark-payment-paid",
+            "2026-03-31",
+            "2026-05-07",
+            "--json",
+        ],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["ok"], true);
+    assert_eq!(
+        json["data"]["vat_return"]["url"],
+        "https://api.freeagent.com/v2/vat_returns/2026-03-31"
+    );
 }

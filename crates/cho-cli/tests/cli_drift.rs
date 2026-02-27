@@ -18,6 +18,7 @@ fn run_json(
     cmd.args(args)
         .env("CHO_HOME", home)
         .env("CHO_DISABLE_KEYRING", "1")
+        .env("CHO_ALLOW_INSECURE_FILE_TOKENS", "1")
         .env_remove("TOOLS_HOME");
 
     if with_auth {

@@ -1,5 +1,7 @@
 //! Token storage helpers.
 
+use std::io::Write;
+
 use tracing::warn;
 
 use crate::error::{ChoSdkError, Result};
@@ -9,28 +11,92 @@ use super::token::StoredTokens;
 
 const SERVICE_NAME: &str = "cho";
 const TOKENS_KEY: &str = "freeagent_tokens";
+const FILE_FALLBACK_ENV: &str = "CHO_ALLOW_INSECURE_FILE_TOKENS";
 
 /// Loads stored tokens from keyring, then fallback file.
 pub fn load_tokens() -> Result<Option<StoredTokens>> {
     if !keyring_disabled() {
         match load_from_keyring() {
             Ok(Some(tokens)) => return Ok(Some(tokens)),
-            Ok(None) => {}
+            Ok(None) => {
+                if file_fallback_allowed()
+                    && let Some(tokens) = load_from_file()?
+                {
+                    match store_to_keyring(&tokens) {
+                        Ok(()) => {
+                            if let Err(err) = clear_file() {
+                                tracing::debug!(
+                                    "failed removing migrated plaintext token file: {err}"
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            warn!("failed migrating plaintext tokens into keyring: {err}");
+                        }
+                    }
+                    return Ok(Some(tokens));
+                }
+                return Ok(None);
+            }
             Err(err) => {
-                tracing::debug!("keyring token load failed: {err}");
+                if file_fallback_allowed() {
+                    warn!("Keyring unavailable, using insecure file fallback token storage: {err}");
+                    return load_from_file();
+                }
+
+                return Err(ChoSdkError::Config {
+                    message: format!(
+                        "Secure keyring token storage is unavailable: {err}. \
+Set {FILE_FALLBACK_ENV}=true to allow plaintext fallback token storage."
+                    ),
+                });
             }
         }
+    }
+
+    if !file_fallback_allowed() {
+        return Err(ChoSdkError::Config {
+            message: format!(
+                "Keyring storage is disabled and plaintext fallback is blocked. \
+Set {FILE_FALLBACK_ENV}=true to allow plaintext fallback token storage."
+            ),
+        });
     }
 
     load_from_file()
 }
 
-/// Stores tokens in file storage and attempts keyring storage as best-effort.
+/// Stores tokens in secure keyring storage, with optional file fallback.
 pub fn store_tokens(tokens: &StoredTokens) -> Result<()> {
-    if !keyring_disabled()
-        && let Err(keyring_err) = store_to_keyring(tokens)
-    {
-        warn!("Keyring unavailable, using file fallback token storage: {keyring_err}");
+    if !keyring_disabled() {
+        match store_to_keyring(tokens) {
+            Ok(()) => {
+                if let Err(err) = clear_file() {
+                    tracing::debug!("failed removing stale plaintext token file: {err}");
+                }
+                return Ok(());
+            }
+            Err(keyring_err) => {
+                if !file_fallback_allowed() {
+                    return Err(ChoSdkError::Config {
+                        message: format!(
+                            "Secure keyring token storage is unavailable: {keyring_err}. \
+Set {FILE_FALLBACK_ENV}=true to allow plaintext fallback token storage."
+                        ),
+                    });
+                }
+                warn!(
+                    "Keyring unavailable, using insecure file fallback token storage: {keyring_err}"
+                );
+            }
+        }
+    } else if !file_fallback_allowed() {
+        return Err(ChoSdkError::Config {
+            message: format!(
+                "Keyring storage is disabled and plaintext fallback is blocked. \
+Set {FILE_FALLBACK_ENV}=true to allow plaintext fallback token storage."
+            ),
+        });
     }
 
     store_to_file(tokens)
@@ -38,17 +104,28 @@ pub fn store_tokens(tokens: &StoredTokens) -> Result<()> {
 
 /// Clears stored tokens from keyring and file fallback.
 pub fn clear_tokens() -> Result<()> {
-    if !keyring_disabled()
-        && let Err(err) = clear_keyring()
-    {
-        tracing::debug!("keyring clear failed: {err}");
+    let mut errors: Vec<String> = Vec::new();
+
+    if !keyring_disabled() {
+        if let Err(err) = clear_keyring() {
+            errors.push(err.to_string());
+        }
     }
 
     if let Err(err) = clear_file() {
-        tracing::debug!("token file clear failed: {err}");
+        errors.push(err.to_string());
     }
 
-    Ok(())
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(ChoSdkError::Config {
+            message: format!(
+                "Failed clearing stored authentication tokens: {}",
+                errors.join("; ")
+            ),
+        })
+    }
 }
 
 fn load_from_keyring() -> Result<Option<StoredTokens>> {
@@ -95,9 +172,12 @@ fn clear_keyring() -> Result<()> {
         message: format!("Failed to initialize keyring entry: {e}"),
     })?;
 
-    entry.delete_credential().map_err(|e| ChoSdkError::Config {
-        message: format!("Failed deleting keyring token entry: {e}"),
-    })
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(ChoSdkError::Config {
+            message: format!("Failed deleting keyring token entry: {e}"),
+        }),
+    }
 }
 
 fn load_from_file() -> Result<Option<StoredTokens>> {
@@ -123,9 +203,33 @@ fn store_to_file(tokens: &StoredTokens) -> Result<()> {
         message: format!("Failed serializing tokens for file storage: {e}"),
     })?;
 
-    std::fs::write(&path, raw).map_err(|e| ChoSdkError::Config {
-        message: format!("Failed writing token file {}: {e}", path.display()),
-    })
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .map_err(|e| ChoSdkError::Config {
+            message: format!("Failed opening token file {}: {e}", path.display()),
+        })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).map_err(|e| {
+            ChoSdkError::Config {
+                message: format!(
+                    "Failed setting secure permissions on {}: {e}",
+                    path.display()
+                ),
+            }
+        })?;
+    }
+
+    file.write_all(raw.as_bytes())
+        .map_err(|e| ChoSdkError::Config {
+            message: format!("Failed writing token file {}: {e}", path.display()),
+        })
 }
 
 fn clear_file() -> Result<()> {
@@ -140,6 +244,10 @@ fn clear_file() -> Result<()> {
 
 fn keyring_disabled() -> bool {
     parse_truthy_env(std::env::var("CHO_DISABLE_KEYRING").ok())
+}
+
+fn file_fallback_allowed() -> bool {
+    parse_truthy_env(std::env::var(FILE_FALLBACK_ENV).ok())
 }
 
 fn parse_truthy_env(value: Option<String>) -> bool {

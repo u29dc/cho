@@ -12,6 +12,9 @@ use cho_sdk::client::{HttpObserver, HttpRequestEvent, HttpResponseEvent};
 use cho_sdk::error::{ChoSdkError, Result};
 use cho_sdk::home;
 
+const MAX_AUDIT_FIELD_CHARS: usize = 8_192;
+const REDACTED: &str = "[REDACTED]";
+
 /// CLI audit logger backed by `history.log`.
 #[derive(Clone)]
 pub struct AuditLogger {
@@ -97,17 +100,19 @@ impl AuditLogger {
 
     /// Logs structured command input.
     pub fn log_command_input(&self, tool: &str, input: &str) -> Result<()> {
+        let sanitized = sanitize_payload_for_audit(input);
         self.log_event(
             "command.input",
-            &[("tool", tool.to_string()), ("input", input.to_string())],
+            &[("tool", tool.to_string()), ("input", sanitized)],
         )
     }
 
     /// Logs command output payload.
     pub fn log_command_output(&self, tool: &str, output: &str) -> Result<()> {
+        let sanitized = sanitize_payload_for_audit(output);
         self.log_event(
             "command.output",
-            &[("tool", tool.to_string()), ("output", output.to_string())],
+            &[("tool", tool.to_string()), ("output", sanitized)],
         )
     }
 
@@ -258,9 +263,67 @@ fn sanitize_argv(argv: &[String]) -> Vec<String> {
     sanitized
 }
 
+fn sanitize_payload_for_audit(payload: &str) -> String {
+    let redacted = redact_structured_payload(payload).unwrap_or_else(|| payload.to_string());
+    truncate_audit_field(&redacted, MAX_AUDIT_FIELD_CHARS)
+}
+
+fn redact_structured_payload(payload: &str) -> Option<String> {
+    let mut value = serde_json::from_str::<serde_json::Value>(payload).ok()?;
+    redact_json_value(&mut value);
+    serde_json::to_string(&value).ok()
+}
+
+fn redact_json_value(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, entry) in map.iter_mut() {
+                if is_sensitive_key(key) {
+                    *entry = serde_json::Value::String(REDACTED.to_string());
+                } else {
+                    redact_json_value(entry);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                redact_json_value(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    [
+        "password",
+        "secret",
+        "token",
+        "authorization",
+        "api_key",
+        "statement",
+    ]
+    .iter()
+    .any(|needle| key.contains(needle))
+}
+
+fn truncate_audit_field(value: &str, max_chars: usize) -> String {
+    let total_chars = value.chars().count();
+    if total_chars <= max_chars {
+        return value.to_string();
+    }
+
+    let truncated = value.chars().take(max_chars).collect::<String>();
+    format!(
+        "{truncated}...[TRUNCATED {} CHARS]",
+        total_chars - max_chars
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::sanitize_argv;
+    use super::{sanitize_argv, sanitize_payload_for_audit};
 
     fn to_vec(args: &[&str]) -> Vec<String> {
         args.iter().map(|arg| (*arg).to_string()).collect()
@@ -303,5 +366,31 @@ mod tests {
     fn sanitize_argv_redacts_inline_config_key_value_form() {
         let sanitized = sanitize_argv(&to_vec(&["cho", "auth.client_secret=topsecret"]));
         assert_eq!(sanitized, to_vec(&["cho", "auth.client_secret=[REDACTED]"]));
+    }
+
+    #[test]
+    fn sanitize_payload_for_audit_redacts_sensitive_json_keys() {
+        let payload = serde_json::json!({
+            "access_token": "abc",
+            "nested": {
+                "client_secret": "xyz"
+            },
+            "regular": "value"
+        })
+        .to_string();
+
+        let sanitized = sanitize_payload_for_audit(&payload);
+        assert!(sanitized.contains("\"access_token\":\"[REDACTED]\""));
+        assert!(sanitized.contains("\"client_secret\":\"[REDACTED]\""));
+        assert!(!sanitized.contains("abc"));
+        assert!(!sanitized.contains("xyz"));
+    }
+
+    #[test]
+    fn sanitize_payload_for_audit_truncates_large_values() {
+        let payload = "x".repeat(9_000);
+        let sanitized = sanitize_payload_for_audit(&payload);
+        assert!(sanitized.contains("[TRUNCATED"));
+        assert!(sanitized.len() < 9_000);
     }
 }

@@ -458,8 +458,14 @@ pub async fn run_bank_transactions(
             let content = std::fs::read_to_string(file).map_err(|e| ChoSdkError::Config {
                 message: format!("Failed reading statement file {}: {e}", file.display()),
             })?;
+            let statement_bytes = content.len();
             let payload = serde_json::json!({ "statement": content });
-            ctx.log_input("bank-transactions.upload-statement", &payload);
+            let audit_payload = serde_json::json!({
+                "bank_account": bank_account,
+                "file": file.display().to_string(),
+                "statement_bytes": statement_bytes,
+            });
+            ctx.log_input("bank-transactions.upload-statement", &audit_payload);
             let value = ctx
                 .client()
                 .post_json(

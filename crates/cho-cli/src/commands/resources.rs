@@ -81,6 +81,33 @@ pub enum ResourceCommands {
     },
 }
 
+/// Read-only resource subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum ReadOnlyResourceCommands {
+    /// List resource items.
+    List(Box<ListArgs>),
+    /// Get one resource item.
+    Get {
+        /// Identifier/path key.
+        id: String,
+    },
+}
+
+/// Get/delete resource subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum GetDeleteResourceCommands {
+    /// Get one resource item.
+    Get {
+        /// Identifier/path key.
+        id: String,
+    },
+    /// Delete resource item.
+    Delete {
+        /// Identifier/path key.
+        id: String,
+    },
+}
+
 /// Contact resource commands.
 #[derive(Debug, Clone, Subcommand)]
 pub enum ContactCommands {
@@ -224,6 +251,26 @@ pub fn tool_name(resource: &str, command: &ResourceCommands) -> String {
     format!("{resource}.{action}")
 }
 
+/// Returns tool name for read-only resource command.
+pub fn tool_name_read_only(resource: &str, command: &ReadOnlyResourceCommands) -> String {
+    let action = match command {
+        ReadOnlyResourceCommands::List(_) => "list",
+        ReadOnlyResourceCommands::Get { .. } => "get",
+    };
+
+    format!("{resource}.{action}")
+}
+
+/// Returns tool name for get/delete resource command.
+pub fn tool_name_get_delete(resource: &str, command: &GetDeleteResourceCommands) -> String {
+    let action = match command {
+        GetDeleteResourceCommands::Get { .. } => "get",
+        GetDeleteResourceCommands::Delete { .. } => "delete",
+    };
+
+    format!("{resource}.{action}")
+}
+
 /// Executes generic resource command.
 pub async fn run_resource(
     resource: &str,
@@ -248,6 +295,64 @@ pub async fn run_resource(
     })?;
 
     run_resource_with_spec(spec, command, ctx, start).await
+}
+
+/// Executes read-only resource command.
+pub async fn run_read_only_resource(
+    resource: &str,
+    command: &ReadOnlyResourceCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> Result<()> {
+    match command {
+        ReadOnlyResourceCommands::List(args) => {
+            run_resource(
+                resource,
+                &ResourceCommands::List((**args).clone()),
+                ctx,
+                start,
+            )
+            .await
+        }
+        ReadOnlyResourceCommands::Get { id } => {
+            run_resource(
+                resource,
+                &ResourceCommands::Get { id: id.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+    }
+}
+
+/// Executes get/delete resource command.
+pub async fn run_get_delete_resource(
+    resource: &str,
+    command: &GetDeleteResourceCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> Result<()> {
+    match command {
+        GetDeleteResourceCommands::Get { id } => {
+            run_resource(
+                resource,
+                &ResourceCommands::Get { id: id.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+        GetDeleteResourceCommands::Delete { id } => {
+            run_resource(
+                resource,
+                &ResourceCommands::Delete { id: id.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+    }
 }
 
 /// Executes contact command.

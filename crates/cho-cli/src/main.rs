@@ -28,7 +28,8 @@ use crate::commands::config::ConfigCommands;
 use crate::commands::payroll::{PayrollCommands, PayrollProfileCommands};
 use crate::commands::reports::ReportCommands;
 use crate::commands::resources::{
-    BankTransactionCommands, ContactCommands, ExpenseCommands, InvoiceCommands, ResourceCommands,
+    BankTransactionCommands, ContactCommands, ExpenseCommands, GetDeleteResourceCommands,
+    InvoiceCommands, ReadOnlyResourceCommands, ResourceCommands,
 };
 use crate::commands::tax::{
     CorporationTaxReturnCommands, FinalAccountsReportCommands, SelfAssessmentReturnCommands,
@@ -161,7 +162,7 @@ enum Commands {
     /// Accounting transactions.
     Transactions {
         #[command(subcommand)]
-        command: ResourceCommands,
+        command: ReadOnlyResourceCommands,
     },
 
     /// Corporation tax returns.
@@ -223,7 +224,7 @@ enum Commands {
     #[command(name = "recurring-invoices")]
     RecurringInvoices {
         #[command(subcommand)]
-        command: ResourceCommands,
+        command: ReadOnlyResourceCommands,
     },
     /// Journal sets.
     #[command(name = "journal-sets")]
@@ -240,13 +241,13 @@ enum Commands {
     #[command(name = "capital-assets")]
     CapitalAssets {
         #[command(subcommand)]
-        command: ResourceCommands,
+        command: ReadOnlyResourceCommands,
     },
     /// Stock items.
     #[command(name = "stock-items")]
     StockItems {
         #[command(subcommand)]
-        command: ResourceCommands,
+        command: ReadOnlyResourceCommands,
     },
     /// Projects.
     Projects {
@@ -261,7 +262,7 @@ enum Commands {
     /// Attachments.
     Attachments {
         #[command(subcommand)]
-        command: ResourceCommands,
+        command: GetDeleteResourceCommands,
     },
 }
 
@@ -484,8 +485,8 @@ async fn dispatch_command(
             commands::resources::run_resource("categories", command, ctx, start).await,
         ),
         Commands::Transactions { command } => (
-            commands::resources::tool_name("transactions", command),
-            commands::resources::run_resource("transactions", command, ctx, start).await,
+            commands::resources::tool_name_read_only("transactions", command),
+            commands::resources::run_read_only_resource("transactions", command, ctx, start).await,
         ),
         Commands::CorporationTaxReturns { command } => (
             commands::tax::corporation_tool_name(command).to_string(),
@@ -524,8 +525,9 @@ async fn dispatch_command(
             commands::resources::run_resource("estimates", command, ctx, start).await,
         ),
         Commands::RecurringInvoices { command } => (
-            commands::resources::tool_name("recurring-invoices", command),
-            commands::resources::run_resource("recurring-invoices", command, ctx, start).await,
+            commands::resources::tool_name_read_only("recurring-invoices", command),
+            commands::resources::run_read_only_resource("recurring-invoices", command, ctx, start)
+                .await,
         ),
         Commands::JournalSets { command } => (
             commands::resources::tool_name("journal-sets", command),
@@ -536,12 +538,13 @@ async fn dispatch_command(
             commands::resources::run_resource("users", command, ctx, start).await,
         ),
         Commands::CapitalAssets { command } => (
-            commands::resources::tool_name("capital-assets", command),
-            commands::resources::run_resource("capital-assets", command, ctx, start).await,
+            commands::resources::tool_name_read_only("capital-assets", command),
+            commands::resources::run_read_only_resource("capital-assets", command, ctx, start)
+                .await,
         ),
         Commands::StockItems { command } => (
-            commands::resources::tool_name("stock-items", command),
-            commands::resources::run_resource("stock-items", command, ctx, start).await,
+            commands::resources::tool_name_read_only("stock-items", command),
+            commands::resources::run_read_only_resource("stock-items", command, ctx, start).await,
         ),
         Commands::Projects { command } => (
             commands::resources::tool_name("projects", command),
@@ -552,8 +555,8 @@ async fn dispatch_command(
             commands::resources::run_resource("timeslips", command, ctx, start).await,
         ),
         Commands::Attachments { command } => (
-            commands::resources::tool_name("attachments", command),
-            commands::resources::run_resource("attachments", command, ctx, start).await,
+            commands::resources::tool_name_get_delete("attachments", command),
+            commands::resources::run_get_delete_resource("attachments", command, ctx, start).await,
         ),
     }
 }
@@ -623,37 +626,158 @@ fn emit_bootstrap_error(
 
 fn top_level_tool_name(command: &Commands) -> &'static str {
     match command {
-        Commands::Tools { .. } => "tools.list",
+        Commands::Tools { name } => {
+            if name.is_some() {
+                "tools.get"
+            } else {
+                "tools.list"
+            }
+        }
         Commands::Health => "health.check",
         Commands::Config { command } => commands::config::tool_name(command),
         Commands::Auth { command } => commands::auth::tool_name(command),
         Commands::Company { command } => commands::company::tool_name(command),
         Commands::Reports { command } => commands::reports::tool_name(command),
-        Commands::Contacts { .. } => "contacts.list",
-        Commands::Invoices { .. } => "invoices.list",
-        Commands::BankAccounts { .. } => "bank-accounts.list",
-        Commands::BankTransactions { .. } => "bank-transactions.list",
-        Commands::BankTransactionExplanations { .. } => "bank-transaction-explanations.list",
-        Commands::Bills { .. } => "bills.list",
-        Commands::Expenses { .. } => "expenses.list",
-        Commands::Categories { .. } => "categories.list",
-        Commands::Transactions { .. } => "transactions.list",
-        Commands::CorporationTaxReturns { .. } => "corporation-tax-returns.list",
-        Commands::SelfAssessmentReturns { .. } => "self-assessment-returns.list",
-        Commands::VatReturns { .. } => "vat-returns.list",
-        Commands::FinalAccountsReports { .. } => "final-accounts-reports.list",
-        Commands::Payroll { .. } => "payroll.periods",
-        Commands::PayrollProfiles { .. } => "payroll-profiles.list",
-        Commands::SalesTaxPeriods { .. } => "sales-tax-periods.list",
-        Commands::CreditNotes { .. } => "credit-notes.list",
-        Commands::Estimates { .. } => "estimates.list",
-        Commands::RecurringInvoices { .. } => "recurring-invoices.list",
-        Commands::JournalSets { .. } => "journal-sets.list",
-        Commands::Users { .. } => "users.list",
-        Commands::CapitalAssets { .. } => "capital-assets.list",
-        Commands::StockItems { .. } => "stock-items.list",
-        Commands::Projects { .. } => "projects.list",
-        Commands::Timeslips { .. } => "timeslips.list",
-        Commands::Attachments { .. } => "attachments.list",
+        Commands::Contacts { command } => match command {
+            ContactCommands::List(_) => "contacts.list",
+            ContactCommands::Get { .. } => "contacts.get",
+            ContactCommands::Create { .. } => "contacts.create",
+            ContactCommands::Update { .. } => "contacts.update",
+            ContactCommands::Delete { .. } => "contacts.delete",
+            ContactCommands::Search { .. } => "contacts.search",
+        },
+        Commands::Invoices { command } => match command {
+            InvoiceCommands::List(_) => "invoices.list",
+            InvoiceCommands::Get { .. } => "invoices.get",
+            InvoiceCommands::Create { .. } => "invoices.create",
+            InvoiceCommands::Update { .. } => "invoices.update",
+            InvoiceCommands::Delete { .. } => "invoices.delete",
+            InvoiceCommands::Transition { .. } => "invoices.transition",
+            InvoiceCommands::SendEmail { .. } => "invoices.send-email",
+        },
+        Commands::BankAccounts { command } => match command {
+            ResourceCommands::List(_) => "bank-accounts.list",
+            ResourceCommands::Get { .. } => "bank-accounts.get",
+            ResourceCommands::Create { .. } => "bank-accounts.create",
+            ResourceCommands::Update { .. } => "bank-accounts.update",
+            ResourceCommands::Delete { .. } => "bank-accounts.delete",
+        },
+        Commands::BankTransactions { command } => match command {
+            BankTransactionCommands::List(_) => "bank-transactions.list",
+            BankTransactionCommands::Get { .. } => "bank-transactions.get",
+            BankTransactionCommands::UploadStatement { .. } => "bank-transactions.upload-statement",
+        },
+        Commands::BankTransactionExplanations { command } => match command {
+            ResourceCommands::List(_) => "bank-transaction-explanations.list",
+            ResourceCommands::Get { .. } => "bank-transaction-explanations.get",
+            ResourceCommands::Create { .. } => "bank-transaction-explanations.create",
+            ResourceCommands::Update { .. } => "bank-transaction-explanations.update",
+            ResourceCommands::Delete { .. } => "bank-transaction-explanations.delete",
+        },
+        Commands::Bills { command } => match command {
+            ResourceCommands::List(_) => "bills.list",
+            ResourceCommands::Get { .. } => "bills.get",
+            ResourceCommands::Create { .. } => "bills.create",
+            ResourceCommands::Update { .. } => "bills.update",
+            ResourceCommands::Delete { .. } => "bills.delete",
+        },
+        Commands::Expenses { command } => match command {
+            ExpenseCommands::List(_) => "expenses.list",
+            ExpenseCommands::Get { .. } => "expenses.get",
+            ExpenseCommands::Create { .. } => "expenses.create",
+            ExpenseCommands::Update { .. } => "expenses.update",
+            ExpenseCommands::Delete { .. } => "expenses.delete",
+            ExpenseCommands::MileageSettings => "expenses.mileage-settings",
+        },
+        Commands::Categories { command } => match command {
+            ResourceCommands::List(_) => "categories.list",
+            ResourceCommands::Get { .. } => "categories.get",
+            ResourceCommands::Create { .. } => "categories.create",
+            ResourceCommands::Update { .. } => "categories.update",
+            ResourceCommands::Delete { .. } => "categories.delete",
+        },
+        Commands::Transactions { command } => match command {
+            ReadOnlyResourceCommands::List(_) => "transactions.list",
+            ReadOnlyResourceCommands::Get { .. } => "transactions.get",
+        },
+        Commands::CorporationTaxReturns { command } => {
+            commands::tax::corporation_tool_name(command)
+        }
+        Commands::SelfAssessmentReturns { command } => {
+            commands::tax::self_assessment_tool_name(command)
+        }
+        Commands::VatReturns { command } => commands::tax::vat_tool_name(command),
+        Commands::FinalAccountsReports { command } => {
+            commands::tax::final_accounts_tool_name(command)
+        }
+        Commands::Payroll { command } => commands::payroll::payroll_tool_name(command),
+        Commands::PayrollProfiles { command } => {
+            commands::payroll::payroll_profile_tool_name(command)
+        }
+        Commands::SalesTaxPeriods { command } => match command {
+            ResourceCommands::List(_) => "sales-tax-periods.list",
+            ResourceCommands::Get { .. } => "sales-tax-periods.get",
+            ResourceCommands::Create { .. } => "sales-tax-periods.create",
+            ResourceCommands::Update { .. } => "sales-tax-periods.update",
+            ResourceCommands::Delete { .. } => "sales-tax-periods.delete",
+        },
+        Commands::CreditNotes { command } => match command {
+            ResourceCommands::List(_) => "credit-notes.list",
+            ResourceCommands::Get { .. } => "credit-notes.get",
+            ResourceCommands::Create { .. } => "credit-notes.create",
+            ResourceCommands::Update { .. } => "credit-notes.update",
+            ResourceCommands::Delete { .. } => "credit-notes.delete",
+        },
+        Commands::Estimates { command } => match command {
+            ResourceCommands::List(_) => "estimates.list",
+            ResourceCommands::Get { .. } => "estimates.get",
+            ResourceCommands::Create { .. } => "estimates.create",
+            ResourceCommands::Update { .. } => "estimates.update",
+            ResourceCommands::Delete { .. } => "estimates.delete",
+        },
+        Commands::RecurringInvoices { command } => match command {
+            ReadOnlyResourceCommands::List(_) => "recurring-invoices.list",
+            ReadOnlyResourceCommands::Get { .. } => "recurring-invoices.get",
+        },
+        Commands::JournalSets { command } => match command {
+            ResourceCommands::List(_) => "journal-sets.list",
+            ResourceCommands::Get { .. } => "journal-sets.get",
+            ResourceCommands::Create { .. } => "journal-sets.create",
+            ResourceCommands::Update { .. } => "journal-sets.update",
+            ResourceCommands::Delete { .. } => "journal-sets.delete",
+        },
+        Commands::Users { command } => match command {
+            ResourceCommands::List(_) => "users.list",
+            ResourceCommands::Get { .. } => "users.get",
+            ResourceCommands::Create { .. } => "users.create",
+            ResourceCommands::Update { .. } => "users.update",
+            ResourceCommands::Delete { .. } => "users.delete",
+        },
+        Commands::CapitalAssets { command } => match command {
+            ReadOnlyResourceCommands::List(_) => "capital-assets.list",
+            ReadOnlyResourceCommands::Get { .. } => "capital-assets.get",
+        },
+        Commands::StockItems { command } => match command {
+            ReadOnlyResourceCommands::List(_) => "stock-items.list",
+            ReadOnlyResourceCommands::Get { .. } => "stock-items.get",
+        },
+        Commands::Projects { command } => match command {
+            ResourceCommands::List(_) => "projects.list",
+            ResourceCommands::Get { .. } => "projects.get",
+            ResourceCommands::Create { .. } => "projects.create",
+            ResourceCommands::Update { .. } => "projects.update",
+            ResourceCommands::Delete { .. } => "projects.delete",
+        },
+        Commands::Timeslips { command } => match command {
+            ResourceCommands::List(_) => "timeslips.list",
+            ResourceCommands::Get { .. } => "timeslips.get",
+            ResourceCommands::Create { .. } => "timeslips.create",
+            ResourceCommands::Update { .. } => "timeslips.update",
+            ResourceCommands::Delete { .. } => "timeslips.delete",
+        },
+        Commands::Attachments { command } => match command {
+            GetDeleteResourceCommands::Get { .. } => "attachments.get",
+            GetDeleteResourceCommands::Delete { .. } => "attachments.delete",
+        },
     }
 }

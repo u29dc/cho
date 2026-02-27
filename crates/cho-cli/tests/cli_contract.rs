@@ -127,6 +127,7 @@ fn command_execution_writes_history_log_entries() {
     let history = fs::read_to_string(&history_path).expect("history.log must exist");
 
     assert!(history.contains("event=command.start"));
+    assert!(history.contains("event=command.input"));
     assert!(history.contains("event=command.output"));
     assert!(history.contains("event=command.end"));
     assert!(history.contains("tool=tools.list"));

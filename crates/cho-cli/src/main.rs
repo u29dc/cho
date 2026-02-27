@@ -303,6 +303,8 @@ async fn main() {
     let tool_name = top_level_tool_name(&cli.command);
     let argv = std::env::args().collect::<Vec<_>>();
     let _ = audit.log_command_start(tool_name, &argv);
+    let input_payload = serde_json::json!({ "tool": tool_name });
+    let _ = audit.log_command_input(tool_name, &input_payload.to_string());
 
     // Early commands that do not require API client.
     match &cli.command {

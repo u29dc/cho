@@ -7,13 +7,17 @@ use clap::Subcommand;
 
 use crate::context::CliContext;
 
+const DEFAULT_OAUTH_CALLBACK_PORT: u16 = 53_682;
+
 /// Auth subcommands.
 #[derive(Debug, Subcommand)]
 pub enum AuthCommands {
     /// Run OAuth login flow.
     Login {
-        /// Callback port (0 = auto).
-        #[arg(long, default_value = "0")]
+        /// Callback port.
+        ///
+        /// Defaults to a fixed port so redirect URI registration can stay stable.
+        #[arg(long, default_value_t = DEFAULT_OAUTH_CALLBACK_PORT)]
         port: u16,
         /// Do not automatically open browser.
         #[arg(long)]

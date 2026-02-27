@@ -84,6 +84,8 @@ struct Cli {
 /// Top-level commands.
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Launch the terminal UI.
+    Start,
     /// Tool discovery metadata.
     Tools {
         /// Optional tool detail name.
@@ -304,6 +306,19 @@ async fn main() {
 
     // Early commands that do not require API client.
     match &cli.command {
+        Commands::Start => match commands::start::run() {
+            Ok(exit_code) => {
+                let _ =
+                    audit.log_command_end(tool_name, exit_code, start.elapsed().as_millis() as u64);
+                std::process::exit(exit_code);
+            }
+            Err(err) => {
+                emit_runtime_error(&err, json_mode, tool_name, start, Some(&audit));
+                let code = error::exit_code(&err);
+                let _ = audit.log_command_end(tool_name, code, start.elapsed().as_millis() as u64);
+                std::process::exit(code);
+            }
+        },
         Commands::Tools { name } => {
             commands::tools::run(name.as_deref(), json_mode, start, &audit);
             let _ = audit.log_command_end(tool_name, 0, start.elapsed().as_millis() as u64);
@@ -438,7 +453,7 @@ async fn dispatch_command(
     start: Instant,
 ) -> (String, cho_sdk::error::Result<()>) {
     match command {
-        Commands::Tools { .. } | Commands::Health | Commands::Config { .. } => {
+        Commands::Start | Commands::Tools { .. } | Commands::Health | Commands::Config { .. } => {
             unreachable!("Early-dispatch command reached runtime dispatch")
         }
         Commands::Auth { command } => (
@@ -628,6 +643,7 @@ fn emit_bootstrap_error(
 
 fn top_level_tool_name(command: &Commands) -> &'static str {
     match command {
+        Commands::Start => "tui.start",
         Commands::Tools { name } => {
             if name.is_some() {
                 "tools.get"

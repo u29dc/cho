@@ -7,6 +7,7 @@ pub mod health;
 pub mod payroll;
 pub mod reports;
 pub mod resources;
+pub mod start;
 pub mod tax;
 pub mod tools;
 pub mod utils;

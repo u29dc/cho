@@ -97,6 +97,13 @@ pub const GLOBAL_FLAGS: &[GlobalFlagMeta] = &[
 pub fn tool_catalog() -> Vec<ToolMeta> {
     let mut tools = vec![
         static_tool(
+            "tui.start",
+            "cho start --json",
+            "tui",
+            "Launch cho terminal UI",
+            true,
+        ),
+        static_tool(
             "tools.list",
             "cho tools --json",
             "tools",

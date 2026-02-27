@@ -133,8 +133,16 @@ Required checks before completion:
 
 Build/install helper:
 
-- `bun run build` compiles release binaries and copies both `cho` and `cho-tui` to
-  `${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}/`.
+- `bun run build` compiles release binaries, installs both `cho` and `cho-tui` to
+  `${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}/`, and on macOS signs the installed binaries.
+- macOS signing controls:
+  - `CHO_CODESIGN_IDENTITY="<identity>"` to pin a specific signing identity.
+  - `CHO_CODESIGN_REQUIRED=1` to fail build when signing cannot run.
+  - `CHO_CODESIGN_DISABLE=1` to skip signing (`bun run build:unsigned` sets this).
+  - `CHO_CODESIGN_IDENTIFIER_PREFIX="com.example.cho"` to override default identifier prefix.
+- Verification/reset helpers:
+  - `bun run util:codesign:status`
+  - `bun run util:codesign:reset-keychain` (one-time reset if prior unsigned trust prompts persist)
 
 Config path:
 

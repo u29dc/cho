@@ -231,6 +231,8 @@ impl App {
     }
 
     fn handle_nav_key(&mut self, key: KeyEvent) {
+        let previous_cursor = self.nav_cursor;
+
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 if self.nav_cursor > 0 {
@@ -252,11 +254,24 @@ impl App {
             KeyCode::Home => self.nav_cursor = 0,
             KeyCode::End => self.nav_cursor = self.routes.len().saturating_sub(1),
             KeyCode::Enter => {
-                self.active_route = self.nav_cursor;
-                self.load_active_route();
+                self.activate_navigation_selection(true);
             }
             _ => {}
         }
+
+        if self.nav_cursor != previous_cursor {
+            self.activate_navigation_selection(false);
+        }
+    }
+
+    fn activate_navigation_selection(&mut self, force_reload: bool) {
+        if self.active_route != self.nav_cursor {
+            self.active_route = self.nav_cursor;
+        } else if !force_reload {
+            return;
+        }
+
+        self.load_active_route();
     }
 
     fn handle_main_key(&mut self, key: KeyEvent) {

@@ -382,7 +382,12 @@ async fn main() {
         }
     };
 
-    let _ = auth.load_stored_tokens().await;
+    if let Err(err) = auth.load_stored_tokens().await {
+        emit_runtime_error(&err, json_mode, tool_name, start, Some(&audit));
+        let code = error::exit_code(&err);
+        let _ = audit.log_command_end(tool_name, code, start.elapsed().as_millis() as u64);
+        std::process::exit(code);
+    }
 
     let observer: Arc<dyn HttpObserver> = Arc::new(audit.clone());
     let client = match FreeAgentClient::builder()

@@ -58,7 +58,7 @@ pub async fn run(command: &AuthCommands, ctx: &CliContext, start: Instant) -> Re
             ctx.emit_success("auth.login", &payload, start)
         }
         AuthCommands::Status => {
-            let _ = ctx.client().auth().load_stored_tokens().await;
+            ctx.client().auth().load_stored_tokens().await?;
             let status = ctx.client().auth().status().await;
             ctx.emit_success("auth.status", &status, start)
         }

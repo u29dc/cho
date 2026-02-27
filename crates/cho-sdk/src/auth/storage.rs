@@ -129,9 +129,7 @@ pub fn clear_tokens() -> Result<()> {
 }
 
 fn load_from_keyring() -> Result<Option<StoredTokens>> {
-    let entry = keyring::Entry::new(SERVICE_NAME, TOKENS_KEY).map_err(|e| ChoSdkError::Config {
-        message: format!("Failed to initialize keyring entry: {e}"),
-    })?;
+    let entry = keyring_entry()?;
 
     match entry.get_secret() {
         Ok(bytes) => {
@@ -152,9 +150,7 @@ fn load_from_keyring() -> Result<Option<StoredTokens>> {
 }
 
 fn store_to_keyring(tokens: &StoredTokens) -> Result<()> {
-    let entry = keyring::Entry::new(SERVICE_NAME, TOKENS_KEY).map_err(|e| ChoSdkError::Config {
-        message: format!("Failed to initialize keyring entry: {e}"),
-    })?;
+    let entry = keyring_entry()?;
 
     let raw = serde_json::to_string(tokens).map_err(|e| ChoSdkError::Config {
         message: format!("Failed serializing tokens for keyring: {e}"),
@@ -168,9 +164,7 @@ fn store_to_keyring(tokens: &StoredTokens) -> Result<()> {
 }
 
 fn clear_keyring() -> Result<()> {
-    let entry = keyring::Entry::new(SERVICE_NAME, TOKENS_KEY).map_err(|e| ChoSdkError::Config {
-        message: format!("Failed to initialize keyring entry: {e}"),
-    })?;
+    let entry = keyring_entry()?;
 
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
@@ -242,6 +236,26 @@ fn clear_file() -> Result<()> {
     Ok(())
 }
 
+fn keyring_entry() -> Result<keyring::Entry> {
+    let entry = keyring::Entry::new(SERVICE_NAME, TOKENS_KEY).map_err(|e| ChoSdkError::Config {
+        message: format!("Failed to initialize keyring entry: {e}"),
+    })?;
+
+    if keyring_uses_mock_backend(&entry) {
+        return Err(ChoSdkError::Config {
+            message:
+                "Detected in-memory mock keyring backend; secure token persistence is unavailable"
+                    .to_string(),
+        });
+    }
+
+    Ok(entry)
+}
+
+fn keyring_uses_mock_backend(entry: &keyring::Entry) -> bool {
+    entry.get_credential().is::<keyring::mock::MockCredential>()
+}
+
 fn keyring_disabled() -> bool {
     parse_truthy_env(std::env::var("CHO_DISABLE_KEYRING").ok())
 }
@@ -273,5 +287,15 @@ mod tests {
         assert!(parse_truthy_env(Some("1".to_string())));
         assert!(parse_truthy_env(Some("yes".to_string())));
         assert!(parse_truthy_env(Some("on".to_string())));
+    }
+
+    #[test]
+    fn keyring_mock_backend_detection_matches_mock_credentials() {
+        let credential = keyring::mock::default_credential_builder()
+            .build(None, "cho", "freeagent_tokens")
+            .expect("mock credential should build");
+        let entry = keyring::Entry::new_with_credential(credential);
+
+        assert!(super::keyring_uses_mock_backend(&entry));
     }
 }

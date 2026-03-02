@@ -4,6 +4,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::time::Duration;
 
+use cho_sdk::api::specs::{ResourceSpec, by_name};
 use cho_sdk::auth::AuthManager;
 use cho_sdk::client::{FreeAgentClient, RequestPolicy};
 use cho_sdk::error::ChoSdkError;
@@ -70,6 +71,12 @@ pub struct RouteLoadOptions {
     pub per_page: usize,
     /// Request timeout/retry policy.
     pub request_policy: RequestPolicy,
+}
+
+#[derive(Debug, Clone)]
+struct BankAccountScope {
+    url: String,
+    name: String,
 }
 
 impl RouteLoadOptions {
@@ -324,21 +331,11 @@ impl ApiEngine {
         }
 
         if spec.capabilities.list {
-            let mut query = Vec::<(String, String)>::new();
             if spec.name == "bank-transactions" || spec.name == "bank-transaction-explanations" {
-                let Some(bank_account) = context
-                    .bank_account_filter
-                    .as_ref()
-                    .filter(|value| !value.trim().is_empty())
-                else {
-                    return Ok(RoutePayload::Message(
-                        "Set a bank account filter first (Cmd/Ctrl+P -> Set bank account filter)"
-                            .to_string(),
-                    ));
-                };
-                query.push(("bank_account".to_string(), bank_account.clone()));
+                return self.fetch_bank_resource(spec, context, options);
             }
 
+            let query = Vec::<(String, String)>::new();
             let pagination = Pagination {
                 per_page: options.per_page.clamp(1, 100) as u32,
                 limit: options.limit,
@@ -390,6 +387,111 @@ impl ApiEngine {
         Ok(RoutePayload::Message(
             "This route has no read-only surface in the current API model.".to_string(),
         ))
+    }
+
+    fn fetch_bank_resource(
+        &self,
+        spec: ResourceSpec,
+        context: &FetchContext,
+        options: RouteLoadOptions,
+    ) -> Result<RoutePayload, String> {
+        let client = self.client()?;
+        let account_scope = self.resolve_bank_account_scope(context, options.request_policy)?;
+        if account_scope.is_empty() {
+            return Ok(RoutePayload::Message(
+                "No bank accounts found. Open Bank Accounts and refresh.".to_string(),
+            ));
+        }
+
+        let fetch_all = options.limit >= 100;
+        let pagination = if fetch_all {
+            Pagination::all()
+        } else {
+            Pagination {
+                per_page: options.per_page.clamp(1, 100) as u32,
+                limit: options.limit,
+                all: false,
+            }
+        };
+
+        let mut items = Vec::<Value>::new();
+        for account in account_scope {
+            let query = vec![("bank_account".to_string(), account.url.clone())];
+            let result = self
+                .runtime
+                .block_on(client.resource(spec).list_with_policy(
+                    &query,
+                    pagination,
+                    options.request_policy,
+                ))
+                .map_err(|e| format!("{}.list failed: {e}", spec.name))?;
+
+            for mut item in result.items {
+                annotate_bank_account(&mut item, &account);
+                if spec.name == "bank-transactions" {
+                    annotate_review_marker(&mut item);
+                    annotate_transaction_descriptions(&mut item);
+                }
+                items.push(item);
+            }
+        }
+
+        sort_items_by_latest_date(&mut items);
+        let total = items.len();
+        if !fetch_all && options.limit > 0 && total > options.limit {
+            items.truncate(options.limit);
+            return Ok(RoutePayload::List {
+                items,
+                total: Some(total),
+                has_more: true,
+            });
+        }
+
+        Ok(RoutePayload::List {
+            items,
+            total: Some(total),
+            has_more: false,
+        })
+    }
+
+    fn resolve_bank_account_scope(
+        &self,
+        context: &FetchContext,
+        policy: RequestPolicy,
+    ) -> Result<Vec<BankAccountScope>, String> {
+        if let Some(bank_account) = context
+            .bank_account_filter
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            return Ok(vec![BankAccountScope {
+                url: bank_account.clone(),
+                name: "Filtered account".to_string(),
+            }]);
+        }
+
+        let spec = by_name("bank-accounts")
+            .ok_or_else(|| "Missing bank-accounts resource spec".to_string())?;
+        let client = self.client()?;
+        let result = self
+            .runtime
+            .block_on(
+                client
+                    .resource(spec)
+                    .list_with_policy(&[], Pagination::all(), policy),
+            )
+            .map_err(|e| format!("bank-accounts.list failed: {e}"))?;
+
+        let mut accounts = Vec::new();
+        for item in result.items {
+            let Some(url) = infer_item_identifier(&item) else {
+                continue;
+            };
+            let name = bank_account_display_name(&item);
+            accounts.push(BankAccountScope { url, name });
+        }
+
+        Ok(accounts)
     }
 
     fn fetch_object(
@@ -608,6 +710,147 @@ fn cap_items(items: Vec<Value>, limit: usize) -> CappedItems {
         items,
         total,
         has_more: true,
+    }
+}
+
+fn annotate_bank_account(item: &mut Value, account: &BankAccountScope) {
+    let Value::Object(map) = item else {
+        return;
+    };
+
+    map.entry("_bank_account_url".to_string())
+        .or_insert_with(|| Value::String(account.url.clone()));
+    map.entry("_bank_account_name".to_string())
+        .or_insert_with(|| Value::String(account.name.clone()));
+}
+
+fn annotate_review_marker(item: &mut Value) {
+    let requires_review = transaction_requires_review(item);
+    let Value::Object(map) = item else {
+        return;
+    };
+
+    map.insert(
+        "_review_marker".to_string(),
+        Value::String(if requires_review { " ●" } else { "" }.to_string()),
+    );
+    map.insert("_requires_review".to_string(), Value::Bool(requires_review));
+}
+
+fn annotate_transaction_descriptions(item: &mut Value) {
+    let raw = transaction_raw_description(item);
+    let submitted = first_explanation_description(item);
+
+    let Value::Object(map) = item else {
+        return;
+    };
+
+    map.entry("_description_raw".to_string())
+        .or_insert_with(|| Value::String(raw.unwrap_or_default()));
+    map.entry("_description_submitted".to_string())
+        .or_insert_with(|| Value::String(submitted.unwrap_or_default()));
+}
+
+fn transaction_requires_review(item: &Value) -> bool {
+    if item
+        .get("marked_for_review")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    item.get("bank_transaction_explanations")
+        .and_then(Value::as_array)
+        .is_some_and(|explanations| {
+            explanations.iter().any(|explanation| {
+                explanation
+                    .get("marked_for_review")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+            })
+        })
+}
+
+fn transaction_raw_description(item: &Value) -> Option<String> {
+    for key in [
+        "raw_description",
+        "bank_description",
+        "description",
+        "original_description",
+    ] {
+        if let Some(value) = item.get(key).and_then(Value::as_str)
+            && !value.trim().is_empty()
+        {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+fn first_explanation_description(item: &Value) -> Option<String> {
+    if let Some(value) = item
+        .get("bank_transaction_explanation")
+        .and_then(|value| value.get("description"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Some(value.to_string());
+    }
+
+    item.get("bank_transaction_explanations")
+        .and_then(Value::as_array)
+        .and_then(|items| {
+            items.iter().find_map(|entry| {
+                entry
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_string)
+            })
+        })
+}
+
+fn infer_item_identifier(value: &Value) -> Option<String> {
+    if let Some(url) = value.get("url").and_then(Value::as_str) {
+        return Some(url.to_string());
+    }
+
+    if let Some(id) = value.get("id").and_then(Value::as_str) {
+        return Some(id.to_string());
+    }
+
+    if let Some(id) = value.get("id").and_then(Value::as_i64) {
+        return Some(id.to_string());
+    }
+
+    None
+}
+
+fn bank_account_display_name(item: &Value) -> String {
+    if let Some(name) = item.get("name").and_then(Value::as_str)
+        && !name.trim().is_empty()
+    {
+        return name.to_string();
+    }
+
+    let bank_name = item
+        .get("bank_name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let account_number = item
+        .get("account_number")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if bank_name.is_empty() && account_number.is_empty() {
+        "Bank Account".to_string()
+    } else if account_number.is_empty() {
+        bank_name.to_string()
+    } else if bank_name.is_empty() {
+        account_number.to_string()
+    } else {
+        format!("{bank_name} ({account_number})")
     }
 }
 

@@ -155,12 +155,6 @@ pub fn build_routes() -> Vec<RouteDefinition> {
     );
     push_resource(
         &mut routes,
-        "bank-transaction-explanations",
-        "Bank Tx Explanations",
-        Workspace::Banking,
-    );
-    push_resource(
-        &mut routes,
         "attachments",
         "Attachments",
         Workspace::Banking,

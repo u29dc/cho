@@ -216,9 +216,15 @@ fn render_list_with_detail(
     };
 
     let columns = derive_columns(items, 6);
+    let flexible_columns = columns
+        .iter()
+        .filter(|column| !is_fixed_width_column(column))
+        .count()
+        .max(1);
+    let flexible_pct = (100 / flexible_columns) as u16;
     let widths = columns
         .iter()
-        .map(|_| Constraint::Percentage((100 / columns.len().max(1)) as u16))
+        .map(|column| column_width(column, flexible_pct))
         .collect::<Vec<_>>();
 
     let visible_rows = chunks[0].height.saturating_sub(4) as usize;
@@ -236,17 +242,28 @@ fn render_list_with_detail(
 
     let header_cells = columns
         .iter()
-        .map(|column| Cell::from(column.clone()).style(Theme::section_heading()));
+        .map(|column| Cell::from(column_header_label(column)).style(Theme::section_heading()));
     let header = Row::new(header_cells);
 
     let rows = visible_items.iter().enumerate().map(|(local_index, item)| {
         let row_index = offset + local_index;
-        let cells = columns
-            .iter()
-            .map(|column| Cell::from(compact_cell(item.get(column), 30)));
+        let cells = columns.iter().map(|column| {
+            let text = compact_cell(item.get(column), 30);
+            if column == "_review_marker" && !text.is_empty() {
+                Cell::from(text).style(Theme::section_heading())
+            } else {
+                Cell::from(text)
+            }
+        });
         let mut row = Row::new(cells);
         if row_index == selected_row {
             row = row.style(Theme::selected());
+        } else if item
+            .get("_requires_review")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            row = row.style(Theme::text().add_modifier(Modifier::BOLD));
         }
         row
     });
@@ -568,12 +585,15 @@ fn centered_rect_with_min(
 fn derive_columns(items: &[serde_json::Value], max_columns: usize) -> Vec<String> {
     let mut columns = Vec::<String>::new();
     let priority = [
+        "_review_marker",
+        "_description_submitted",
+        "_description_raw",
+        "_bank_account_name",
+        "dated_on",
         "name",
-        "description",
         "contact_name",
         "organisation_name",
         "status",
-        "dated_on",
         "due_on",
         "period_ends_on",
         "total_value",
@@ -597,6 +617,9 @@ fn derive_columns(items: &[serde_json::Value], max_columns: usize) -> Vec<String
 
     if let Some(object) = items.iter().find_map(serde_json::Value::as_object) {
         for key in object.keys() {
+            if !is_visible_column(key) {
+                continue;
+            }
             if !columns.contains(key) {
                 columns.push(key.clone());
             }
@@ -611,6 +634,40 @@ fn derive_columns(items: &[serde_json::Value], max_columns: usize) -> Vec<String
     }
 
     columns
+}
+
+fn is_visible_column(key: &str) -> bool {
+    if !key.starts_with('_') {
+        return true;
+    }
+
+    matches!(
+        key,
+        "_review_marker" | "_bank_account_name" | "_description_raw" | "_description_submitted"
+    )
+}
+
+fn column_header_label(column: &str) -> String {
+    match column {
+        "_review_marker" => " ●".to_string(),
+        "_bank_account_name" => "bank_account".to_string(),
+        "_description_raw" => "description_raw".to_string(),
+        "_description_submitted" => "description_submitted".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn is_fixed_width_column(column: &str) -> bool {
+    matches!(column, "_review_marker" | "_bank_account_name" | "dated_on")
+}
+
+fn column_width(column: &str, flexible_pct: u16) -> Constraint {
+    match column {
+        "_review_marker" => Constraint::Length(3),
+        "_bank_account_name" => Constraint::Length(20),
+        "dated_on" => Constraint::Length(12),
+        _ => Constraint::Percentage(flexible_pct.max(10)),
+    }
 }
 
 fn compact_cell(value: Option<&serde_json::Value>, max_len: usize) -> String {

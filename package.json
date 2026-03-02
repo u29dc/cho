@@ -16,7 +16,8 @@
 		"util:types": "cargo check --workspace",
 		"util:test": "cargo test --workspace",
 		"util:build": "cargo build --workspace",
-		"util:check": "bun run util:format && bun run util:lint && bun run util:types && bun run util:test && bun run build"
+		"util:audit": "cargo audit",
+		"util:check": "bun run util:format && bun run util:lint && bun run util:types && bun run util:test && bun run util:audit && bun run build"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.4",

@@ -147,10 +147,10 @@ fn unwrap_singular(response: &Value, singular_key: &str, collection_key: &str) -
         return Ok(value.clone());
     }
 
-    if let Some(array) = response.get(collection_key).and_then(|v| v.as_array()) {
-        if let Some(first) = array.first() {
-            return Ok(first.clone());
-        }
+    if let Some(array) = response.get(collection_key).and_then(|v| v.as_array())
+        && let Some(first) = array.first()
+    {
+        return Ok(first.clone());
     }
 
     if response.is_object() {

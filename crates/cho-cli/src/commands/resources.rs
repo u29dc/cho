@@ -1,12 +1,17 @@
 //! Generic resource command handlers.
 
-use std::path::PathBuf;
+use std::cmp::Ordering;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use cho_sdk::api::specs::{ResourceSpec, by_name};
 use cho_sdk::error::{ChoSdkError, Result};
-use cho_sdk::models::ListResult;
+use cho_sdk::models::{ListResult, Pagination};
+use chrono::{DateTime, NaiveDate};
 use clap::{Args, Subcommand};
+use serde_json::{Map, Value};
 
 use crate::context::CliContext;
 
@@ -198,6 +203,8 @@ pub enum InvoiceTransition {
 pub enum BankTransactionCommands {
     /// List bank transactions.
     List(Box<ListArgs>),
+    /// List bank transactions marked for approval/review.
+    ForApproval(Box<ListArgs>),
     /// Get one bank transaction.
     Get { id: String },
     /// Upload statement file for bank account.
@@ -208,6 +215,20 @@ pub enum BankTransactionCommands {
         /// Statement file path.
         #[arg(long)]
         file: PathBuf,
+    },
+    /// Update explanation fields for a bank transaction.
+    UpdateExplanation {
+        /// Bank transaction id or url.
+        transaction: String,
+        /// Set a clean description (for example "Expense: MyMind Subscription").
+        #[arg(long)]
+        description: Option<String>,
+        /// Mark or unmark review state on the explanation.
+        #[arg(long)]
+        mark_for_review: Option<bool>,
+        /// Optional local attachment path (PDF/image); encoded automatically.
+        #[arg(long)]
+        attachment: Option<PathBuf>,
     },
 }
 
@@ -285,9 +306,7 @@ pub async fn run_resource(
         && let ResourceCommands::List(args) = command
         && !has_bank_account_filter(args)
     {
-        return Err(ChoSdkError::Config {
-            message: "bank-transaction-explanations list requires --bank-account <url>".to_string(),
-        });
+        return list_bank_resource_across_accounts(resource, args, ctx, start).await;
     }
 
     let spec = by_name(resource).ok_or_else(|| ChoSdkError::Config {
@@ -535,19 +554,11 @@ pub async fn run_bank_transactions(
     start: Instant,
 ) -> Result<()> {
     match command {
-        BankTransactionCommands::List(args) => {
-            if !has_bank_account_filter(args) {
-                return Err(ChoSdkError::Config {
-                    message: "bank-transactions list requires --bank-account <url>".to_string(),
-                });
-            }
-            run_resource(
-                "bank-transactions",
-                &ResourceCommands::List((**args).clone()),
-                ctx,
-                start,
-            )
-            .await
+        BankTransactionCommands::List(args) => run_bank_transactions_list(args, ctx, start).await,
+        BankTransactionCommands::ForApproval(args) => {
+            let mut list_args = (**args).clone();
+            list_args.view = Some("marked_for_review".to_string());
+            run_bank_transactions_list(&list_args, ctx, start).await
         }
         BankTransactionCommands::Get { id } => {
             run_resource(
@@ -584,16 +595,136 @@ pub async fn run_bank_transactions(
                 .await?;
             ctx.emit_success("bank-transactions.upload-statement", &value, start)
         }
+        BankTransactionCommands::UpdateExplanation {
+            transaction,
+            description,
+            mark_for_review,
+            attachment,
+        } => {
+            update_bank_transaction_explanation(
+                transaction,
+                description.as_deref(),
+                *mark_for_review,
+                attachment.as_deref(),
+                ctx,
+                start,
+            )
+            .await
+        }
     }
+}
+
+async fn run_bank_transactions_list(
+    args: &ListArgs,
+    ctx: &CliContext,
+    start: Instant,
+) -> Result<()> {
+    if has_bank_account_filter(args) {
+        return run_resource(
+            "bank-transactions",
+            &ResourceCommands::List(args.clone()),
+            ctx,
+            start,
+        )
+        .await;
+    }
+
+    list_bank_resource_across_accounts("bank-transactions", args, ctx, start).await
+}
+
+async fn update_bank_transaction_explanation(
+    transaction: &str,
+    description: Option<&str>,
+    mark_for_review: Option<bool>,
+    attachment: Option<&Path>,
+    ctx: &CliContext,
+    start: Instant,
+) -> Result<()> {
+    ctx.require_writes_allowed()?;
+
+    if description.is_none() && mark_for_review.is_none() && attachment.is_none() {
+        return Err(ChoSdkError::Config {
+            message:
+                "No changes requested. Provide at least one of --description, --mark-for-review, or --attachment"
+                    .to_string(),
+        });
+    }
+
+    let transaction_spec = by_name("bank-transactions").ok_or_else(|| ChoSdkError::Config {
+        message: "Missing bank-transactions resource spec".to_string(),
+    })?;
+    let transaction_value = ctx
+        .client()
+        .resource(transaction_spec)
+        .get(transaction)
+        .await?;
+    let explanation_id =
+        first_bank_transaction_explanation_id(&transaction_value).ok_or_else(|| {
+            ChoSdkError::Config {
+                message: "Selected transaction has no explanation yet. Create one first via bank-transaction-explanations create --file <path>"
+                    .to_string(),
+            }
+        })?;
+
+    let mut patch = Map::new();
+    if let Some(description) = description.filter(|value| !value.trim().is_empty()) {
+        patch.insert(
+            "description".to_string(),
+            Value::String(description.to_string()),
+        );
+    }
+    if let Some(mark_for_review) = mark_for_review {
+        patch.insert(
+            "marked_for_review".to_string(),
+            Value::Bool(mark_for_review),
+        );
+    }
+    if let Some(attachment_path) = attachment {
+        patch.insert(
+            "attachment".to_string(),
+            attachment_payload_from_path(attachment_path)?,
+        );
+    }
+
+    if patch.is_empty() {
+        return Err(ChoSdkError::Config {
+            message: "No non-empty explanation updates were provided".to_string(),
+        });
+    }
+
+    let audit_payload = serde_json::json!({
+        "transaction": transaction,
+        "explanation": explanation_id,
+        "description": description.unwrap_or_default(),
+        "mark_for_review": mark_for_review,
+        "attachment": attachment.map(|path| path.display().to_string()),
+    });
+    ctx.log_input("bank-transactions.update-explanation", &audit_payload);
+
+    let explanations_spec =
+        by_name("bank-transaction-explanations").ok_or_else(|| ChoSdkError::Config {
+            message: "Missing bank-transaction-explanations resource spec".to_string(),
+        })?;
+    let value = ctx
+        .client()
+        .resource(explanations_spec)
+        .update(&explanation_id, &Value::Object(patch))
+        .await?;
+
+    ctx.emit_success("bank-transactions.update-explanation", &value, start)
 }
 
 /// Returns tool name for bank transaction command.
 pub fn bank_transactions_tool_name(command: &BankTransactionCommands) -> String {
     match command {
         BankTransactionCommands::List(_) => "bank-transactions.list".to_string(),
+        BankTransactionCommands::ForApproval(_) => "bank-transactions.for-approval".to_string(),
         BankTransactionCommands::Get { .. } => "bank-transactions.get".to_string(),
         BankTransactionCommands::UploadStatement { .. } => {
             "bank-transactions.upload-statement".to_string()
+        }
+        BankTransactionCommands::UpdateExplanation { .. } => {
+            "bank-transactions.update-explanation".to_string()
         }
     }
 }
@@ -861,6 +992,133 @@ async fn search_contacts(
     ctx.emit_success("contacts.search", &payload, start)
 }
 
+async fn list_bank_resource_across_accounts(
+    resource: &str,
+    list_args: &ListArgs,
+    ctx: &CliContext,
+    start: Instant,
+) -> Result<()> {
+    let spec = by_name(resource).ok_or_else(|| ChoSdkError::Config {
+        message: format!("Unsupported resource '{resource}'"),
+    })?;
+    let bank_accounts_spec = by_name("bank-accounts").ok_or_else(|| ChoSdkError::Config {
+        message: "Missing bank-accounts resource spec".to_string(),
+    })?;
+
+    let bank_accounts = ctx
+        .client()
+        .resource(bank_accounts_spec)
+        .list(&[], Pagination::all())
+        .await?;
+
+    let mut query_base = list_query(list_args)?;
+    query_base.retain(|(key, _)| key != "bank_account");
+
+    let api = ctx.client().resource(spec);
+    let mut combined = Vec::new();
+    for account in bank_accounts.items {
+        let Some(bank_account_url) = infer_item_identifier(&account) else {
+            continue;
+        };
+        let account_name = bank_account_display_name(&account);
+
+        let mut query = query_base.clone();
+        query.push(("bank_account".to_string(), bank_account_url.clone()));
+        let result = api.list(&query, Pagination::all()).await?;
+
+        for mut item in result.items {
+            annotate_bank_account_fields(&mut item, &bank_account_url, &account_name);
+            combined.push(item);
+        }
+    }
+
+    sort_items_by_latest_date(&mut combined);
+    let total = combined.len();
+    let mut has_more = false;
+
+    let pagination = ctx.pagination();
+    if !pagination.all && pagination.limit > 0 && total > pagination.limit {
+        combined.truncate(pagination.limit);
+        has_more = true;
+    }
+
+    let result = ListResult {
+        items: combined,
+        total: Some(total),
+        has_more,
+        page: 1,
+        per_page: pagination.per_page,
+    };
+
+    ctx.emit_list(&format!("{resource}.list"), &result, start)
+}
+
+fn first_bank_transaction_explanation_id(transaction: &Value) -> Option<String> {
+    if let Some(single) = transaction
+        .get("bank_transaction_explanation")
+        .and_then(infer_item_identifier)
+    {
+        return Some(single);
+    }
+
+    transaction
+        .get("bank_transaction_explanations")
+        .and_then(Value::as_array)
+        .and_then(|items| items.iter().find_map(infer_item_identifier))
+}
+
+fn attachment_payload_from_path(path: &Path) -> Result<Value> {
+    const MAX_ATTACHMENT_SIZE_BYTES: u64 = 5 * 1024 * 1024;
+
+    let metadata = std::fs::metadata(path).map_err(|e| ChoSdkError::Config {
+        message: format!("Failed reading attachment metadata {}: {e}", path.display()),
+    })?;
+    if metadata.len() > MAX_ATTACHMENT_SIZE_BYTES {
+        return Err(ChoSdkError::Config {
+            message: format!(
+                "Attachment {} exceeds FreeAgent 5MB limit ({} bytes)",
+                path.display(),
+                metadata.len()
+            ),
+        });
+    }
+
+    let bytes = std::fs::read(path).map_err(|e| ChoSdkError::Config {
+        message: format!("Failed reading attachment file {}: {e}", path.display()),
+    })?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| ChoSdkError::Config {
+            message: format!(
+                "Attachment path '{}' has no valid file name",
+                path.display()
+            ),
+        })?;
+
+    let content_type = match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "pdf" => "application/x-pdf",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "csv" => "text/csv",
+        "txt" => "text/plain",
+        _ => "application/octet-stream",
+    };
+
+    Ok(serde_json::json!({
+        "content_src": BASE64_STANDARD.encode(bytes),
+        "file_name": file_name,
+        "content_type": content_type
+    }))
+}
+
 fn list_query(args: &ListArgs) -> Result<Vec<(String, String)>> {
     let mut query = parse_query_pairs(&args.query)?;
 
@@ -887,6 +1145,134 @@ fn push_if_some(query: &mut Vec<(String, String)>, key: &str, value: Option<&Str
 
 fn encode_path_segment(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
+}
+
+fn infer_item_identifier(value: &Value) -> Option<String> {
+    if let Some(url) = value.get("url").and_then(Value::as_str) {
+        return Some(url.to_string());
+    }
+
+    if let Some(id) = value.get("id").and_then(Value::as_str) {
+        return Some(id.to_string());
+    }
+
+    value
+        .get("id")
+        .and_then(Value::as_i64)
+        .map(|id| id.to_string())
+}
+
+fn bank_account_display_name(item: &Value) -> String {
+    if let Some(name) = item.get("name").and_then(Value::as_str)
+        && !name.trim().is_empty()
+    {
+        return name.to_string();
+    }
+
+    let bank_name = item
+        .get("bank_name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let account_number = item
+        .get("account_number")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if bank_name.is_empty() && account_number.is_empty() {
+        "Bank Account".to_string()
+    } else if account_number.is_empty() {
+        bank_name.to_string()
+    } else if bank_name.is_empty() {
+        account_number.to_string()
+    } else {
+        format!("{bank_name} ({account_number})")
+    }
+}
+
+fn annotate_bank_account_fields(item: &mut Value, bank_account_url: &str, bank_account_name: &str) {
+    let Value::Object(map) = item else {
+        return;
+    };
+
+    map.entry("_bank_account_url".to_string())
+        .or_insert_with(|| Value::String(bank_account_url.to_string()));
+    map.entry("_bank_account_name".to_string())
+        .or_insert_with(|| Value::String(bank_account_name.to_string()));
+}
+
+fn sort_items_by_latest_date(items: &mut [Value]) {
+    let Some(date_key) = infer_date_key(items) else {
+        return;
+    };
+
+    items.sort_by(|left, right| {
+        compare_date_values(
+            left.get(date_key).and_then(parse_date_value),
+            right.get(date_key).and_then(parse_date_value),
+        )
+    });
+}
+
+fn infer_date_key(items: &[Value]) -> Option<&'static str> {
+    const DATE_KEYS: &[&str] = &[
+        "dated_on",
+        "date",
+        "created_at",
+        "updated_at",
+        "period_ends_on",
+        "period_end",
+        "starts_on",
+        "ends_on",
+        "due_on",
+        "paid_on",
+        "submitted_on",
+        "filed_on",
+        "payment_date",
+        "statement_date",
+    ];
+
+    for key in DATE_KEYS {
+        let count = items
+            .iter()
+            .filter_map(|item| item.get(*key).and_then(parse_date_value))
+            .take(2)
+            .count();
+        if count >= 2 {
+            return Some(*key);
+        }
+    }
+    None
+}
+
+fn compare_date_values(left: Option<i64>, right: Option<i64>) -> Ordering {
+    match (left, right) {
+        (Some(left), Some(right)) => right.cmp(&left),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
+fn parse_date_value(value: &Value) -> Option<i64> {
+    match value {
+        Value::String(text) => parse_date_text(text),
+        Value::Number(number) => number.as_i64(),
+        _ => None,
+    }
+}
+
+fn parse_date_text(text: &str) -> Option<i64> {
+    if let Ok(datetime) = DateTime::parse_from_rfc3339(text) {
+        return Some(datetime.timestamp());
+    }
+
+    if let Ok(date) = NaiveDate::parse_from_str(text, "%Y-%m-%d") {
+        return date
+            .and_hms_opt(0, 0, 0)
+            .map(|datetime| datetime.and_utc().timestamp());
+    }
+
+    None
 }
 
 fn has_bank_account_filter(args: &ListArgs) -> bool {
@@ -945,6 +1331,7 @@ fn flatten_category_groups(value: &serde_json::Value) -> Vec<serde_json::Value> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
 
     #[test]
     fn has_bank_account_filter_detects_direct_flag() {
@@ -1014,5 +1401,51 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["nominal_code"], "051");
         assert_eq!(items[0]["category_group"], "general_categories");
+    }
+
+    #[test]
+    fn first_bank_transaction_explanation_id_reads_array_entries() {
+        let transaction = serde_json::json!({
+            "bank_transaction_explanations": [
+                { "url": "exp-42" }
+            ]
+        });
+
+        assert_eq!(
+            first_bank_transaction_explanation_id(&transaction).as_deref(),
+            Some("exp-42")
+        );
+    }
+
+    #[test]
+    fn attachment_payload_from_path_encodes_pdf() {
+        let dir = tempdir().expect("temp dir");
+        let pdf_path = dir.path().join("receipt.pdf");
+        std::fs::write(&pdf_path, b"%PDF-1.4 mock").expect("fixture write");
+        let expected_name = pdf_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("file name")
+            .to_string();
+        let payload = attachment_payload_from_path(&pdf_path).expect("payload");
+
+        assert_eq!(payload["file_name"], expected_name);
+        assert_eq!(payload["content_type"], "application/x-pdf");
+        assert!(payload["content_src"].as_str().is_some());
+    }
+
+    #[test]
+    fn sort_items_by_latest_date_orders_descending() {
+        let mut items = vec![
+            serde_json::json!({ "dated_on": "2026-02-01", "url": "a" }),
+            serde_json::json!({ "dated_on": "2026-03-01", "url": "b" }),
+            serde_json::json!({ "dated_on": "2026-01-01", "url": "c" }),
+        ];
+
+        sort_items_by_latest_date(&mut items);
+
+        assert_eq!(items[0]["url"], "b");
+        assert_eq!(items[1]["url"], "a");
+        assert_eq!(items[2]["url"], "c");
     }
 }

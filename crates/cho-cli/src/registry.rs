@@ -377,6 +377,20 @@ pub fn tool_catalog() -> Vec<ToolMeta> {
         false,
     ));
     tools.push(static_tool(
+        "bank-transactions.for-approval",
+        "cho bank-transactions for-approval --json",
+        "bank-transactions",
+        "List bank transactions marked for review",
+        true,
+    ));
+    tools.push(static_tool(
+        "bank-transactions.update-explanation",
+        "cho bank-transactions update-explanation <transaction> [--description <text>] [--mark-for-review <bool>] [--attachment <path>] --json",
+        "bank-transactions",
+        "Update explanation fields for a transaction; supports local attachment path",
+        false,
+    ));
+    tools.push(static_tool(
         "expenses.mileage-settings",
         "cho expenses mileage-settings --json",
         "expenses",

@@ -72,7 +72,7 @@ Resource groups (agent primitives):
 - `contacts {list|get|create|update|delete|search}`
 - `invoices {list|get|create|update|delete|transition|send-email}`
 - `bank-accounts {list|get|create|update|delete}`
-- `bank-transactions {list|get|upload-statement}`
+- `bank-transactions {list|for-approval|get|upload-statement|update-explanation}`
 - `bank-transaction-explanations {list|get|create|update|delete}`
 - `bills {list|get|create|update|delete}`
 - `expenses {list|get|create|update|delete|mileage-settings}`

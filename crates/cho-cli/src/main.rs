@@ -682,8 +682,12 @@ fn top_level_tool_name(command: &Commands) -> &'static str {
         },
         Commands::BankTransactions { command } => match command {
             BankTransactionCommands::List(_) => "bank-transactions.list",
+            BankTransactionCommands::ForApproval(_) => "bank-transactions.for-approval",
             BankTransactionCommands::Get { .. } => "bank-transactions.get",
             BankTransactionCommands::UploadStatement { .. } => "bank-transactions.upload-statement",
+            BankTransactionCommands::UpdateExplanation { .. } => {
+                "bank-transactions.update-explanation"
+            }
         },
         Commands::BankTransactionExplanations { command } => match command {
             ResourceCommands::List(_) => "bank-transaction-explanations.list",

@@ -5,7 +5,7 @@ use std::path::Path;
 use chrono::{Duration, Utc};
 use serde_json::{Value, json};
 use tempfile::TempDir;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{body_partial_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn run_json(
@@ -157,20 +157,107 @@ fn config_set_secret_redacts_value_in_audit_log() {
     assert!(!history.contains("super-secret-value"));
 }
 
-#[test]
-fn bank_transactions_list_requires_bank_account_filter() {
+#[tokio::test]
+async fn bank_transactions_list_without_filter_merges_accounts_sorted_newest_first() {
     let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    let bank_account_a = "https://api.freeagent.com/v2/bank_accounts/11";
+    let bank_account_b = "https://api.freeagent.com/v2/bank_accounts/22";
+
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_accounts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_accounts": [
+                { "url": bank_account_a, "name": "Wise GBP" },
+                { "url": bank_account_b, "name": "Monzo GBP" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_transactions"))
+        .and(query_param("bank_account", bank_account_a))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_transactions": [
+                { "url": "btx-a-1", "dated_on": "2026-02-20", "description": "Older tx" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_transactions"))
+        .and(query_param("bank_account", bank_account_b))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_transactions": [
+                { "url": "btx-b-1", "dated_on": "2026-03-01", "description": "Newest tx" }
+            ]
+        })))
+        .mount(&server)
+        .await;
 
     let (code, json, _) = run_json(
         home.path(),
         &["bank-transactions", "list", "--json"],
         true,
-        None,
+        Some(&format!("{}/v2/", server.uri())),
     );
 
-    assert_eq!(code, 1);
-    assert_eq!(json["ok"], false);
-    assert_eq!(json["error"]["code"], "CONFIG_ERROR");
+    assert_eq!(code, 0);
+    assert_eq!(json["ok"], true);
+
+    let data = json["data"].as_array().expect("data should be an array");
+    assert_eq!(data.len(), 2);
+    assert_eq!(data[0]["url"], "btx-b-1");
+    assert_eq!(data[0]["_bank_account_name"], "Monzo GBP");
+    assert_eq!(data[1]["url"], "btx-a-1");
+    assert_eq!(data[1]["_bank_account_name"], "Wise GBP");
+}
+
+#[tokio::test]
+async fn bank_transactions_for_approval_uses_marked_for_review_view() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    let bank_account = "https://api.freeagent.com/v2/bank_accounts/11";
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_accounts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_accounts": [
+                { "url": bank_account, "name": "Monzo GBP" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_transactions"))
+        .and(query_param("bank_account", bank_account))
+        .and(query_param("view", "marked_for_review"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_transactions": [
+                { "url": "btx-1", "dated_on": "2026-03-01", "description": "Needs review" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &["bank-transactions", "for-approval", "--json"],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["ok"], true);
+    let data = json["data"].as_array().expect("data should be an array");
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0]["url"], "btx-1");
 }
 
 #[test]
@@ -193,6 +280,75 @@ fn mutating_commands_are_blocked_when_write_gate_is_disabled() {
     assert_eq!(code, 2);
     assert_eq!(json["ok"], false);
     assert_eq!(json["error"]["code"], "WRITE_NOT_ALLOWED");
+}
+
+#[tokio::test]
+async fn update_explanation_accepts_local_attachment_path_and_partial_fields() {
+    let home = TempDir::new().expect("temp home");
+    enable_writes(home.path());
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    let receipt_path = home.path().join("receipt.pdf");
+    fs::write(&receipt_path, b"%PDF-1.4\nmock").expect("pdf fixture should be written");
+
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_transactions/tx-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_transaction": {
+                "url": "tx-1",
+                "bank_transaction_explanations": [
+                    { "url": "exp-1" }
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path("/v2/bank_transaction_explanations/exp-1"))
+        .and(body_partial_json(json!({
+            "bank_transaction_explanation": {
+                "description": "Expense: MyMind Subscription",
+                "marked_for_review": false,
+                "attachment": {
+                    "file_name": "receipt.pdf",
+                    "content_type": "application/x-pdf"
+                }
+            }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_transaction_explanation": {
+                "url": "exp-1",
+                "description": "Expense: MyMind Subscription"
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let receipt_arg = receipt_path.to_string_lossy().to_string();
+    let args = vec![
+        "bank-transactions",
+        "update-explanation",
+        "tx-1",
+        "--description",
+        "Expense: MyMind Subscription",
+        "--mark-for-review",
+        "false",
+        "--attachment",
+        &receipt_arg,
+        "--json",
+    ];
+    let (code, json, _) = run_json(
+        home.path(),
+        &args,
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["data"]["description"], "Expense: MyMind Subscription");
 }
 
 #[tokio::test]

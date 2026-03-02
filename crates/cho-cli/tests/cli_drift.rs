@@ -17,8 +17,6 @@ fn run_json(
     let mut cmd = assert_cmd::cargo::cargo_bin_cmd!("cho");
     cmd.args(args)
         .env("CHO_HOME", home)
-        .env("CHO_DISABLE_KEYRING", "1")
-        .env("CHO_ALLOW_INSECURE_FILE_TOKENS", "1")
         .env_remove("TOOLS_HOME");
 
     if with_auth {
@@ -69,8 +67,6 @@ fn run_help(home: &Path, args: &[&str]) -> (i32, String) {
     let mut cmd = assert_cmd::cargo::cargo_bin_cmd!("cho");
     cmd.args(args)
         .env("CHO_HOME", home)
-        .env("CHO_DISABLE_KEYRING", "1")
-        .env("CHO_ALLOW_INSECURE_FILE_TOKENS", "1")
         .env_remove("TOOLS_HOME")
         .env_remove("CHO_CLIENT_ID")
         .env_remove("CHO_CLIENT_SECRET")

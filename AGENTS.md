@@ -40,7 +40,7 @@ Primary API references:
 | CLI           | clap                             | command tree for agent primitives                 |
 | TUI           | ratatui + crossterm              | full-screen workspace navigator + command palette |
 | Serialization | serde/serde_json                 | FreeAgent snake_case wire format                  |
-| Secrets       | secrecy + keyring                | token fallback file when keyring unavailable      |
+| Secrets       | secrecy                           | tokens persisted in `${CHO_HOME}/tokens.json`     |
 | Logging       | custom audit log + tracing       | append-only history at `~/.tools/cho/history.log` |
 | JS Tooling    | bun + biome + commitlint + husky | quality-gate orchestration                        |
 

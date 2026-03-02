@@ -24,7 +24,6 @@ tracing = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 secrecy = { workspace = true }
-keyring = { workspace = true }
 dirs = { workspace = true }
 open = { workspace = true }
 rand = { workspace = true }

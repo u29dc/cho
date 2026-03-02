@@ -112,6 +112,25 @@ impl FreeAgentClient {
         Ok(response.body)
     }
 
+    /// Fetches binary bytes from an endpoint.
+    pub async fn get_bytes(&self, path: &str, query: &[(String, String)]) -> Result<Vec<u8>> {
+        self.get_bytes_with_policy(path, query, RequestPolicy::default())
+            .await
+    }
+
+    /// Fetches binary bytes from an endpoint with request policy overrides.
+    pub async fn get_bytes_with_policy(
+        &self,
+        path: &str,
+        query: &[(String, String)],
+        policy: RequestPolicy,
+    ) -> Result<Vec<u8>> {
+        let response = self
+            .request_bytes(reqwest::Method::GET, path, query, None, false, policy)
+            .await?;
+        Ok(response.body)
+    }
+
     /// Sends POST JSON.
     pub async fn post_json(&self, path: &str, body: &Value, mutating: bool) -> Result<Value> {
         let response = self
@@ -328,7 +347,8 @@ impl FreeAgentClient {
 
             let status = response.status();
             let headers = response.headers().clone();
-            let retry_after = headers
+            let retry_after = response
+                .headers()
                 .get("Retry-After")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.parse::<u64>().ok());
@@ -391,6 +411,158 @@ impl FreeAgentClient {
             return Ok(RawResponse { body, headers });
         }
     }
+
+    async fn request_bytes(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        query: &[(String, String)],
+        body: Option<&Value>,
+        mutating: bool,
+        policy: RequestPolicy,
+    ) -> Result<RawBytesResponse> {
+        if mutating && !self.config.allow_writes {
+            return Err(ChoSdkError::WriteNotAllowed {
+                message:
+                    "Set [safety] allow_writes = true in config.toml to enable mutating commands"
+                        .to_string(),
+            });
+        }
+
+        let max_retries = policy
+            .max_retries_override
+            .unwrap_or(self.config.max_retries);
+        let url = build_url(&self.config.base_url, path)?;
+        let mut did_refresh = false;
+
+        let mut attempt: u32 = 0;
+
+        loop {
+            let started = Instant::now();
+            let access_token = self.auth.get_access_token().await?;
+
+            if let Some(observer) = &self.observer {
+                observer.on_request(&HttpRequestEvent {
+                    method: method.as_str().to_string(),
+                    url: url.clone(),
+                    query: query.to_vec(),
+                    has_body: body.is_some(),
+                    mutating,
+                });
+            }
+
+            let mut request = self
+                .http_client
+                .request(method.clone(), &url)
+                .header(reqwest::header::ACCEPT, "*/*")
+                .header(reqwest::header::USER_AGENT, &self.config.user_agent)
+                .bearer_auth(access_token)
+                .query(query);
+
+            if let Some(timeout) = policy.timeout_override {
+                request = request.timeout(timeout);
+            }
+
+            if let Some(payload) = body {
+                request = request
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .json(payload);
+            }
+
+            let result = request.send().await;
+            let elapsed_ms = started.elapsed().as_millis() as u64;
+
+            let response = match result {
+                Ok(resp) => resp,
+                Err(err) => {
+                    if let Some(observer) = &self.observer {
+                        observer.on_response(&HttpResponseEvent {
+                            method: method.as_str().to_string(),
+                            url: url.clone(),
+                            status: None,
+                            elapsed_ms,
+                            retry_after: None,
+                            error: Some(err.to_string()),
+                        });
+                    }
+
+                    if attempt < max_retries && (err.is_connect() || err.is_timeout()) {
+                        let delay = backoff_delay(attempt);
+                        warn!(
+                            attempt = attempt + 1,
+                            max_attempts = max_retries + 1,
+                            delay_ms = delay.as_millis() as u64,
+                            "network error, retrying"
+                        );
+                        attempt += 1;
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+
+                    return Err(ChoSdkError::Network(err));
+                }
+            };
+
+            let status = response.status();
+            let headers = response.headers().clone();
+            let retry_after = headers
+                .get("Retry-After")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok());
+
+            if let Some(observer) = &self.observer {
+                observer.on_response(&HttpResponseEvent {
+                    method: method.as_str().to_string(),
+                    url: url.clone(),
+                    status: Some(status.as_u16()),
+                    elapsed_ms,
+                    retry_after,
+                    error: None,
+                });
+            }
+
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                if !did_refresh {
+                    did_refresh = true;
+                    self.auth.refresh().await?;
+                    continue;
+                }
+                return Err(ChoSdkError::TokenExpired {
+                    message: "Access token invalid and refresh failed".to_string(),
+                });
+            }
+
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                let wait = retry_after.unwrap_or(60);
+                if attempt < max_retries {
+                    attempt += 1;
+                    tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                    continue;
+                }
+                return Err(ChoSdkError::RateLimited { retry_after: wait });
+            }
+
+            if status == reqwest::StatusCode::NOT_FOUND {
+                return Err(ChoSdkError::NotFound {
+                    resource: path.to_string(),
+                    id: path.rsplit('/').next().unwrap_or_default().to_string(),
+                });
+            }
+
+            if !status.is_success() {
+                let text = response.text().await.map_err(ChoSdkError::Network)?;
+                return Err(ChoSdkError::api(status, text));
+            }
+
+            let body = response
+                .bytes()
+                .await
+                .map_err(ChoSdkError::Network)?
+                .to_vec();
+            debug!(status = status.as_u16(), "api bytes request successful");
+            return Ok(RawBytesResponse { body });
+        }
+    }
 }
 
 impl std::fmt::Debug for FreeAgentClient {
@@ -405,6 +577,10 @@ impl std::fmt::Debug for FreeAgentClient {
 struct RawResponse {
     body: Value,
     headers: reqwest::header::HeaderMap,
+}
+
+struct RawBytesResponse {
+    body: Vec<u8>,
 }
 
 /// Builder for [`FreeAgentClient`].

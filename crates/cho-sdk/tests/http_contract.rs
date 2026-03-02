@@ -241,6 +241,30 @@ async fn get_json_retries_after_rate_limit_and_succeeds() {
 }
 
 #[tokio::test]
+async fn get_bytes_fetches_binary_payload_without_json_parsing() {
+    let server = MockServer::start().await;
+
+    let pdf_bytes = b"%PDF-1.7 mock";
+    Mock::given(method("GET"))
+        .and(path("/v2/invoices/1/pdf"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("Content-Type", "application/pdf")
+                .set_body_bytes(pdf_bytes.as_slice()),
+        )
+        .mount(&server)
+        .await;
+
+    let client = build_client(&server, "seed-access", "seed-refresh", 0, false).await;
+    let bytes = client
+        .get_bytes("invoices/1/pdf", &[])
+        .await
+        .expect("binary request should succeed");
+
+    assert_eq!(bytes, pdf_bytes);
+}
+
+#[tokio::test]
 async fn list_paginated_errors_when_collection_key_is_missing() {
     let server = MockServer::start().await;
 

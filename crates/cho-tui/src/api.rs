@@ -10,13 +10,14 @@ use cho_sdk::error::ChoSdkError;
 use cho_sdk::models::{ListResult, Pagination};
 use chrono::{DateTime, Datelike, NaiveDate};
 use secrecy::SecretString;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::config::AppConfig;
 use crate::routes::{RouteDefinition, RouteKind};
 
 /// Data payload loaded for a route.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RoutePayload {
     /// List payload and pagination metadata.
     List {

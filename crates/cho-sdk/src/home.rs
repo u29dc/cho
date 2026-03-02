@@ -50,7 +50,12 @@ pub fn history_log_path() -> Result<PathBuf> {
     Ok(ensure_cho_home()?.join("history.log"))
 }
 
-/// Path to fallback token store file.
+/// Path to token store file.
 pub fn token_path() -> Result<PathBuf> {
     Ok(ensure_cho_home()?.join("tokens.json"))
+}
+
+/// Path to TUI route cache file.
+pub fn tui_cache_path() -> Result<PathBuf> {
+    Ok(ensure_cho_home()?.join("tui-cache.json"))
 }

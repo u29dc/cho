@@ -1,6 +1,7 @@
 //! Application state machine and event handling.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -113,13 +114,15 @@ pub struct App {
     pub(crate) views: HashMap<String, RouteView>,
     /// Route payload cache for fast navigation.
     pub(crate) route_cache: RouteCache,
+    /// Route cache file path.
+    pub(crate) cache_path: PathBuf,
     /// Background route fetch worker.
     pub(crate) fetch_worker: FetchWorker,
     /// Monotonic request id generator.
     pub(crate) next_request_id: u64,
     /// Latest request id per cache key for stale-response suppression.
     pub(crate) latest_request_by_key: HashMap<CacheKey, u64>,
-    /// In-flight nav-preview request id.
+    /// In-flight debounced navigation request id.
     pub(crate) in_flight_nav_request: Option<u64>,
     /// Pending nav target while debounce window is open.
     pub(crate) pending_nav_target: Option<usize>,
@@ -159,6 +162,19 @@ impl App {
 
         let list_limit = 100;
         let preview_limit = 25;
+        let cache_capacity = 128;
+        let cache_max_age = Duration::from_secs(60 * 60 * 24);
+        let cache_path = cho_sdk::home::tui_cache_path()
+            .map_err(|err| format!("failed resolving TUI cache path: {err}"))?;
+        let mut startup_messages = api.startup_warnings().to_vec();
+        let route_cache =
+            match RouteCache::load_from_disk(&cache_path, cache_capacity, cache_max_age) {
+                Ok(cache) => cache,
+                Err(err) => {
+                    startup_messages.push(format!("cache.load failed; using empty cache ({err})"));
+                    RouteCache::new(cache_capacity)
+                }
+            };
         let mut app = Self {
             api,
             fetch_worker,
@@ -171,13 +187,18 @@ impl App {
             prompt: None,
             context: FetchContext::default(),
             views: HashMap::new(),
-            route_cache: RouteCache::new(128),
+            route_cache,
+            cache_path,
             next_request_id: 1,
             latest_request_by_key: HashMap::new(),
             in_flight_nav_request: None,
             pending_nav_target: None,
             pending_nav_deadline: None,
-            status: "Ready".to_string(),
+            status: if startup_messages.is_empty() {
+                "Ready".to_string()
+            } else {
+                startup_messages.join(" | ")
+            },
             list_limit,
             preview_limit,
             nav_debounce: Duration::from_millis(120),
@@ -188,10 +209,6 @@ impl App {
             palette_filtered: Vec::new(),
             should_quit: false,
         };
-
-        if !app.api.startup_warnings().is_empty() {
-            app.status = app.api.startup_warnings().join(" | ");
-        }
 
         app.request_route_load(
             app.active_route,
@@ -207,7 +224,7 @@ impl App {
     pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<(), String> {
         while !self.should_quit {
             self.process_fetch_results();
-            self.maybe_dispatch_pending_nav_preview();
+            self.maybe_dispatch_pending_nav_revalidate();
 
             terminal
                 .draw(|frame| crate::ui::render(frame, self))
@@ -360,13 +377,10 @@ impl App {
         if let Some(snapshot) = cache_hit {
             self.apply_cache_snapshot(self.active_route, context.clone(), snapshot.clone());
             if snapshot.fresh {
-                self.status = format!("Loaded {} (cache)", route.label);
-                self.pending_nav_target = None;
-                self.pending_nav_deadline = None;
-                return;
+                self.status = format!("Loaded {} (cache; syncing)", route.label);
+            } else {
+                self.status = format!("Loaded {} (stale cache; revalidating)", route.label);
             }
-
-            self.status = format!("Loaded {} (stale cache; revalidating)", route.label);
         } else {
             self.mark_view_loading(self.active_route, context.clone());
         }
@@ -450,7 +464,7 @@ impl App {
         until.min(base)
     }
 
-    fn maybe_dispatch_pending_nav_preview(&mut self) {
+    fn maybe_dispatch_pending_nav_revalidate(&mut self) {
         let Some(target) = self.pending_nav_target else {
             return;
         };
@@ -468,10 +482,10 @@ impl App {
         self.pending_nav_deadline = None;
         self.request_route_load(
             target,
-            CacheTier::Preview,
-            LoadReason::NavPreview,
+            CacheTier::Full,
+            LoadReason::NavRevalidate,
             true,
-            false,
+            true,
         );
     }
 
@@ -508,6 +522,11 @@ impl App {
             Ok(payload) => {
                 self.route_cache.insert(cache_key.clone(), payload.clone());
                 self.apply_fetch_success(&route_id, &cache_key, reason, elapsed_ms, payload);
+                if cache_key.tier == CacheTier::Full
+                    && let Err(err) = self.route_cache.save_to_disk(&self.cache_path)
+                {
+                    self.status = format!("Warning: failed persisting route cache: {err}");
+                }
             }
             Err(err) => {
                 self.apply_fetch_error(&route_id, &cache_key, err);
@@ -552,7 +571,7 @@ impl App {
 
         let label = self.routes[route_index].label.clone();
         let mode = match reason {
-            LoadReason::NavPreview => "preview",
+            LoadReason::NavRevalidate => "revalidate",
             LoadReason::Startup => "startup",
             LoadReason::NavEnterReload | LoadReason::ManualRefresh => "reload",
             LoadReason::PaletteNavigate => "navigate",
@@ -620,7 +639,7 @@ impl App {
         self.next_request_id = self.next_request_id.saturating_add(1);
         self.latest_request_by_key
             .insert(cache_key.clone(), request_id);
-        if matches!(reason, LoadReason::NavPreview) {
+        if matches!(reason, LoadReason::NavRevalidate) {
             self.in_flight_nav_request = Some(request_id);
         }
 
@@ -643,9 +662,7 @@ impl App {
 
     fn route_load_options(&self, tier: CacheTier, reason: LoadReason) -> RouteLoadOptions {
         match reason {
-            LoadReason::NavPreview => {
-                RouteLoadOptions::preview(self.preview_limit, self.preview_timeout, 0)
-            }
+            LoadReason::NavRevalidate => RouteLoadOptions::full(self.list_limit),
             LoadReason::Startup => RouteLoadOptions::full(self.list_limit),
             LoadReason::NavEnterReload | LoadReason::ManualRefresh | LoadReason::ContextChanged => {
                 RouteLoadOptions::full(self.list_limit)

@@ -13,8 +13,8 @@ use crate::routes::RouteDefinition;
 pub enum LoadReason {
     /// Initial route load at startup.
     Startup,
-    /// Left-nav hover preview.
-    NavPreview,
+    /// Left-nav settled background revalidation.
+    NavRevalidate,
     /// Left-nav Enter explicit reload.
     NavEnterReload,
     /// Palette "navigate" action.

@@ -20,7 +20,7 @@ pub use super::resources_sales::{
     credit_notes_tool_name, estimates_tool_name, invoices_tool_name, run_credit_notes,
     run_estimates, run_invoices,
 };
-use super::utils::read_json_file;
+use super::utils::{parse_query_pairs, read_json_file};
 
 /// Generic list args shared by list commands.
 #[derive(Debug, Clone, Args)]
@@ -75,6 +75,9 @@ pub enum ResourceCommands {
         /// JSON payload file path.
         #[arg(long)]
         file: PathBuf,
+        /// Additional query pairs (`key=value`), can be repeated.
+        #[arg(long = "query", value_name = "KEY=VALUE")]
+        query: Vec<String>,
     },
     /// Update resource item.
     Update {
@@ -83,6 +86,9 @@ pub enum ResourceCommands {
         /// JSON payload file path.
         #[arg(long)]
         file: PathBuf,
+        /// Additional query pairs (`key=value`), can be repeated.
+        #[arg(long = "query", value_name = "KEY=VALUE")]
+        query: Vec<String>,
     },
     /// Delete resource item.
     Delete {
@@ -734,7 +740,10 @@ pub async fn run_write_only_resource(
         WriteOnlyResourceCommands::Create { file } => {
             run_resource(
                 resource,
-                &ResourceCommands::Create { file: file.clone() },
+                &ResourceCommands::Create {
+                    file: file.clone(),
+                    query: vec![],
+                },
                 ctx,
                 start,
             )
@@ -746,6 +755,7 @@ pub async fn run_write_only_resource(
                 &ResourceCommands::Update {
                     id: id.clone(),
                     file: file.clone(),
+                    query: vec![],
                 },
                 ctx,
                 start,
@@ -792,7 +802,10 @@ pub async fn run_contacts(
         ContactCommands::Create { file } => {
             run_resource(
                 "contacts",
-                &ResourceCommands::Create { file: file.clone() },
+                &ResourceCommands::Create {
+                    file: file.clone(),
+                    query: vec![],
+                },
                 ctx,
                 start,
             )
@@ -804,6 +817,7 @@ pub async fn run_contacts(
                 &ResourceCommands::Update {
                     id: id.clone(),
                     file: file.clone(),
+                    query: vec![],
                 },
                 ctx,
                 start,
@@ -1059,7 +1073,10 @@ pub async fn run_expenses(
         ExpenseCommands::Create { file } => {
             run_resource(
                 "expenses",
-                &ResourceCommands::Create { file: file.clone() },
+                &ResourceCommands::Create {
+                    file: file.clone(),
+                    query: vec![],
+                },
                 ctx,
                 start,
             )
@@ -1071,6 +1088,7 @@ pub async fn run_expenses(
                 &ResourceCommands::Update {
                     id: id.clone(),
                     file: file.clone(),
+                    query: vec![],
                 },
                 ctx,
                 start,
@@ -1136,7 +1154,10 @@ pub async fn run_timeslips(
         TimeslipCommands::Create { file } => {
             run_resource(
                 "timeslips",
-                &ResourceCommands::Create { file: file.clone() },
+                &ResourceCommands::Create {
+                    file: file.clone(),
+                    query: vec![],
+                },
                 ctx,
                 start,
             )
@@ -1148,6 +1169,7 @@ pub async fn run_timeslips(
                 &ResourceCommands::Update {
                     id: id.clone(),
                     file: file.clone(),
+                    query: vec![],
                 },
                 ctx,
                 start,
@@ -1226,7 +1248,10 @@ pub async fn run_users(command: &UserCommands, ctx: &CliContext, start: Instant)
         UserCommands::Create { file } => {
             run_resource(
                 "users",
-                &ResourceCommands::Create { file: file.clone() },
+                &ResourceCommands::Create {
+                    file: file.clone(),
+                    query: vec![],
+                },
                 ctx,
                 start,
             )
@@ -1238,6 +1263,7 @@ pub async fn run_users(command: &UserCommands, ctx: &CliContext, start: Instant)
                 &ResourceCommands::Update {
                     id: id.clone(),
                     file: file.clone(),
+                    query: vec![],
                 },
                 ctx,
                 start,
@@ -1308,7 +1334,10 @@ pub async fn run_journal_sets(
         JournalSetCommands::Create { file } => {
             run_resource(
                 "journal-sets",
-                &ResourceCommands::Create { file: file.clone() },
+                &ResourceCommands::Create {
+                    file: file.clone(),
+                    query: vec![],
+                },
                 ctx,
                 start,
             )
@@ -1320,6 +1349,7 @@ pub async fn run_journal_sets(
                 &ResourceCommands::Update {
                     id: id.clone(),
                     file: file.clone(),
+                    query: vec![],
                 },
                 ctx,
                 start,
@@ -1393,7 +1423,7 @@ async fn run_resource_with_spec(
             let value = api.get(id).await?;
             ctx.emit_success(&format!("{}.get", tool_prefix), &value, start)
         }
-        ResourceCommands::Create { file } => {
+        ResourceCommands::Create { file, query } => {
             if !spec.capabilities.create {
                 return Err(ChoSdkError::Config {
                     message: format!("Resource '{}' does not support create", spec.name),
@@ -1403,10 +1433,18 @@ async fn run_resource_with_spec(
             ctx.require_writes_allowed()?;
             let payload = read_json_file(file)?;
             ctx.log_input(&format!("{}.create", tool_prefix), &payload);
-            let value = api.create(&payload).await?;
+            let query_pairs = parse_query_pairs(query)?;
+            let value = if query_pairs.is_empty() {
+                api.create(&payload).await?
+            } else {
+                let wrapped = normalize_resource_payload(&payload, spec.singular_key);
+                let path = path_with_query(spec.path, &query_pairs);
+                let response = ctx.client().post_json(&path, &wrapped, true).await?;
+                unwrap_resource_response(&response, spec.singular_key, spec.collection_key)?
+            };
             ctx.emit_success(&format!("{}.create", tool_prefix), &value, start)
         }
-        ResourceCommands::Update { id, file } => {
+        ResourceCommands::Update { id, file, query } => {
             if !spec.capabilities.update {
                 return Err(ChoSdkError::Config {
                     message: format!("Resource '{}' does not support update", spec.name),
@@ -1416,7 +1454,16 @@ async fn run_resource_with_spec(
             ctx.require_writes_allowed()?;
             let payload = read_json_file(file)?;
             ctx.log_input(&format!("{}.update", tool_prefix), &payload);
-            let value = api.update(id, &payload).await?;
+            let query_pairs = parse_query_pairs(query)?;
+            let value = if query_pairs.is_empty() {
+                api.update(id, &payload).await?
+            } else {
+                let wrapped = normalize_resource_payload(&payload, spec.singular_key);
+                let target_path = resource_target_path(spec.path, id);
+                let path = path_with_query(&target_path, &query_pairs);
+                let response = ctx.client().put_json(&path, &wrapped, true).await?;
+                unwrap_resource_response(&response, spec.singular_key, spec.collection_key)?
+            };
             ctx.emit_success(&format!("{}.update", tool_prefix), &value, start)
         }
         ResourceCommands::Delete { id } => {
@@ -1430,6 +1477,75 @@ async fn run_resource_with_spec(
             let value = api.delete(id).await?;
             ctx.emit_success(&format!("{}.delete", tool_prefix), &value, start)
         }
+    }
+}
+
+fn normalize_resource_payload(body: &Value, singular_key: &str) -> Value {
+    if let Value::Object(map) = body
+        && map.contains_key(singular_key)
+    {
+        return body.clone();
+    }
+
+    serde_json::json!({
+        singular_key: body,
+    })
+}
+
+fn unwrap_resource_response(
+    response: &Value,
+    singular_key: &str,
+    collection_key: &str,
+) -> Result<Value> {
+    if let Some(value) = response.get(singular_key) {
+        return Ok(value.clone());
+    }
+
+    if let Some(array) = response.get(collection_key).and_then(Value::as_array)
+        && let Some(first) = array.first()
+    {
+        return Ok(first.clone());
+    }
+
+    if response.is_object() {
+        return Ok(response.clone());
+    }
+
+    Err(ChoSdkError::Parse {
+        message: format!(
+            "Response did not contain expected keys '{singular_key}' or '{collection_key}'"
+        ),
+    })
+}
+
+fn resource_target_path(resource_path: &str, id: &str) -> String {
+    let trimmed = id.trim();
+    if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
+        return trimmed.trim_end_matches('/').to_string();
+    }
+
+    format!(
+        "{}/{}",
+        resource_path.trim_end_matches('/'),
+        encode_path_segment(trimmed)
+    )
+}
+
+fn path_with_query(path: &str, query: &[(String, String)]) -> String {
+    if query.is_empty() {
+        return path.to_string();
+    }
+
+    let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+    for (key, value) in query {
+        serializer.append_pair(key, value);
+    }
+    let encoded = serializer.finish();
+
+    if path.contains('?') {
+        format!("{path}&{encoded}")
+    } else {
+        format!("{path}?{encoded}")
     }
 }
 

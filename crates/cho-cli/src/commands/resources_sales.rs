@@ -43,7 +43,10 @@ pub async fn run_invoices(
         InvoiceCommands::Create { file } => {
             run_resource(
                 "invoices",
-                &ResourceCommands::Create { file: file.clone() },
+                &ResourceCommands::Create {
+                    file: file.clone(),
+                    query: vec![],
+                },
                 ctx,
                 start,
             )
@@ -55,6 +58,7 @@ pub async fn run_invoices(
                 &ResourceCommands::Update {
                     id: id.clone(),
                     file: file.clone(),
+                    query: vec![],
                 },
                 ctx,
                 start,
@@ -220,7 +224,10 @@ pub async fn run_credit_notes(
         CreditNoteCommands::Create { file } => {
             run_resource(
                 "credit-notes",
-                &ResourceCommands::Create { file: file.clone() },
+                &ResourceCommands::Create {
+                    file: file.clone(),
+                    query: vec![],
+                },
                 ctx,
                 start,
             )
@@ -232,6 +239,7 @@ pub async fn run_credit_notes(
                 &ResourceCommands::Update {
                     id: id.clone(),
                     file: file.clone(),
+                    query: vec![],
                 },
                 ctx,
                 start,
@@ -337,7 +345,10 @@ pub async fn run_estimates(
         EstimateCommands::Create { file } => {
             run_resource(
                 "estimates",
-                &ResourceCommands::Create { file: file.clone() },
+                &ResourceCommands::Create {
+                    file: file.clone(),
+                    query: vec![],
+                },
                 ctx,
                 start,
             )
@@ -349,6 +360,7 @@ pub async fn run_estimates(
                 &ResourceCommands::Update {
                     id: id.clone(),
                     file: file.clone(),
+                    query: vec![],
                 },
                 ctx,
                 start,

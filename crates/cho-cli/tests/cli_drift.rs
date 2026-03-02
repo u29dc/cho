@@ -689,3 +689,60 @@ async fn users_update_me_uses_put_users_me_endpoint() {
     assert_eq!(json["ok"], true);
     assert_eq!(json["data"]["user"]["first_name"], "Ada");
 }
+
+#[tokio::test]
+async fn create_resource_accepts_query_pairs_for_company_api_edge_cases() {
+    let home = TempDir::new().expect("temp home");
+    enable_writes(home.path());
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    let payload_path = home.path().join("note-create.json");
+    fs::write(
+        &payload_path,
+        serde_json::to_string(&json!({
+            "note": {
+                "description": "Receipt follow-up"
+            }
+        }))
+        .expect("payload json"),
+    )
+    .expect("payload file should be written");
+
+    let contact_url = "https://api.freeagent.com/v2/contacts/1";
+    Mock::given(method("POST"))
+        .and(path("/v2/notes"))
+        .and(query_param("contact", contact_url))
+        .and(body_partial_json(json!({
+            "note": {
+                "description": "Receipt follow-up"
+            }
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "note": { "url": "https://api.freeagent.com/v2/notes/99", "description": "Receipt follow-up" }
+        })))
+        .mount(&server)
+        .await;
+
+    let payload_arg = payload_path.to_string_lossy().to_string();
+    let query_arg = format!("contact={contact_url}");
+    let args = vec![
+        "notes",
+        "create",
+        "--file",
+        &payload_arg,
+        "--query",
+        &query_arg,
+        "--json",
+    ];
+    let (code, json, _) = run_json(
+        home.path(),
+        &args,
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["data"]["url"], "https://api.freeagent.com/v2/notes/99");
+}

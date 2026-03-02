@@ -32,17 +32,17 @@ Primary API references:
 
 ## 3. Stack
 
-| Layer         | Choice                           | Notes                                             |
-| ------------- | -------------------------------- | ------------------------------------------------- |
-| Language      | Rust 2024                        | workspace-based                                   |
-| Runtime       | tokio                            | async CLI + SDK                                   |
-| HTTP          | reqwest + rustls                 | retries + 401 refresh + 429 handling              |
-| CLI           | clap                             | command tree for agent primitives                 |
-| TUI           | ratatui + crossterm              | full-screen workspace navigator + command palette |
-| Serialization | serde/serde_json                 | FreeAgent snake_case wire format                  |
-| Secrets       | secrecy                           | tokens persisted in `${CHO_HOME}/tokens.json`     |
-| Logging       | custom audit log + tracing       | append-only history at `~/.tools/cho/history.log` |
-| JS Tooling    | bun + biome + commitlint + husky | quality-gate orchestration                        |
+| Layer | Choice | Notes |
+| --- | --- | --- |
+| Language | Rust 2024 | workspace-based |
+| Runtime | tokio | async CLI + SDK |
+| HTTP | reqwest + rustls | retries + 401 refresh + 429 handling |
+| CLI | clap | command tree for agent primitives |
+| TUI | ratatui + crossterm | full-screen workspace navigator + command palette |
+| Serialization | serde/serde_json | FreeAgent snake_case wire format |
+| Secrets | secrecy | tokens persisted in `${CHO_HOME}/tokens.json` |
+| Logging | custom audit log + tracing | append-only history at `~/.tools/cho/history.log` |
+| JS Tooling | bun + biome + commitlint + husky | quality-gate orchestration |
 
 ## 4. Commands
 
@@ -134,15 +134,7 @@ Required checks before completion:
 Build/install helper:
 
 - `bun run build` compiles release binaries, installs both `cho` and `cho-tui` to
-  `${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}/`, and on macOS signs the installed binaries.
-- macOS signing controls:
-  - `CHO_CODESIGN_IDENTITY="<identity>"` to pin a specific signing identity.
-  - `CHO_CODESIGN_REQUIRED=1` to fail build when signing cannot run.
-  - `CHO_CODESIGN_DISABLE=1` to skip signing (`bun run build:unsigned` sets this).
-  - `CHO_CODESIGN_IDENTIFIER_PREFIX="com.example.cho"` to override default identifier prefix.
-- Verification/reset helpers:
-  - `bun run util:codesign:status`
-  - `bun run util:codesign:reset-keychain` (one-time reset if prior unsigned trust prompts persist)
+  `${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}/`.
 
 Config path:
 

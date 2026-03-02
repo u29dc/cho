@@ -10,16 +10,13 @@
 	"scripts": {
 		"prepare": "husky",
 		"cho:dev": "cargo run -p cho-cli --",
-		"build": "bash scripts/build.sh",
-		"build:unsigned": "CHO_CODESIGN_DISABLE=1 bash scripts/build.sh",
-		"util:codesign:status": "bash scripts/macos-codesign-status.sh",
-		"util:codesign:reset-keychain": "bash scripts/macos-keychain-reset.sh",
+		"build": "cargo build --workspace --release && OUT_DIR=\"${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}\" && mkdir -p \"$OUT_DIR\" && cp target/release/cho \"$OUT_DIR/cho\" && cp target/release/cho-tui \"$OUT_DIR/cho-tui\"",
 		"util:format": "cargo fmt --all",
 		"util:lint": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
 		"util:types": "cargo check --workspace",
 		"util:test": "cargo test --workspace",
 		"util:build": "cargo build --workspace",
-		"util:check": "bun run util:format && bun run util:lint && bun run util:types && bun run util:test && bun run util:build"
+		"util:check": "bun run util:format && bun run util:lint && bun run util:types && bun run util:test && bun run build"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.4",

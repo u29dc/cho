@@ -364,9 +364,128 @@ pub fn tool_catalog() -> Vec<ToolMeta> {
     ));
     tools.push(static_tool(
         "invoices.send-email",
-        "cho invoices send-email <id> --json",
+        "cho invoices send-email <id> [--file <path>] --json",
         "invoices",
         "Send invoice email",
+        false,
+    ));
+    tools.push(static_tool(
+        "invoices.duplicate",
+        "cho invoices duplicate <id> --json",
+        "invoices",
+        "Duplicate invoice",
+        false,
+    ));
+    tools.push(static_tool(
+        "invoices.direct-debit",
+        "cho invoices direct-debit <id> [--file <path>] --json",
+        "invoices",
+        "Take invoice payment via direct debit",
+        false,
+    ));
+    tools.push(static_tool(
+        "invoices.timeline",
+        "cho invoices timeline --json",
+        "invoices",
+        "Get invoice timeline",
+        true,
+    ));
+    tools.push(static_tool(
+        "invoices.get-pdf",
+        "cho invoices get-pdf <id> [--output <path>] --json",
+        "invoices",
+        "Get invoice PDF payload or write decoded PDF bytes",
+        true,
+    ));
+    tools.push(static_tool(
+        "invoices.default-additional-text.get",
+        "cho invoices default-additional-text get --json",
+        "invoices",
+        "Get invoice default additional text",
+        true,
+    ));
+    tools.push(static_tool(
+        "invoices.default-additional-text.update",
+        "cho invoices default-additional-text update --file <path> --json",
+        "invoices",
+        "Update invoice default additional text",
+        false,
+    ));
+    tools.push(static_tool(
+        "invoices.default-additional-text.delete",
+        "cho invoices default-additional-text delete --json",
+        "invoices",
+        "Delete invoice default additional text",
+        false,
+    ));
+    tools.push(static_tool(
+        "credit-notes.transition",
+        "cho credit-notes transition <id> <action> --json",
+        "credit-notes",
+        "Trigger credit note status transition",
+        false,
+    ));
+    tools.push(static_tool(
+        "credit-notes.send-email",
+        "cho credit-notes send-email <id> [--file <path>] --json",
+        "credit-notes",
+        "Send credit note email",
+        false,
+    ));
+    tools.push(static_tool(
+        "credit-notes.get-pdf",
+        "cho credit-notes get-pdf <id> [--output <path>] --json",
+        "credit-notes",
+        "Get credit note PDF payload or write decoded PDF bytes",
+        true,
+    ));
+    tools.push(static_tool(
+        "estimates.transition",
+        "cho estimates transition <id> <action> --json",
+        "estimates",
+        "Trigger estimate status transition",
+        false,
+    ));
+    tools.push(static_tool(
+        "estimates.send-email",
+        "cho estimates send-email <id> [--file <path>] --json",
+        "estimates",
+        "Send estimate email",
+        false,
+    ));
+    tools.push(static_tool(
+        "estimates.duplicate",
+        "cho estimates duplicate <id> --json",
+        "estimates",
+        "Duplicate estimate",
+        false,
+    ));
+    tools.push(static_tool(
+        "estimates.get-pdf",
+        "cho estimates get-pdf <id> [--output <path>] --json",
+        "estimates",
+        "Get estimate PDF payload or write decoded PDF bytes",
+        true,
+    ));
+    tools.push(static_tool(
+        "estimates.default-additional-text.get",
+        "cho estimates default-additional-text get --json",
+        "estimates",
+        "Get estimate default additional text",
+        true,
+    ));
+    tools.push(static_tool(
+        "estimates.default-additional-text.update",
+        "cho estimates default-additional-text update --file <path> --json",
+        "estimates",
+        "Update estimate default additional text",
+        false,
+    ));
+    tools.push(static_tool(
+        "estimates.default-additional-text.delete",
+        "cho estimates default-additional-text delete --json",
+        "estimates",
+        "Delete estimate default additional text",
         false,
     ));
     tools.push(static_tool(
@@ -384,6 +503,13 @@ pub fn tool_catalog() -> Vec<ToolMeta> {
         true,
     ));
     tools.push(static_tool(
+        "bank-transactions.delete",
+        "cho bank-transactions delete <id> --json",
+        "bank-transactions",
+        "Delete bank transaction by id",
+        false,
+    ));
+    tools.push(static_tool(
         "bank-transactions.update-explanation",
         "cho bank-transactions update-explanation <transaction> [--description <text>] [--mark-for-review <bool>] [--attachment <path>] --json",
         "bank-transactions",
@@ -395,6 +521,55 @@ pub fn tool_catalog() -> Vec<ToolMeta> {
         "cho expenses mileage-settings --json",
         "expenses",
         "Get expense mileage settings",
+        true,
+    ));
+    tools.push(static_tool(
+        "journal-sets.opening-balances",
+        "cho journal-sets opening-balances --json",
+        "journal-sets",
+        "Get journal set opening balances",
+        true,
+    ));
+    tools.push(static_tool(
+        "users.me",
+        "cho users me --json",
+        "users",
+        "Get authenticated user",
+        true,
+    ));
+    tools.push(static_tool(
+        "users.update-me",
+        "cho users update-me --file <path> --json",
+        "users",
+        "Update authenticated user",
+        false,
+    ));
+    tools.push(static_tool(
+        "timeslips.start-timer",
+        "cho timeslips start-timer <id> --json",
+        "timeslips",
+        "Start timer on a timeslip",
+        false,
+    ));
+    tools.push(static_tool(
+        "timeslips.stop-timer",
+        "cho timeslips stop-timer <id> --json",
+        "timeslips",
+        "Stop timer on a timeslip",
+        false,
+    ));
+    tools.push(static_tool(
+        "reports.balance-sheet-opening-balances",
+        "cho reports balance-sheet-opening-balances --json",
+        "reports",
+        "Get balance sheet opening balances",
+        true,
+    ));
+    tools.push(static_tool(
+        "reports.trial-balance-opening-balances",
+        "cho reports trial-balance-opening-balances --json",
+        "reports",
+        "Get trial balance opening balances",
         true,
     ));
     tools.push(static_tool(

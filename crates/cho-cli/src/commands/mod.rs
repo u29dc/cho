@@ -7,6 +7,8 @@ pub mod health;
 pub mod payroll;
 pub mod reports;
 pub mod resources;
+mod resources_helpers;
+mod resources_sales;
 pub mod start;
 pub mod tax;
 pub mod tools;

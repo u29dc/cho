@@ -1,21 +1,26 @@
 //! Generic resource command handlers.
 
-use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use cho_sdk::api::specs::{ResourceSpec, by_name};
 use cho_sdk::error::{ChoSdkError, Result};
 use cho_sdk::models::{ListResult, Pagination};
-use chrono::{DateTime, NaiveDate};
 use clap::{Args, Subcommand};
 use serde_json::{Map, Value};
 
 use crate::context::CliContext;
 
-use super::utils::{parse_query_pairs, read_json_file};
+use super::resources_helpers::{
+    annotate_bank_account_fields, attachment_payload_from_path, bank_account_display_name,
+    encode_path_segment, first_bank_transaction_explanation_id, flatten_category_groups,
+    has_bank_account_filter, infer_item_identifier, list_query, sort_items_by_latest_date,
+};
+pub use super::resources_sales::{
+    credit_notes_tool_name, estimates_tool_name, invoices_tool_name, run_credit_notes,
+    run_estimates, run_invoices,
+};
+use super::utils::read_json_file;
 
 /// Generic list args shared by list commands.
 #[derive(Debug, Clone, Args)]
@@ -98,6 +103,13 @@ pub enum ReadOnlyResourceCommands {
     },
 }
 
+/// List-only resource subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum ListOnlyResourceCommands {
+    /// List resource items.
+    List(Box<ListArgs>),
+}
+
 /// Get/delete resource subcommands.
 #[derive(Debug, Clone, Subcommand)]
 pub enum GetDeleteResourceCommands {
@@ -111,6 +123,45 @@ pub enum GetDeleteResourceCommands {
         /// Identifier/path key.
         id: String,
     },
+}
+
+/// Create/update/delete resource subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum WriteOnlyResourceCommands {
+    /// Create resource item.
+    Create {
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Update resource item.
+    Update {
+        /// Identifier/path key.
+        id: String,
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Delete resource item.
+    Delete {
+        /// Identifier/path key.
+        id: String,
+    },
+}
+
+/// Default additional text operations for sales documents.
+#[derive(Debug, Clone, Subcommand)]
+pub enum DefaultAdditionalTextCommands {
+    /// Get default additional text.
+    Get,
+    /// Update default additional text using JSON payload.
+    Update {
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Delete default additional text.
+    Delete,
 }
 
 /// Contact resource commands.
@@ -180,6 +231,37 @@ pub enum InvoiceCommands {
     SendEmail {
         /// Invoice identifier.
         id: String,
+        /// Optional JSON payload file path.
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+    /// Duplicate invoice.
+    Duplicate {
+        /// Invoice identifier.
+        id: String,
+    },
+    /// Request direct debit payment.
+    DirectDebit {
+        /// Invoice identifier.
+        id: String,
+        /// Optional JSON payload file path.
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+    /// Fetch invoice timeline.
+    Timeline,
+    /// Get invoice as PDF.
+    GetPdf {
+        /// Invoice identifier.
+        id: String,
+        /// Optional output file path for decoded PDF bytes.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Manage invoice default additional text.
+    DefaultAdditionalText {
+        #[command(subcommand)]
+        command: DefaultAdditionalTextCommands,
     },
 }
 
@@ -198,6 +280,136 @@ pub enum InvoiceTransition {
     ConvertToCreditNote,
 }
 
+/// Credit note resource commands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum CreditNoteCommands {
+    /// List credit notes.
+    List(Box<ListArgs>),
+    /// Get one credit note.
+    Get { id: String },
+    /// Create credit note.
+    Create {
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Update credit note.
+    Update {
+        /// Identifier/path key.
+        id: String,
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Delete credit note.
+    Delete { id: String },
+    /// Trigger credit note status transition.
+    Transition {
+        /// Credit note identifier.
+        id: String,
+        /// Transition action.
+        action: CreditNoteTransition,
+    },
+    /// Trigger credit note email send.
+    SendEmail {
+        /// Credit note identifier.
+        id: String,
+        /// Optional JSON payload file path.
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+    /// Get credit note as PDF.
+    GetPdf {
+        /// Credit note identifier.
+        id: String,
+        /// Optional output file path for decoded PDF bytes.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+}
+
+/// Supported credit note transitions.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum CreditNoteTransition {
+    /// Mark credit note as draft.
+    MarkAsDraft,
+    /// Mark credit note as sent.
+    MarkAsSent,
+}
+
+/// Estimate resource commands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum EstimateCommands {
+    /// List estimates.
+    List(Box<ListArgs>),
+    /// Get one estimate.
+    Get { id: String },
+    /// Create estimate.
+    Create {
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Update estimate.
+    Update {
+        /// Identifier/path key.
+        id: String,
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Delete estimate.
+    Delete { id: String },
+    /// Trigger estimate status transition.
+    Transition {
+        /// Estimate identifier.
+        id: String,
+        /// Transition action.
+        action: EstimateTransition,
+    },
+    /// Trigger estimate email send.
+    SendEmail {
+        /// Estimate identifier.
+        id: String,
+        /// Optional JSON payload file path.
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
+    /// Duplicate estimate.
+    Duplicate {
+        /// Estimate identifier.
+        id: String,
+    },
+    /// Get estimate as PDF.
+    GetPdf {
+        /// Estimate identifier.
+        id: String,
+        /// Optional output file path for decoded PDF bytes.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Manage estimate default additional text.
+    DefaultAdditionalText {
+        #[command(subcommand)]
+        command: DefaultAdditionalTextCommands,
+    },
+}
+
+/// Supported estimate transitions.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum EstimateTransition {
+    /// Mark estimate as draft.
+    MarkAsDraft,
+    /// Mark estimate as sent.
+    MarkAsSent,
+    /// Mark estimate as approved.
+    MarkAsApproved,
+    /// Mark estimate as rejected.
+    MarkAsRejected,
+    /// Convert estimate to invoice.
+    ConvertToInvoice,
+}
+
 /// Bank transaction commands.
 #[derive(Debug, Clone, Subcommand)]
 pub enum BankTransactionCommands {
@@ -207,6 +419,8 @@ pub enum BankTransactionCommands {
     ForApproval(Box<ListArgs>),
     /// Get one bank transaction.
     Get { id: String },
+    /// Delete one bank transaction.
+    Delete { id: String },
     /// Upload statement file for bank account.
     UploadStatement {
         /// Bank account URL.
@@ -259,6 +473,101 @@ pub enum ExpenseCommands {
     MileageSettings,
 }
 
+/// Timeslip commands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum TimeslipCommands {
+    /// List timeslips.
+    List(Box<ListArgs>),
+    /// Get one timeslip.
+    Get { id: String },
+    /// Create timeslip.
+    Create {
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Update timeslip.
+    Update {
+        /// Identifier/path key.
+        id: String,
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Delete timeslip.
+    Delete { id: String },
+    /// Start timer for a timeslip.
+    StartTimer {
+        /// Timeslip identifier.
+        id: String,
+    },
+    /// Stop timer for a timeslip.
+    StopTimer {
+        /// Timeslip identifier.
+        id: String,
+    },
+}
+
+/// User commands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum UserCommands {
+    /// List users.
+    List(Box<ListArgs>),
+    /// Get one user.
+    Get { id: String },
+    /// Create user.
+    Create {
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Update user.
+    Update {
+        /// Identifier/path key.
+        id: String,
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Delete user.
+    Delete { id: String },
+    /// Get the authenticated user.
+    Me,
+    /// Update the authenticated user.
+    UpdateMe {
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+}
+
+/// Journal set commands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum JournalSetCommands {
+    /// List journal sets.
+    List(Box<ListArgs>),
+    /// Get one journal set.
+    Get { id: String },
+    /// Create journal set.
+    Create {
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Update journal set.
+    Update {
+        /// Identifier/path key.
+        id: String,
+        /// JSON payload file path.
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Delete journal set.
+    Delete { id: String },
+    /// Get journal set opening balances.
+    OpeningBalances,
+}
+
 /// Returns tool name for generic resource command.
 pub fn tool_name(resource: &str, command: &ResourceCommands) -> String {
     let action = match command {
@@ -287,6 +596,26 @@ pub fn tool_name_get_delete(resource: &str, command: &GetDeleteResourceCommands)
     let action = match command {
         GetDeleteResourceCommands::Get { .. } => "get",
         GetDeleteResourceCommands::Delete { .. } => "delete",
+    };
+
+    format!("{resource}.{action}")
+}
+
+/// Returns tool name for list-only resource command.
+pub fn tool_name_list_only(resource: &str, command: &ListOnlyResourceCommands) -> String {
+    let action = match command {
+        ListOnlyResourceCommands::List(_) => "list",
+    };
+
+    format!("{resource}.{action}")
+}
+
+/// Returns tool name for write-only resource command.
+pub fn tool_name_write_only(resource: &str, command: &WriteOnlyResourceCommands) -> String {
+    let action = match command {
+        WriteOnlyResourceCommands::Create { .. } => "create",
+        WriteOnlyResourceCommands::Update { .. } => "update",
+        WriteOnlyResourceCommands::Delete { .. } => "delete",
     };
 
     format!("{resource}.{action}")
@@ -374,6 +703,67 @@ pub async fn run_get_delete_resource(
     }
 }
 
+/// Executes list-only resource command.
+pub async fn run_list_only_resource(
+    resource: &str,
+    command: &ListOnlyResourceCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> Result<()> {
+    match command {
+        ListOnlyResourceCommands::List(args) => {
+            run_resource(
+                resource,
+                &ResourceCommands::List((**args).clone()),
+                ctx,
+                start,
+            )
+            .await
+        }
+    }
+}
+
+/// Executes create/update/delete resource command.
+pub async fn run_write_only_resource(
+    resource: &str,
+    command: &WriteOnlyResourceCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> Result<()> {
+    match command {
+        WriteOnlyResourceCommands::Create { file } => {
+            run_resource(
+                resource,
+                &ResourceCommands::Create { file: file.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+        WriteOnlyResourceCommands::Update { id, file } => {
+            run_resource(
+                resource,
+                &ResourceCommands::Update {
+                    id: id.clone(),
+                    file: file.clone(),
+                },
+                ctx,
+                start,
+            )
+            .await
+        }
+        WriteOnlyResourceCommands::Delete { id } => {
+            run_resource(
+                resource,
+                &ResourceCommands::Delete { id: id.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+    }
+}
+
 /// Executes contact command.
 pub async fn run_contacts(
     command: &ContactCommands,
@@ -447,106 +837,6 @@ pub fn contacts_tool_name(command: &ContactCommands) -> String {
     }
 }
 
-/// Executes invoice command.
-pub async fn run_invoices(
-    command: &InvoiceCommands,
-    ctx: &CliContext,
-    start: Instant,
-) -> Result<()> {
-    match command {
-        InvoiceCommands::List(args) => {
-            run_resource(
-                "invoices",
-                &ResourceCommands::List((**args).clone()),
-                ctx,
-                start,
-            )
-            .await
-        }
-        InvoiceCommands::Get { id } => {
-            run_resource(
-                "invoices",
-                &ResourceCommands::Get { id: id.clone() },
-                ctx,
-                start,
-            )
-            .await
-        }
-        InvoiceCommands::Create { file } => {
-            run_resource(
-                "invoices",
-                &ResourceCommands::Create { file: file.clone() },
-                ctx,
-                start,
-            )
-            .await
-        }
-        InvoiceCommands::Update { id, file } => {
-            run_resource(
-                "invoices",
-                &ResourceCommands::Update {
-                    id: id.clone(),
-                    file: file.clone(),
-                },
-                ctx,
-                start,
-            )
-            .await
-        }
-        InvoiceCommands::Delete { id } => {
-            run_resource(
-                "invoices",
-                &ResourceCommands::Delete { id: id.clone() },
-                ctx,
-                start,
-            )
-            .await
-        }
-        InvoiceCommands::Transition { id, action } => {
-            ctx.require_writes_allowed()?;
-            let spec = by_name("invoices").ok_or_else(|| ChoSdkError::Config {
-                message: "Missing invoices resource spec".to_string(),
-            })?;
-            let api = ctx.client().resource(spec);
-            let suffix = match action {
-                InvoiceTransition::MarkAsDraft => "transitions/mark_as_draft",
-                InvoiceTransition::MarkAsSent => "transitions/mark_as_sent",
-                InvoiceTransition::MarkAsScheduled => "transitions/mark_as_scheduled",
-                InvoiceTransition::MarkAsCancelled => "transitions/mark_as_cancelled",
-                InvoiceTransition::ConvertToCreditNote => "transitions/convert_to_credit_note",
-            };
-            let value = api
-                .action(id, reqwest::Method::PUT, suffix, None, true)
-                .await?;
-            ctx.emit_success("invoices.transition", &value, start)
-        }
-        InvoiceCommands::SendEmail { id } => {
-            ctx.require_writes_allowed()?;
-            let spec = by_name("invoices").ok_or_else(|| ChoSdkError::Config {
-                message: "Missing invoices resource spec".to_string(),
-            })?;
-            let api = ctx.client().resource(spec);
-            let value = api
-                .action(id, reqwest::Method::POST, "send_email", None, true)
-                .await?;
-            ctx.emit_success("invoices.send-email", &value, start)
-        }
-    }
-}
-
-/// Returns tool name for invoice command.
-pub fn invoices_tool_name(command: &InvoiceCommands) -> String {
-    match command {
-        InvoiceCommands::List(_) => "invoices.list".to_string(),
-        InvoiceCommands::Get { .. } => "invoices.get".to_string(),
-        InvoiceCommands::Create { .. } => "invoices.create".to_string(),
-        InvoiceCommands::Update { .. } => "invoices.update".to_string(),
-        InvoiceCommands::Delete { .. } => "invoices.delete".to_string(),
-        InvoiceCommands::Transition { .. } => "invoices.transition".to_string(),
-        InvoiceCommands::SendEmail { .. } => "invoices.send-email".to_string(),
-    }
-}
-
 /// Executes bank transaction command.
 pub async fn run_bank_transactions(
     command: &BankTransactionCommands,
@@ -568,6 +858,17 @@ pub async fn run_bank_transactions(
                 start,
             )
             .await
+        }
+        BankTransactionCommands::Delete { id } => {
+            ctx.require_writes_allowed()?;
+            let value = ctx
+                .client()
+                .delete_json(
+                    &format!("bank_transaction/{}", encode_path_segment(id)),
+                    true,
+                )
+                .await?;
+            ctx.emit_success("bank-transactions.delete", &value, start)
         }
         BankTransactionCommands::UploadStatement { bank_account, file } => {
             ctx.require_writes_allowed()?;
@@ -720,6 +1021,7 @@ pub fn bank_transactions_tool_name(command: &BankTransactionCommands) -> String 
         BankTransactionCommands::List(_) => "bank-transactions.list".to_string(),
         BankTransactionCommands::ForApproval(_) => "bank-transactions.for-approval".to_string(),
         BankTransactionCommands::Get { .. } => "bank-transactions.get".to_string(),
+        BankTransactionCommands::Delete { .. } => "bank-transactions.delete".to_string(),
         BankTransactionCommands::UploadStatement { .. } => {
             "bank-transactions.upload-statement".to_string()
         }
@@ -803,6 +1105,255 @@ pub fn expenses_tool_name(command: &ExpenseCommands) -> String {
         ExpenseCommands::Update { .. } => "expenses.update".to_string(),
         ExpenseCommands::Delete { .. } => "expenses.delete".to_string(),
         ExpenseCommands::MileageSettings => "expenses.mileage-settings".to_string(),
+    }
+}
+
+/// Executes timeslip command.
+pub async fn run_timeslips(
+    command: &TimeslipCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> Result<()> {
+    match command {
+        TimeslipCommands::List(args) => {
+            run_resource(
+                "timeslips",
+                &ResourceCommands::List((**args).clone()),
+                ctx,
+                start,
+            )
+            .await
+        }
+        TimeslipCommands::Get { id } => {
+            run_resource(
+                "timeslips",
+                &ResourceCommands::Get { id: id.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+        TimeslipCommands::Create { file } => {
+            run_resource(
+                "timeslips",
+                &ResourceCommands::Create { file: file.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+        TimeslipCommands::Update { id, file } => {
+            run_resource(
+                "timeslips",
+                &ResourceCommands::Update {
+                    id: id.clone(),
+                    file: file.clone(),
+                },
+                ctx,
+                start,
+            )
+            .await
+        }
+        TimeslipCommands::Delete { id } => {
+            run_resource(
+                "timeslips",
+                &ResourceCommands::Delete { id: id.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+        TimeslipCommands::StartTimer { id } => {
+            ctx.require_writes_allowed()?;
+            let value = ctx
+                .client()
+                .post_json(
+                    &format!("timeslips/{}/timer", encode_path_segment(id)),
+                    &serde_json::json!({}),
+                    true,
+                )
+                .await?;
+            ctx.emit_success("timeslips.start-timer", &value, start)
+        }
+        TimeslipCommands::StopTimer { id } => {
+            ctx.require_writes_allowed()?;
+            let value = ctx
+                .client()
+                .delete_json(
+                    &format!("timeslips/{}/timer", encode_path_segment(id)),
+                    true,
+                )
+                .await?;
+            ctx.emit_success("timeslips.stop-timer", &value, start)
+        }
+    }
+}
+
+/// Returns tool name for timeslip command.
+pub fn timeslips_tool_name(command: &TimeslipCommands) -> String {
+    match command {
+        TimeslipCommands::List(_) => "timeslips.list".to_string(),
+        TimeslipCommands::Get { .. } => "timeslips.get".to_string(),
+        TimeslipCommands::Create { .. } => "timeslips.create".to_string(),
+        TimeslipCommands::Update { .. } => "timeslips.update".to_string(),
+        TimeslipCommands::Delete { .. } => "timeslips.delete".to_string(),
+        TimeslipCommands::StartTimer { .. } => "timeslips.start-timer".to_string(),
+        TimeslipCommands::StopTimer { .. } => "timeslips.stop-timer".to_string(),
+    }
+}
+
+/// Executes user command.
+pub async fn run_users(command: &UserCommands, ctx: &CliContext, start: Instant) -> Result<()> {
+    match command {
+        UserCommands::List(args) => {
+            run_resource(
+                "users",
+                &ResourceCommands::List((**args).clone()),
+                ctx,
+                start,
+            )
+            .await
+        }
+        UserCommands::Get { id } => {
+            run_resource(
+                "users",
+                &ResourceCommands::Get { id: id.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+        UserCommands::Create { file } => {
+            run_resource(
+                "users",
+                &ResourceCommands::Create { file: file.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+        UserCommands::Update { id, file } => {
+            run_resource(
+                "users",
+                &ResourceCommands::Update {
+                    id: id.clone(),
+                    file: file.clone(),
+                },
+                ctx,
+                start,
+            )
+            .await
+        }
+        UserCommands::Delete { id } => {
+            run_resource(
+                "users",
+                &ResourceCommands::Delete { id: id.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+        UserCommands::Me => {
+            let value = ctx.client().get_json("users/me", &[]).await?;
+            ctx.emit_success("users.me", &value, start)
+        }
+        UserCommands::UpdateMe { file } => {
+            ctx.require_writes_allowed()?;
+            let payload = read_json_file(file)?;
+            ctx.log_input("users.update-me", &payload);
+            let value = ctx.client().put_json("users/me", &payload, true).await?;
+            ctx.emit_success("users.update-me", &value, start)
+        }
+    }
+}
+
+/// Returns tool name for user command.
+pub fn users_tool_name(command: &UserCommands) -> String {
+    match command {
+        UserCommands::List(_) => "users.list".to_string(),
+        UserCommands::Get { .. } => "users.get".to_string(),
+        UserCommands::Create { .. } => "users.create".to_string(),
+        UserCommands::Update { .. } => "users.update".to_string(),
+        UserCommands::Delete { .. } => "users.delete".to_string(),
+        UserCommands::Me => "users.me".to_string(),
+        UserCommands::UpdateMe { .. } => "users.update-me".to_string(),
+    }
+}
+
+/// Executes journal set command.
+pub async fn run_journal_sets(
+    command: &JournalSetCommands,
+    ctx: &CliContext,
+    start: Instant,
+) -> Result<()> {
+    match command {
+        JournalSetCommands::List(args) => {
+            run_resource(
+                "journal-sets",
+                &ResourceCommands::List((**args).clone()),
+                ctx,
+                start,
+            )
+            .await
+        }
+        JournalSetCommands::Get { id } => {
+            run_resource(
+                "journal-sets",
+                &ResourceCommands::Get { id: id.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+        JournalSetCommands::Create { file } => {
+            run_resource(
+                "journal-sets",
+                &ResourceCommands::Create { file: file.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+        JournalSetCommands::Update { id, file } => {
+            run_resource(
+                "journal-sets",
+                &ResourceCommands::Update {
+                    id: id.clone(),
+                    file: file.clone(),
+                },
+                ctx,
+                start,
+            )
+            .await
+        }
+        JournalSetCommands::Delete { id } => {
+            run_resource(
+                "journal-sets",
+                &ResourceCommands::Delete { id: id.clone() },
+                ctx,
+                start,
+            )
+            .await
+        }
+        JournalSetCommands::OpeningBalances => {
+            let value = ctx
+                .client()
+                .get_json("journal_sets/opening_balances", &[])
+                .await?;
+            ctx.emit_success("journal-sets.opening-balances", &value, start)
+        }
+    }
+}
+
+/// Returns tool name for journal set command.
+pub fn journal_sets_tool_name(command: &JournalSetCommands) -> String {
+    match command {
+        JournalSetCommands::List(_) => "journal-sets.list".to_string(),
+        JournalSetCommands::Get { .. } => "journal-sets.get".to_string(),
+        JournalSetCommands::Create { .. } => "journal-sets.create".to_string(),
+        JournalSetCommands::Update { .. } => "journal-sets.update".to_string(),
+        JournalSetCommands::Delete { .. } => "journal-sets.delete".to_string(),
+        JournalSetCommands::OpeningBalances => "journal-sets.opening-balances".to_string(),
     }
 }
 
@@ -1051,401 +1602,4 @@ async fn list_bank_resource_across_accounts(
     };
 
     ctx.emit_list(&format!("{resource}.list"), &result, start)
-}
-
-fn first_bank_transaction_explanation_id(transaction: &Value) -> Option<String> {
-    if let Some(single) = transaction
-        .get("bank_transaction_explanation")
-        .and_then(infer_item_identifier)
-    {
-        return Some(single);
-    }
-
-    transaction
-        .get("bank_transaction_explanations")
-        .and_then(Value::as_array)
-        .and_then(|items| items.iter().find_map(infer_item_identifier))
-}
-
-fn attachment_payload_from_path(path: &Path) -> Result<Value> {
-    const MAX_ATTACHMENT_SIZE_BYTES: u64 = 5 * 1024 * 1024;
-
-    let metadata = std::fs::metadata(path).map_err(|e| ChoSdkError::Config {
-        message: format!("Failed reading attachment metadata {}: {e}", path.display()),
-    })?;
-    if metadata.len() > MAX_ATTACHMENT_SIZE_BYTES {
-        return Err(ChoSdkError::Config {
-            message: format!(
-                "Attachment {} exceeds FreeAgent 5MB limit ({} bytes)",
-                path.display(),
-                metadata.len()
-            ),
-        });
-    }
-
-    let bytes = std::fs::read(path).map_err(|e| ChoSdkError::Config {
-        message: format!("Failed reading attachment file {}: {e}", path.display()),
-    })?;
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| ChoSdkError::Config {
-            message: format!(
-                "Attachment path '{}' has no valid file name",
-                path.display()
-            ),
-        })?;
-
-    let content_type = match path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "pdf" => "application/x-pdf",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "csv" => "text/csv",
-        "txt" => "text/plain",
-        _ => "application/octet-stream",
-    };
-
-    Ok(serde_json::json!({
-        "content_src": BASE64_STANDARD.encode(bytes),
-        "file_name": file_name,
-        "content_type": content_type
-    }))
-}
-
-fn list_query(args: &ListArgs) -> Result<Vec<(String, String)>> {
-    let mut query = parse_query_pairs(&args.query)?;
-
-    push_if_some(&mut query, "view", args.view.as_ref());
-    push_if_some(&mut query, "sort", args.sort.as_ref());
-    push_if_some(&mut query, "from_date", args.from_date.as_ref());
-    push_if_some(&mut query, "to_date", args.to_date.as_ref());
-    push_if_some(&mut query, "updated_since", args.updated_since.as_ref());
-    push_if_some(&mut query, "contact", args.contact.as_ref());
-    push_if_some(&mut query, "project", args.project.as_ref());
-    push_if_some(&mut query, "bank_account", args.bank_account.as_ref());
-    push_if_some(&mut query, "user", args.user.as_ref());
-
-    Ok(query)
-}
-
-fn push_if_some(query: &mut Vec<(String, String)>, key: &str, value: Option<&String>) {
-    if let Some(value) = value
-        && !value.trim().is_empty()
-    {
-        query.push((key.to_string(), value.to_string()));
-    }
-}
-
-fn encode_path_segment(value: &str) -> String {
-    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
-}
-
-fn infer_item_identifier(value: &Value) -> Option<String> {
-    if let Some(url) = value.get("url").and_then(Value::as_str) {
-        return Some(url.to_string());
-    }
-
-    if let Some(id) = value.get("id").and_then(Value::as_str) {
-        return Some(id.to_string());
-    }
-
-    value
-        .get("id")
-        .and_then(Value::as_i64)
-        .map(|id| id.to_string())
-}
-
-fn bank_account_display_name(item: &Value) -> String {
-    if let Some(name) = item.get("name").and_then(Value::as_str)
-        && !name.trim().is_empty()
-    {
-        return name.to_string();
-    }
-
-    let bank_name = item
-        .get("bank_name")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let account_number = item
-        .get("account_number")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-
-    if bank_name.is_empty() && account_number.is_empty() {
-        "Bank Account".to_string()
-    } else if account_number.is_empty() {
-        bank_name.to_string()
-    } else if bank_name.is_empty() {
-        account_number.to_string()
-    } else {
-        format!("{bank_name} ({account_number})")
-    }
-}
-
-fn annotate_bank_account_fields(item: &mut Value, bank_account_url: &str, bank_account_name: &str) {
-    let Value::Object(map) = item else {
-        return;
-    };
-
-    map.entry("_bank_account_url".to_string())
-        .or_insert_with(|| Value::String(bank_account_url.to_string()));
-    map.entry("_bank_account_name".to_string())
-        .or_insert_with(|| Value::String(bank_account_name.to_string()));
-}
-
-fn sort_items_by_latest_date(items: &mut [Value]) {
-    let Some(date_key) = infer_date_key(items) else {
-        return;
-    };
-
-    items.sort_by(|left, right| {
-        compare_date_values(
-            left.get(date_key).and_then(parse_date_value),
-            right.get(date_key).and_then(parse_date_value),
-        )
-    });
-}
-
-fn infer_date_key(items: &[Value]) -> Option<&'static str> {
-    const DATE_KEYS: &[&str] = &[
-        "dated_on",
-        "date",
-        "created_at",
-        "updated_at",
-        "period_ends_on",
-        "period_end",
-        "starts_on",
-        "ends_on",
-        "due_on",
-        "paid_on",
-        "submitted_on",
-        "filed_on",
-        "payment_date",
-        "statement_date",
-    ];
-
-    for key in DATE_KEYS {
-        let count = items
-            .iter()
-            .filter_map(|item| item.get(*key).and_then(parse_date_value))
-            .take(2)
-            .count();
-        if count >= 2 {
-            return Some(*key);
-        }
-    }
-    None
-}
-
-fn compare_date_values(left: Option<i64>, right: Option<i64>) -> Ordering {
-    match (left, right) {
-        (Some(left), Some(right)) => right.cmp(&left),
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        (None, None) => Ordering::Equal,
-    }
-}
-
-fn parse_date_value(value: &Value) -> Option<i64> {
-    match value {
-        Value::String(text) => parse_date_text(text),
-        Value::Number(number) => number.as_i64(),
-        _ => None,
-    }
-}
-
-fn parse_date_text(text: &str) -> Option<i64> {
-    if let Ok(datetime) = DateTime::parse_from_rfc3339(text) {
-        return Some(datetime.timestamp());
-    }
-
-    if let Ok(date) = NaiveDate::parse_from_str(text, "%Y-%m-%d") {
-        return date
-            .and_hms_opt(0, 0, 0)
-            .map(|datetime| datetime.and_utc().timestamp());
-    }
-
-    None
-}
-
-fn has_bank_account_filter(args: &ListArgs) -> bool {
-    if args
-        .bank_account
-        .as_ref()
-        .is_some_and(|value| !value.trim().is_empty())
-    {
-        return true;
-    }
-
-    args.query.iter().any(|entry| {
-        entry
-            .split_once('=')
-            .is_some_and(|(key, value)| key == "bank_account" && !value.trim().is_empty())
-    })
-}
-
-fn flatten_category_groups(value: &serde_json::Value) -> Vec<serde_json::Value> {
-    let Some(object) = value.as_object() else {
-        return Vec::new();
-    };
-
-    let mut out = Vec::new();
-    for (group_name, group_value) in object {
-        if let Some(items) = group_value.as_array() {
-            for item in items {
-                let mut item_value = item.clone();
-                if let serde_json::Value::Object(map) = &mut item_value
-                    && !map.contains_key("category_group")
-                {
-                    map.insert(
-                        "category_group".to_string(),
-                        serde_json::Value::String(group_name.clone()),
-                    );
-                }
-                out.push(item_value);
-            }
-        } else if group_value.is_object() {
-            let mut item_value = group_value.clone();
-            if let serde_json::Value::Object(map) = &mut item_value
-                && !map.contains_key("category_group")
-            {
-                map.insert(
-                    "category_group".to_string(),
-                    serde_json::Value::String(group_name.clone()),
-                );
-            }
-            out.push(item_value);
-        }
-    }
-
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn has_bank_account_filter_detects_direct_flag() {
-        let args = ListArgs {
-            view: None,
-            sort: None,
-            from_date: None,
-            to_date: None,
-            updated_since: None,
-            contact: None,
-            project: None,
-            bank_account: Some("https://api.freeagent.com/v2/bank_accounts/1".to_string()),
-            user: None,
-            per_page: None,
-            query: vec![],
-        };
-
-        assert!(has_bank_account_filter(&args));
-    }
-
-    #[test]
-    fn has_bank_account_filter_detects_query_pair() {
-        let args = ListArgs {
-            view: None,
-            sort: None,
-            from_date: None,
-            to_date: None,
-            updated_since: None,
-            contact: None,
-            project: None,
-            bank_account: None,
-            user: None,
-            per_page: None,
-            query: vec!["bank_account=https://api.freeagent.com/v2/bank_accounts/1".to_string()],
-        };
-
-        assert!(has_bank_account_filter(&args));
-    }
-
-    #[test]
-    fn flatten_category_groups_flattens_array_groups() {
-        let value = serde_json::json!({
-            "general_categories": [
-                {
-                    "nominal_code": "051",
-                    "description": "Interest Received"
-                }
-            ]
-        });
-
-        let items = flatten_category_groups(&value);
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["nominal_code"], "051");
-        assert_eq!(items[0]["category_group"], "general_categories");
-    }
-
-    #[test]
-    fn flatten_category_groups_flattens_single_object_groups() {
-        let value = serde_json::json!({
-            "general_categories": {
-                "nominal_code": "051",
-                "description": "Interest Received"
-            }
-        });
-
-        let items = flatten_category_groups(&value);
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0]["nominal_code"], "051");
-        assert_eq!(items[0]["category_group"], "general_categories");
-    }
-
-    #[test]
-    fn first_bank_transaction_explanation_id_reads_array_entries() {
-        let transaction = serde_json::json!({
-            "bank_transaction_explanations": [
-                { "url": "exp-42" }
-            ]
-        });
-
-        assert_eq!(
-            first_bank_transaction_explanation_id(&transaction).as_deref(),
-            Some("exp-42")
-        );
-    }
-
-    #[test]
-    fn attachment_payload_from_path_encodes_pdf() {
-        let dir = tempdir().expect("temp dir");
-        let pdf_path = dir.path().join("receipt.pdf");
-        std::fs::write(&pdf_path, b"%PDF-1.4 mock").expect("fixture write");
-        let expected_name = pdf_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .expect("file name")
-            .to_string();
-        let payload = attachment_payload_from_path(&pdf_path).expect("payload");
-
-        assert_eq!(payload["file_name"], expected_name);
-        assert_eq!(payload["content_type"], "application/x-pdf");
-        assert!(payload["content_src"].as_str().is_some());
-    }
-
-    #[test]
-    fn sort_items_by_latest_date_orders_descending() {
-        let mut items = vec![
-            serde_json::json!({ "dated_on": "2026-02-01", "url": "a" }),
-            serde_json::json!({ "dated_on": "2026-03-01", "url": "b" }),
-            serde_json::json!({ "dated_on": "2026-01-01", "url": "c" }),
-        ];
-
-        sort_items_by_latest_date(&mut items);
-
-        assert_eq!(items[0]["url"], "b");
-        assert_eq!(items[1]["url"], "a");
-        assert_eq!(items[2]["url"], "c");
-    }
 }

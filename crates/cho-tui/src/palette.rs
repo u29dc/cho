@@ -45,8 +45,6 @@ pub enum PaletteActionKind {
     PromptPayrollPeriod,
     /// Prompt for id/URL required by get-only route.
     PromptTargetId(String),
-    /// Placeholder for intentionally disabled write actions.
-    DisabledWriteAction,
 }
 
 /// One command palette entry.
@@ -62,8 +60,6 @@ pub struct PaletteAction {
     pub kind: PaletteActionKind,
     /// Search keywords.
     pub keywords: Vec<String>,
-    /// Disabled reason shown when command cannot execute.
-    pub disabled_reason: Option<String>,
 }
 
 /// Palette runtime state.

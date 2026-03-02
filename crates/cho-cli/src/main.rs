@@ -28,8 +28,10 @@ use crate::commands::config::ConfigCommands;
 use crate::commands::payroll::{PayrollCommands, PayrollProfileCommands};
 use crate::commands::reports::ReportCommands;
 use crate::commands::resources::{
-    BankTransactionCommands, ContactCommands, ExpenseCommands, GetDeleteResourceCommands,
-    InvoiceCommands, ReadOnlyResourceCommands, ResourceCommands,
+    BankTransactionCommands, ContactCommands, CreditNoteCommands, EstimateCommands,
+    ExpenseCommands, GetDeleteResourceCommands, InvoiceCommands, JournalSetCommands,
+    ListOnlyResourceCommands, ReadOnlyResourceCommands, ResourceCommands, TimeslipCommands,
+    UserCommands, WriteOnlyResourceCommands,
 };
 use crate::commands::tax::{
     CorporationTaxReturnCommands, FinalAccountsReportCommands, SelfAssessmentReturnCommands,
@@ -130,6 +132,12 @@ enum Commands {
         #[command(subcommand)]
         command: ResourceCommands,
     },
+    /// Bank feeds.
+    #[command(name = "bank-feeds")]
+    BankFeeds {
+        #[command(subcommand)]
+        command: ReadOnlyResourceCommands,
+    },
     /// Bank transactions.
     #[command(name = "bank-transactions")]
     BankTransactions {
@@ -156,6 +164,18 @@ enum Commands {
     Categories {
         #[command(subcommand)]
         command: ResourceCommands,
+    },
+    /// CIS bands.
+    #[command(name = "cis-bands")]
+    CisBands {
+        #[command(subcommand)]
+        command: ListOnlyResourceCommands,
+    },
+    /// Email addresses.
+    #[command(name = "email-addresses")]
+    EmailAddresses {
+        #[command(subcommand)]
+        command: ListOnlyResourceCommands,
     },
     /// Accounting transactions.
     Transactions {
@@ -206,17 +226,35 @@ enum Commands {
         #[command(subcommand)]
         command: ResourceCommands,
     },
+    /// Sales tax rates (EC MOSS).
+    #[command(name = "sales-tax-rates")]
+    SalesTaxRates {
+        #[command(subcommand)]
+        command: ListOnlyResourceCommands,
+    },
 
     /// Credit notes.
     #[command(name = "credit-notes")]
     CreditNotes {
+        #[command(subcommand)]
+        command: CreditNoteCommands,
+    },
+    /// Credit note reconciliations.
+    #[command(name = "credit-note-reconciliations")]
+    CreditNoteReconciliations {
         #[command(subcommand)]
         command: ResourceCommands,
     },
     /// Estimates.
     Estimates {
         #[command(subcommand)]
-        command: ResourceCommands,
+        command: EstimateCommands,
+    },
+    /// Estimate items.
+    #[command(name = "estimate-items")]
+    EstimateItems {
+        #[command(subcommand)]
+        command: WriteOnlyResourceCommands,
     },
     /// Recurring invoices.
     #[command(name = "recurring-invoices")]
@@ -224,16 +262,22 @@ enum Commands {
         #[command(subcommand)]
         command: ReadOnlyResourceCommands,
     },
+    /// Price list items.
+    #[command(name = "price-list-items")]
+    PriceListItems {
+        #[command(subcommand)]
+        command: ResourceCommands,
+    },
     /// Journal sets.
     #[command(name = "journal-sets")]
     JournalSets {
         #[command(subcommand)]
-        command: ResourceCommands,
+        command: JournalSetCommands,
     },
     /// Users.
     Users {
         #[command(subcommand)]
-        command: ResourceCommands,
+        command: UserCommands,
     },
     /// Capital assets.
     #[command(name = "capital-assets")]
@@ -241,11 +285,38 @@ enum Commands {
         #[command(subcommand)]
         command: ReadOnlyResourceCommands,
     },
+    /// Capital asset types.
+    #[command(name = "capital-asset-types")]
+    CapitalAssetTypes {
+        #[command(subcommand)]
+        command: ResourceCommands,
+    },
+    /// Hire purchases.
+    #[command(name = "hire-purchases")]
+    HirePurchases {
+        #[command(subcommand)]
+        command: ReadOnlyResourceCommands,
+    },
+    /// Notes.
+    Notes {
+        #[command(subcommand)]
+        command: ResourceCommands,
+    },
+    /// Properties.
+    Properties {
+        #[command(subcommand)]
+        command: ResourceCommands,
+    },
     /// Stock items.
     #[command(name = "stock-items")]
     StockItems {
         #[command(subcommand)]
         command: ReadOnlyResourceCommands,
+    },
+    /// Tasks.
+    Tasks {
+        #[command(subcommand)]
+        command: ResourceCommands,
     },
     /// Projects.
     Projects {
@@ -255,7 +326,7 @@ enum Commands {
     /// Timeslips.
     Timeslips {
         #[command(subcommand)]
-        command: ResourceCommands,
+        command: TimeslipCommands,
     },
     /// Attachments.
     Attachments {
@@ -300,39 +371,44 @@ async fn main() {
 
     let tool_name = top_level_tool_name(&cli.command);
     let argv = std::env::args().collect::<Vec<_>>();
-    let _ = audit.log_command_start(tool_name, &argv);
-    let input_payload = serde_json::json!({ "tool": tool_name });
-    let _ = audit.log_command_input(tool_name, &input_payload.to_string());
+    let _ = audit.log_command_start(&tool_name, &argv);
+    let input_payload = serde_json::json!({ "tool": &tool_name });
+    let _ = audit.log_command_input(&tool_name, &input_payload.to_string());
 
     // Early commands that do not require API client.
     match &cli.command {
         Commands::Start => match commands::start::run() {
             Ok(exit_code) => {
-                let _ =
-                    audit.log_command_end(tool_name, exit_code, start.elapsed().as_millis() as u64);
+                let _ = audit.log_command_end(
+                    &tool_name,
+                    exit_code,
+                    start.elapsed().as_millis() as u64,
+                );
                 std::process::exit(exit_code);
             }
             Err(err) => {
-                emit_runtime_error(&err, json_mode, tool_name, start, Some(&audit));
+                emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
                 let code = error::exit_code(&err);
-                let _ = audit.log_command_end(tool_name, code, start.elapsed().as_millis() as u64);
+                let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
                 std::process::exit(code);
             }
         },
         Commands::Tools { name } => {
             commands::tools::run(name.as_deref(), json_mode, start, &audit);
-            let _ = audit.log_command_end(tool_name, 0, start.elapsed().as_millis() as u64);
+            let _ = audit.log_command_end(&tool_name, 0, start.elapsed().as_millis() as u64);
             return;
         }
         Commands::Health => {
             let exit_code = commands::health::run(json_mode, start, &audit).await;
-            let _ = audit.log_command_end(tool_name, exit_code, start.elapsed().as_millis() as u64);
+            let _ =
+                audit.log_command_end(&tool_name, exit_code, start.elapsed().as_millis() as u64);
             std::process::exit(exit_code);
         }
         Commands::Config { command } => {
             match commands::config::run(command, json_mode, start, &audit) {
                 Ok(()) => {
-                    let _ = audit.log_command_end(tool_name, 0, start.elapsed().as_millis() as u64);
+                    let _ =
+                        audit.log_command_end(&tool_name, 0, start.elapsed().as_millis() as u64);
                     return;
                 }
                 Err(err) => {
@@ -345,7 +421,7 @@ async fn main() {
                     );
                     let code = error::exit_code(&err);
                     let _ =
-                        audit.log_command_end(tool_name, code, start.elapsed().as_millis() as u64);
+                        audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
                     std::process::exit(code);
                 }
             }
@@ -359,9 +435,9 @@ async fn main() {
             let err = cho_sdk::error::ChoSdkError::AuthRequired {
                 message: "Missing client_id (set CHO_CLIENT_ID or auth.client_id)".to_string(),
             };
-            emit_runtime_error(&err, json_mode, tool_name, start, Some(&audit));
+            emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            let _ = audit.log_command_end(tool_name, code, start.elapsed().as_millis() as u64);
+            let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
             std::process::exit(code);
         }
     };
@@ -373,9 +449,9 @@ async fn main() {
                 message: "Missing client_secret (set CHO_CLIENT_SECRET or auth.client_secret)"
                     .to_string(),
             };
-            emit_runtime_error(&err, json_mode, tool_name, start, Some(&audit));
+            emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            let _ = audit.log_command_end(tool_name, code, start.elapsed().as_millis() as u64);
+            let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
             std::process::exit(code);
         }
     };
@@ -390,17 +466,17 @@ async fn main() {
     ) {
         Ok(auth) => auth,
         Err(err) => {
-            emit_runtime_error(&err, json_mode, tool_name, start, Some(&audit));
+            emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            let _ = audit.log_command_end(tool_name, code, start.elapsed().as_millis() as u64);
+            let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
             std::process::exit(code);
         }
     };
 
     if let Err(err) = auth.load_stored_tokens().await {
-        emit_runtime_error(&err, json_mode, tool_name, start, Some(&audit));
+        emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
         let code = error::exit_code(&err);
-        let _ = audit.log_command_end(tool_name, code, start.elapsed().as_millis() as u64);
+        let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
         std::process::exit(code);
     }
 
@@ -413,9 +489,9 @@ async fn main() {
     {
         Ok(client) => client,
         Err(err) => {
-            emit_runtime_error(&err, json_mode, tool_name, start, Some(&audit));
+            emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            let _ = audit.log_command_end(tool_name, code, start.elapsed().as_millis() as u64);
+            let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
             std::process::exit(code);
         }
     };
@@ -480,6 +556,10 @@ async fn dispatch_command(
             commands::resources::tool_name("bank-accounts", command),
             commands::resources::run_resource("bank-accounts", command, ctx, start).await,
         ),
+        Commands::BankFeeds { command } => (
+            commands::resources::tool_name_read_only("bank-feeds", command),
+            commands::resources::run_read_only_resource("bank-feeds", command, ctx, start).await,
+        ),
         Commands::BankTransactions { command } => (
             commands::resources::bank_transactions_tool_name(command),
             commands::resources::run_bank_transactions(command, ctx, start).await,
@@ -500,6 +580,15 @@ async fn dispatch_command(
         Commands::Categories { command } => (
             commands::resources::tool_name("categories", command),
             commands::resources::run_resource("categories", command, ctx, start).await,
+        ),
+        Commands::CisBands { command } => (
+            commands::resources::tool_name_list_only("cis-bands", command),
+            commands::resources::run_list_only_resource("cis-bands", command, ctx, start).await,
+        ),
+        Commands::EmailAddresses { command } => (
+            commands::resources::tool_name_list_only("email-addresses", command),
+            commands::resources::run_list_only_resource("email-addresses", command, ctx, start)
+                .await,
         ),
         Commands::Transactions { command } => (
             commands::resources::tool_name_read_only("transactions", command),
@@ -533,43 +622,83 @@ async fn dispatch_command(
             commands::resources::tool_name("sales-tax-periods", command),
             commands::resources::run_resource("sales-tax-periods", command, ctx, start).await,
         ),
+        Commands::SalesTaxRates { command } => (
+            commands::resources::tool_name_list_only("sales-tax-rates", command),
+            commands::resources::run_list_only_resource("sales-tax-rates", command, ctx, start)
+                .await,
+        ),
         Commands::CreditNotes { command } => (
-            commands::resources::tool_name("credit-notes", command),
-            commands::resources::run_resource("credit-notes", command, ctx, start).await,
+            commands::resources::credit_notes_tool_name(command),
+            commands::resources::run_credit_notes(command, ctx, start).await,
+        ),
+        Commands::CreditNoteReconciliations { command } => (
+            commands::resources::tool_name("credit-note-reconciliations", command),
+            commands::resources::run_resource("credit-note-reconciliations", command, ctx, start)
+                .await,
         ),
         Commands::Estimates { command } => (
-            commands::resources::tool_name("estimates", command),
-            commands::resources::run_resource("estimates", command, ctx, start).await,
+            commands::resources::estimates_tool_name(command),
+            commands::resources::run_estimates(command, ctx, start).await,
+        ),
+        Commands::EstimateItems { command } => (
+            commands::resources::tool_name_write_only("estimate-items", command),
+            commands::resources::run_write_only_resource("estimate-items", command, ctx, start)
+                .await,
         ),
         Commands::RecurringInvoices { command } => (
             commands::resources::tool_name_read_only("recurring-invoices", command),
             commands::resources::run_read_only_resource("recurring-invoices", command, ctx, start)
                 .await,
         ),
+        Commands::PriceListItems { command } => (
+            commands::resources::tool_name("price-list-items", command),
+            commands::resources::run_resource("price-list-items", command, ctx, start).await,
+        ),
         Commands::JournalSets { command } => (
-            commands::resources::tool_name("journal-sets", command),
-            commands::resources::run_resource("journal-sets", command, ctx, start).await,
+            commands::resources::journal_sets_tool_name(command),
+            commands::resources::run_journal_sets(command, ctx, start).await,
         ),
         Commands::Users { command } => (
-            commands::resources::tool_name("users", command),
-            commands::resources::run_resource("users", command, ctx, start).await,
+            commands::resources::users_tool_name(command),
+            commands::resources::run_users(command, ctx, start).await,
         ),
         Commands::CapitalAssets { command } => (
             commands::resources::tool_name_read_only("capital-assets", command),
             commands::resources::run_read_only_resource("capital-assets", command, ctx, start)
                 .await,
         ),
+        Commands::CapitalAssetTypes { command } => (
+            commands::resources::tool_name("capital-asset-types", command),
+            commands::resources::run_resource("capital-asset-types", command, ctx, start).await,
+        ),
+        Commands::HirePurchases { command } => (
+            commands::resources::tool_name_read_only("hire-purchases", command),
+            commands::resources::run_read_only_resource("hire-purchases", command, ctx, start)
+                .await,
+        ),
+        Commands::Notes { command } => (
+            commands::resources::tool_name("notes", command),
+            commands::resources::run_resource("notes", command, ctx, start).await,
+        ),
+        Commands::Properties { command } => (
+            commands::resources::tool_name("properties", command),
+            commands::resources::run_resource("properties", command, ctx, start).await,
+        ),
         Commands::StockItems { command } => (
             commands::resources::tool_name_read_only("stock-items", command),
             commands::resources::run_read_only_resource("stock-items", command, ctx, start).await,
+        ),
+        Commands::Tasks { command } => (
+            commands::resources::tool_name("tasks", command),
+            commands::resources::run_resource("tasks", command, ctx, start).await,
         ),
         Commands::Projects { command } => (
             commands::resources::tool_name("projects", command),
             commands::resources::run_resource("projects", command, ctx, start).await,
         ),
         Commands::Timeslips { command } => (
-            commands::resources::tool_name("timeslips", command),
-            commands::resources::run_resource("timeslips", command, ctx, start).await,
+            commands::resources::timeslips_tool_name(command),
+            commands::resources::run_timeslips(command, ctx, start).await,
         ),
         Commands::Attachments { command } => (
             commands::resources::tool_name_get_delete("attachments", command),
@@ -641,165 +770,102 @@ fn emit_bootstrap_error(
     std::process::exit(exit_code);
 }
 
-fn top_level_tool_name(command: &Commands) -> &'static str {
+fn top_level_tool_name(command: &Commands) -> String {
     match command {
-        Commands::Start => "tui.start",
+        Commands::Start => "tui.start".to_string(),
         Commands::Tools { name } => {
             if name.is_some() {
-                "tools.get"
+                "tools.get".to_string()
             } else {
-                "tools.list"
+                "tools.list".to_string()
             }
         }
-        Commands::Health => "health.check",
-        Commands::Config { command } => commands::config::tool_name(command),
-        Commands::Auth { command } => commands::auth::tool_name(command),
-        Commands::Company { command } => commands::company::tool_name(command),
-        Commands::Reports { command } => commands::reports::tool_name(command),
-        Commands::Contacts { command } => match command {
-            ContactCommands::List(_) => "contacts.list",
-            ContactCommands::Get { .. } => "contacts.get",
-            ContactCommands::Create { .. } => "contacts.create",
-            ContactCommands::Update { .. } => "contacts.update",
-            ContactCommands::Delete { .. } => "contacts.delete",
-            ContactCommands::Search { .. } => "contacts.search",
-        },
-        Commands::Invoices { command } => match command {
-            InvoiceCommands::List(_) => "invoices.list",
-            InvoiceCommands::Get { .. } => "invoices.get",
-            InvoiceCommands::Create { .. } => "invoices.create",
-            InvoiceCommands::Update { .. } => "invoices.update",
-            InvoiceCommands::Delete { .. } => "invoices.delete",
-            InvoiceCommands::Transition { .. } => "invoices.transition",
-            InvoiceCommands::SendEmail { .. } => "invoices.send-email",
-        },
-        Commands::BankAccounts { command } => match command {
-            ResourceCommands::List(_) => "bank-accounts.list",
-            ResourceCommands::Get { .. } => "bank-accounts.get",
-            ResourceCommands::Create { .. } => "bank-accounts.create",
-            ResourceCommands::Update { .. } => "bank-accounts.update",
-            ResourceCommands::Delete { .. } => "bank-accounts.delete",
-        },
-        Commands::BankTransactions { command } => match command {
-            BankTransactionCommands::List(_) => "bank-transactions.list",
-            BankTransactionCommands::ForApproval(_) => "bank-transactions.for-approval",
-            BankTransactionCommands::Get { .. } => "bank-transactions.get",
-            BankTransactionCommands::UploadStatement { .. } => "bank-transactions.upload-statement",
-            BankTransactionCommands::UpdateExplanation { .. } => {
-                "bank-transactions.update-explanation"
-            }
-        },
-        Commands::BankTransactionExplanations { command } => match command {
-            ResourceCommands::List(_) => "bank-transaction-explanations.list",
-            ResourceCommands::Get { .. } => "bank-transaction-explanations.get",
-            ResourceCommands::Create { .. } => "bank-transaction-explanations.create",
-            ResourceCommands::Update { .. } => "bank-transaction-explanations.update",
-            ResourceCommands::Delete { .. } => "bank-transaction-explanations.delete",
-        },
-        Commands::Bills { command } => match command {
-            ResourceCommands::List(_) => "bills.list",
-            ResourceCommands::Get { .. } => "bills.get",
-            ResourceCommands::Create { .. } => "bills.create",
-            ResourceCommands::Update { .. } => "bills.update",
-            ResourceCommands::Delete { .. } => "bills.delete",
-        },
-        Commands::Expenses { command } => match command {
-            ExpenseCommands::List(_) => "expenses.list",
-            ExpenseCommands::Get { .. } => "expenses.get",
-            ExpenseCommands::Create { .. } => "expenses.create",
-            ExpenseCommands::Update { .. } => "expenses.update",
-            ExpenseCommands::Delete { .. } => "expenses.delete",
-            ExpenseCommands::MileageSettings => "expenses.mileage-settings",
-        },
-        Commands::Categories { command } => match command {
-            ResourceCommands::List(_) => "categories.list",
-            ResourceCommands::Get { .. } => "categories.get",
-            ResourceCommands::Create { .. } => "categories.create",
-            ResourceCommands::Update { .. } => "categories.update",
-            ResourceCommands::Delete { .. } => "categories.delete",
-        },
-        Commands::Transactions { command } => match command {
-            ReadOnlyResourceCommands::List(_) => "transactions.list",
-            ReadOnlyResourceCommands::Get { .. } => "transactions.get",
-        },
+        Commands::Health => "health.check".to_string(),
+        Commands::Config { command } => commands::config::tool_name(command).to_string(),
+        Commands::Auth { command } => commands::auth::tool_name(command).to_string(),
+        Commands::Company { command } => commands::company::tool_name(command).to_string(),
+        Commands::Reports { command } => commands::reports::tool_name(command).to_string(),
+        Commands::Contacts { command } => commands::resources::contacts_tool_name(command),
+        Commands::Invoices { command } => commands::resources::invoices_tool_name(command),
+        Commands::BankAccounts { command } => {
+            commands::resources::tool_name("bank-accounts", command)
+        }
+        Commands::BankFeeds { command } => {
+            commands::resources::tool_name_read_only("bank-feeds", command)
+        }
+        Commands::BankTransactions { command } => {
+            commands::resources::bank_transactions_tool_name(command)
+        }
+        Commands::BankTransactionExplanations { command } => {
+            commands::resources::tool_name("bank-transaction-explanations", command)
+        }
+        Commands::Bills { command } => commands::resources::tool_name("bills", command),
+        Commands::Expenses { command } => commands::resources::expenses_tool_name(command),
+        Commands::Categories { command } => commands::resources::tool_name("categories", command),
+        Commands::CisBands { command } => {
+            commands::resources::tool_name_list_only("cis-bands", command)
+        }
+        Commands::EmailAddresses { command } => {
+            commands::resources::tool_name_list_only("email-addresses", command)
+        }
+        Commands::Transactions { command } => {
+            commands::resources::tool_name_read_only("transactions", command)
+        }
         Commands::CorporationTaxReturns { command } => {
-            commands::tax::corporation_tool_name(command)
+            commands::tax::corporation_tool_name(command).to_string()
         }
         Commands::SelfAssessmentReturns { command } => {
-            commands::tax::self_assessment_tool_name(command)
+            commands::tax::self_assessment_tool_name(command).to_string()
         }
-        Commands::VatReturns { command } => commands::tax::vat_tool_name(command),
+        Commands::VatReturns { command } => commands::tax::vat_tool_name(command).to_string(),
         Commands::FinalAccountsReports { command } => {
-            commands::tax::final_accounts_tool_name(command)
+            commands::tax::final_accounts_tool_name(command).to_string()
         }
-        Commands::Payroll { command } => commands::payroll::payroll_tool_name(command),
+        Commands::Payroll { command } => commands::payroll::payroll_tool_name(command).to_string(),
         Commands::PayrollProfiles { command } => {
-            commands::payroll::payroll_profile_tool_name(command)
+            commands::payroll::payroll_profile_tool_name(command).to_string()
         }
-        Commands::SalesTaxPeriods { command } => match command {
-            ResourceCommands::List(_) => "sales-tax-periods.list",
-            ResourceCommands::Get { .. } => "sales-tax-periods.get",
-            ResourceCommands::Create { .. } => "sales-tax-periods.create",
-            ResourceCommands::Update { .. } => "sales-tax-periods.update",
-            ResourceCommands::Delete { .. } => "sales-tax-periods.delete",
-        },
-        Commands::CreditNotes { command } => match command {
-            ResourceCommands::List(_) => "credit-notes.list",
-            ResourceCommands::Get { .. } => "credit-notes.get",
-            ResourceCommands::Create { .. } => "credit-notes.create",
-            ResourceCommands::Update { .. } => "credit-notes.update",
-            ResourceCommands::Delete { .. } => "credit-notes.delete",
-        },
-        Commands::Estimates { command } => match command {
-            ResourceCommands::List(_) => "estimates.list",
-            ResourceCommands::Get { .. } => "estimates.get",
-            ResourceCommands::Create { .. } => "estimates.create",
-            ResourceCommands::Update { .. } => "estimates.update",
-            ResourceCommands::Delete { .. } => "estimates.delete",
-        },
-        Commands::RecurringInvoices { command } => match command {
-            ReadOnlyResourceCommands::List(_) => "recurring-invoices.list",
-            ReadOnlyResourceCommands::Get { .. } => "recurring-invoices.get",
-        },
-        Commands::JournalSets { command } => match command {
-            ResourceCommands::List(_) => "journal-sets.list",
-            ResourceCommands::Get { .. } => "journal-sets.get",
-            ResourceCommands::Create { .. } => "journal-sets.create",
-            ResourceCommands::Update { .. } => "journal-sets.update",
-            ResourceCommands::Delete { .. } => "journal-sets.delete",
-        },
-        Commands::Users { command } => match command {
-            ResourceCommands::List(_) => "users.list",
-            ResourceCommands::Get { .. } => "users.get",
-            ResourceCommands::Create { .. } => "users.create",
-            ResourceCommands::Update { .. } => "users.update",
-            ResourceCommands::Delete { .. } => "users.delete",
-        },
-        Commands::CapitalAssets { command } => match command {
-            ReadOnlyResourceCommands::List(_) => "capital-assets.list",
-            ReadOnlyResourceCommands::Get { .. } => "capital-assets.get",
-        },
-        Commands::StockItems { command } => match command {
-            ReadOnlyResourceCommands::List(_) => "stock-items.list",
-            ReadOnlyResourceCommands::Get { .. } => "stock-items.get",
-        },
-        Commands::Projects { command } => match command {
-            ResourceCommands::List(_) => "projects.list",
-            ResourceCommands::Get { .. } => "projects.get",
-            ResourceCommands::Create { .. } => "projects.create",
-            ResourceCommands::Update { .. } => "projects.update",
-            ResourceCommands::Delete { .. } => "projects.delete",
-        },
-        Commands::Timeslips { command } => match command {
-            ResourceCommands::List(_) => "timeslips.list",
-            ResourceCommands::Get { .. } => "timeslips.get",
-            ResourceCommands::Create { .. } => "timeslips.create",
-            ResourceCommands::Update { .. } => "timeslips.update",
-            ResourceCommands::Delete { .. } => "timeslips.delete",
-        },
-        Commands::Attachments { command } => match command {
-            GetDeleteResourceCommands::Get { .. } => "attachments.get",
-            GetDeleteResourceCommands::Delete { .. } => "attachments.delete",
-        },
+        Commands::SalesTaxPeriods { command } => {
+            commands::resources::tool_name("sales-tax-periods", command)
+        }
+        Commands::SalesTaxRates { command } => {
+            commands::resources::tool_name_list_only("sales-tax-rates", command)
+        }
+        Commands::CreditNotes { command } => commands::resources::credit_notes_tool_name(command),
+        Commands::CreditNoteReconciliations { command } => {
+            commands::resources::tool_name("credit-note-reconciliations", command)
+        }
+        Commands::Estimates { command } => commands::resources::estimates_tool_name(command),
+        Commands::EstimateItems { command } => {
+            commands::resources::tool_name_write_only("estimate-items", command)
+        }
+        Commands::RecurringInvoices { command } => {
+            commands::resources::tool_name_read_only("recurring-invoices", command)
+        }
+        Commands::PriceListItems { command } => {
+            commands::resources::tool_name("price-list-items", command)
+        }
+        Commands::JournalSets { command } => commands::resources::journal_sets_tool_name(command),
+        Commands::Users { command } => commands::resources::users_tool_name(command),
+        Commands::CapitalAssets { command } => {
+            commands::resources::tool_name_read_only("capital-assets", command)
+        }
+        Commands::CapitalAssetTypes { command } => {
+            commands::resources::tool_name("capital-asset-types", command)
+        }
+        Commands::HirePurchases { command } => {
+            commands::resources::tool_name_read_only("hire-purchases", command)
+        }
+        Commands::Notes { command } => commands::resources::tool_name("notes", command),
+        Commands::Properties { command } => commands::resources::tool_name("properties", command),
+        Commands::StockItems { command } => {
+            commands::resources::tool_name_read_only("stock-items", command)
+        }
+        Commands::Tasks { command } => commands::resources::tool_name("tasks", command),
+        Commands::Projects { command } => commands::resources::tool_name("projects", command),
+        Commands::Timeslips { command } => commands::resources::timeslips_tool_name(command),
+        Commands::Attachments { command } => {
+            commands::resources::tool_name_get_delete("attachments", command)
+        }
     }
 }

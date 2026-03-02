@@ -52,9 +52,4 @@ impl Theme {
             .fg(Self::ACCENT)
             .add_modifier(Modifier::BOLD)
     }
-
-    /// Disabled command style.
-    pub fn disabled() -> Style {
-        Style::default().fg(Self::MUTED)
-    }
 }

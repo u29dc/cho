@@ -25,6 +25,8 @@ pub enum ReportCommands {
         #[arg(long)]
         as_at_date: Option<String>,
     },
+    /// Balance sheet opening balances.
+    BalanceSheetOpeningBalances,
     /// Trial balance summary.
     TrialBalance {
         /// Start date (YYYY-MM-DD).
@@ -34,6 +36,8 @@ pub enum ReportCommands {
         #[arg(long)]
         to_date: Option<String>,
     },
+    /// Trial balance opening balances.
+    TrialBalanceOpeningBalances,
     /// Cashflow report.
     Cashflow {
         /// Start date (YYYY-MM-DD).
@@ -53,7 +57,9 @@ pub fn tool_name(command: &ReportCommands) -> &'static str {
     match command {
         ReportCommands::ProfitAndLoss { .. } => "reports.profit-and-loss",
         ReportCommands::BalanceSheet { .. } => "reports.balance-sheet",
+        ReportCommands::BalanceSheetOpeningBalances => "reports.balance-sheet-opening-balances",
         ReportCommands::TrialBalance { .. } => "reports.trial-balance",
+        ReportCommands::TrialBalanceOpeningBalances => "reports.trial-balance-opening-balances",
         ReportCommands::Cashflow { .. } => "reports.cashflow",
     }
 }
@@ -80,6 +86,13 @@ pub async fn run(command: &ReportCommands, ctx: &CliContext, start: Instant) -> 
                 .await?;
             ctx.emit_success("reports.balance-sheet", &value, start)
         }
+        ReportCommands::BalanceSheetOpeningBalances => {
+            let value = ctx
+                .client()
+                .get_json("accounting/balance_sheet/opening_balances", &[])
+                .await?;
+            ctx.emit_success("reports.balance-sheet-opening-balances", &value, start)
+        }
         ReportCommands::TrialBalance { from_date, to_date } => {
             let mut query = Vec::new();
             maybe_push(&mut query, "from_date", from_date);
@@ -89,6 +102,13 @@ pub async fn run(command: &ReportCommands, ctx: &CliContext, start: Instant) -> 
                 .get_json("accounting/trial_balance/summary", &query)
                 .await?;
             ctx.emit_success("reports.trial-balance", &value, start)
+        }
+        ReportCommands::TrialBalanceOpeningBalances => {
+            let value = ctx
+                .client()
+                .get_json("accounting/trial_balance/summary/opening_balances", &[])
+                .await?;
+            ctx.emit_success("reports.trial-balance-opening-balances", &value, start)
         }
         ReportCommands::Cashflow {
             from_date,

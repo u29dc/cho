@@ -416,16 +416,8 @@ fn render_palette(frame: &mut Frame<'_>, app: &App) {
                 let Some(action) = app.palette_actions.get(*index) else {
                     continue;
                 };
-                let left = if let Some(reason) = &action.disabled_reason {
-                    format!("{} (disabled: {reason})", action.title)
-                } else {
-                    action.title.clone()
-                };
-                let mut style = if action.disabled_reason.is_some() {
-                    Theme::disabled()
-                } else {
-                    Theme::text()
-                };
+                let left = action.title.clone();
+                let mut style = Theme::text();
                 if Some(*index) == selected_source {
                     style = Theme::selected();
                 }

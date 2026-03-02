@@ -260,6 +260,33 @@ async fn bank_transactions_for_approval_uses_marked_for_review_view() {
     assert_eq!(data[0]["url"], "btx-1");
 }
 
+#[tokio::test]
+async fn bank_transactions_delete_uses_documented_singular_endpoint_path() {
+    let home = TempDir::new().expect("temp home");
+    enable_writes(home.path());
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/v2/bank_transaction/tx-44"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "deleted"
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &["bank-transactions", "delete", "tx-44", "--json"],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["data"]["status"], "deleted");
+}
+
 #[test]
 fn mutating_commands_are_blocked_when_write_gate_is_disabled() {
     let home = TempDir::new().expect("temp home");
@@ -531,4 +558,134 @@ async fn vat_mark_payment_paid_uses_put_endpoint() {
         json["data"]["vat_return"]["url"],
         "https://api.freeagent.com/v2/vat_returns/2026-03-31"
     );
+}
+
+#[test]
+fn help_for_list_only_and_write_only_resources_shows_expected_commands() {
+    let home = TempDir::new().expect("temp home");
+
+    let (cis_code, cis_help) = run_help(home.path(), &["cis-bands", "--help"]);
+    assert_eq!(cis_code, 0);
+    assert!(cis_help.contains("\n  list"));
+    assert!(!cis_help.contains("\n  get"));
+    assert!(!cis_help.contains("\n  create"));
+
+    let (email_code, email_help) = run_help(home.path(), &["email-addresses", "--help"]);
+    assert_eq!(email_code, 0);
+    assert!(email_help.contains("\n  list"));
+    assert!(!email_help.contains("\n  get"));
+    assert!(!email_help.contains("\n  create"));
+
+    let (estimate_items_code, estimate_items_help) =
+        run_help(home.path(), &["estimate-items", "--help"]);
+    assert_eq!(estimate_items_code, 0);
+    assert!(estimate_items_help.contains("\n  create"));
+    assert!(estimate_items_help.contains("\n  update"));
+    assert!(estimate_items_help.contains("\n  delete"));
+    assert!(!estimate_items_help.contains("\n  list"));
+    assert!(!estimate_items_help.contains("\n  get"));
+}
+
+#[tokio::test]
+async fn invoices_timeline_hits_dedicated_endpoint() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/invoices/timeline"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "timeline_events": [
+                { "type": "sent", "invoice_url": "https://api.freeagent.com/v2/invoices/1" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &["invoices", "timeline", "--json"],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["data"]["timeline_events"][0]["type"], "sent");
+}
+
+#[tokio::test]
+async fn timeslips_start_timer_uses_post_endpoint() {
+    let home = TempDir::new().expect("temp home");
+    enable_writes(home.path());
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v2/timeslips/42/timer"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "timeslip": { "url": "https://api.freeagent.com/v2/timeslips/42", "timer_running": true }
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &["timeslips", "start-timer", "42", "--json"],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["ok"], true);
+    assert_eq!(
+        json["data"]["timeslip"]["url"],
+        "https://api.freeagent.com/v2/timeslips/42"
+    );
+}
+
+#[tokio::test]
+async fn users_update_me_uses_put_users_me_endpoint() {
+    let home = TempDir::new().expect("temp home");
+    enable_writes(home.path());
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    let payload_path = home.path().join("user-update.json");
+    fs::write(
+        &payload_path,
+        serde_json::to_string(&json!({
+            "user": {
+                "first_name": "Ada"
+            }
+        }))
+        .expect("payload json"),
+    )
+    .expect("payload file should be written");
+
+    Mock::given(method("PUT"))
+        .and(path("/v2/users/me"))
+        .and(body_partial_json(json!({
+            "user": {
+                "first_name": "Ada"
+            }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "user": { "url": "https://api.freeagent.com/v2/users/1", "first_name": "Ada" }
+        })))
+        .mount(&server)
+        .await;
+
+    let payload_arg = payload_path.to_string_lossy().to_string();
+    let args = vec!["users", "update-me", "--file", &payload_arg, "--json"];
+    let (code, json, _) = run_json(
+        home.path(),
+        &args,
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["data"]["user"]["first_name"], "Ada");
 }

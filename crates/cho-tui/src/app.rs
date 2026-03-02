@@ -794,7 +794,6 @@ impl App {
             section: PaletteSection::Context,
             kind: PaletteActionKind::Refresh,
             keywords: vec!["reload".to_string(), "refresh".to_string()],
-            disabled_reason: None,
         });
 
         match route.kind {
@@ -808,7 +807,6 @@ impl App {
                     section: PaletteSection::Context,
                     kind: PaletteActionKind::PromptBankAccount,
                     keywords: vec!["bank".to_string(), "filter".to_string()],
-                    disabled_reason: None,
                 });
             }
             RouteKind::SelfAssessmentReturns => actions.push(PaletteAction {
@@ -821,7 +819,6 @@ impl App {
                     "assessment".to_string(),
                     "user".to_string(),
                 ],
-                disabled_reason: None,
             }),
             RouteKind::PayrollPeriods | RouteKind::PayrollProfiles => actions.push(PaletteAction {
                 title: "Set payroll year".to_string(),
@@ -829,7 +826,6 @@ impl App {
                 section: PaletteSection::Context,
                 kind: PaletteActionKind::PromptPayrollYear,
                 keywords: vec!["payroll".to_string(), "year".to_string()],
-                disabled_reason: None,
             }),
             RouteKind::PayrollPeriodDetail => {
                 actions.push(PaletteAction {
@@ -838,7 +834,6 @@ impl App {
                     section: PaletteSection::Context,
                     kind: PaletteActionKind::PromptPayrollYear,
                     keywords: vec!["payroll".to_string(), "year".to_string()],
-                    disabled_reason: None,
                 });
                 actions.push(PaletteAction {
                     title: "Set payroll period".to_string(),
@@ -846,7 +841,6 @@ impl App {
                     section: PaletteSection::Context,
                     kind: PaletteActionKind::PromptPayrollPeriod,
                     keywords: vec!["payroll".to_string(), "period".to_string()],
-                    disabled_reason: None,
                 });
             }
             _ => {}
@@ -862,11 +856,8 @@ impl App {
                 section: PaletteSection::Context,
                 kind: PaletteActionKind::PromptTargetId(route.id.clone()),
                 keywords: vec!["id".to_string(), "url".to_string(), "target".to_string()],
-                disabled_reason: None,
             });
         }
-
-        actions.extend(self.build_disabled_write_actions(route));
 
         for route in &self.routes {
             actions.push(PaletteAction {
@@ -875,7 +866,6 @@ impl App {
                 section: PaletteSection::Navigate,
                 kind: PaletteActionKind::Navigate(route.id.clone()),
                 keywords: vec![route.id.clone(), route.workspace.label().to_string()],
-                disabled_reason: None,
             });
         }
 
@@ -893,7 +883,6 @@ impl App {
                 "tree".to_string(),
                 "sidebar".to_string(),
             ],
-            disabled_reason: None,
         });
         actions.push(PaletteAction {
             title: "Refresh".to_string(),
@@ -901,7 +890,6 @@ impl App {
             section: PaletteSection::Global,
             kind: PaletteActionKind::Refresh,
             keywords: vec!["reload".to_string(), "refresh".to_string()],
-            disabled_reason: None,
         });
         actions.push(PaletteAction {
             title: "Quit".to_string(),
@@ -909,70 +897,7 @@ impl App {
             section: PaletteSection::Global,
             kind: PaletteActionKind::Quit,
             keywords: vec!["exit".to_string(), "quit".to_string()],
-            disabled_reason: None,
         });
-
-        actions
-    }
-
-    fn build_disabled_write_actions(&self, route: &RouteDefinition) -> Vec<PaletteAction> {
-        let mut actions = Vec::new();
-        let reason = "write actions disabled in read-only phase".to_string();
-
-        if let RouteKind::Resource(spec) = route.kind {
-            if spec.capabilities.create {
-                actions.push(disabled_action("Create", route, reason.clone()));
-            }
-            if spec.capabilities.update {
-                actions.push(disabled_action("Update selected", route, reason.clone()));
-            }
-            if spec.capabilities.delete {
-                actions.push(disabled_action("Delete selected", route, reason.clone()));
-            }
-            if spec.name == "invoices" {
-                for title in [
-                    "Transition invoice: mark as draft",
-                    "Transition invoice: mark as sent",
-                    "Transition invoice: mark as scheduled",
-                    "Transition invoice: mark as cancelled",
-                    "Transition invoice: convert to credit note",
-                    "Send invoice email",
-                ] {
-                    actions.push(disabled_action(title, route, reason.clone()));
-                }
-            }
-            if spec.name == "bank-transactions" {
-                actions.push(disabled_action("Upload statement", route, reason.clone()));
-            }
-            if matches!(
-                spec.name,
-                "vat-returns" | "corporation-tax-returns" | "final-accounts-reports"
-            ) {
-                for title in ["Mark filed", "Mark unfiled", "Mark paid", "Mark unpaid"] {
-                    actions.push(disabled_action(title, route, reason.clone()));
-                }
-            }
-        }
-
-        if matches!(route.kind, RouteKind::SelfAssessmentReturns) {
-            for title in [
-                "Mark filed",
-                "Mark unfiled",
-                "Mark payment paid",
-                "Mark payment unpaid",
-            ] {
-                actions.push(disabled_action(title, route, reason.clone()));
-            }
-        }
-
-        if matches!(
-            route.kind,
-            RouteKind::PayrollPeriods | RouteKind::PayrollPeriodDetail | RouteKind::PayrollProfiles
-        ) {
-            for title in ["Mark payroll payment paid", "Mark payroll payment unpaid"] {
-                actions.push(disabled_action(title, route, reason.clone()));
-            }
-        }
 
         actions
     }
@@ -1040,11 +965,6 @@ impl App {
         let Some(action) = self.palette_actions.get(source_index).cloned() else {
             return;
         };
-
-        if let Some(reason) = action.disabled_reason {
-            self.status = reason;
-            return;
-        }
 
         match action.kind {
             PaletteActionKind::Navigate(route_id) => {
@@ -1123,7 +1043,6 @@ impl App {
                 });
                 self.close_palette();
             }
-            PaletteActionKind::DisabledWriteAction => {}
         }
     }
 
@@ -1417,17 +1336,6 @@ impl App {
                 Vec::new()
             }
         }
-    }
-}
-
-fn disabled_action(title: &str, route: &RouteDefinition, reason: String) -> PaletteAction {
-    PaletteAction {
-        title: title.to_string(),
-        context: route.label.clone(),
-        section: PaletteSection::Context,
-        kind: PaletteActionKind::DisabledWriteAction,
-        keywords: vec!["write".to_string(), "mutate".to_string(), title.to_string()],
-        disabled_reason: Some(reason),
     }
 }
 

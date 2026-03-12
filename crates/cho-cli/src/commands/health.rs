@@ -9,6 +9,7 @@ use secrecy::SecretString;
 
 use crate::audit::AuditLogger;
 use crate::envelope;
+use crate::output::{OutputFormat, OutputMode, format_value};
 
 use super::utils::AppConfig;
 
@@ -40,7 +41,7 @@ struct HealthResponse {
 }
 
 /// Runs health checks and returns process exit code.
-pub async fn run(json_mode: bool, start: Instant, audit: &AuditLogger) -> i32 {
+pub async fn run(output_mode: OutputMode, start: Instant, audit: &AuditLogger) -> i32 {
     let mut checks = Vec::new();
 
     checks.push(check_home());
@@ -71,15 +72,17 @@ pub async fn run(json_mode: bool, start: Instant, audit: &AuditLogger) -> i32 {
         summary: Summary { pass, warn, fail },
     };
 
-    if json_mode {
-        let output = envelope::emit_success("health.check", payload, start, None, None, None);
-        println!("{output}");
-        let _ = audit.log_command_output("health.check", &output);
-    } else {
-        let output = render_human(&payload);
-        eprintln!("{output}");
-        let _ = audit.log_command_output("health.check", &output);
-    }
+    let output = match output_mode {
+        OutputMode::Json => {
+            envelope::emit_success("health.check", &payload, start, None, None, None)
+        }
+        OutputMode::Text => render_human(&payload),
+        OutputMode::Table => format_value(&tabular_payload(&payload), OutputFormat::Table),
+        OutputMode::Csv => format_value(&tabular_payload(&payload), OutputFormat::Csv),
+    };
+
+    println!("{output}");
+    let _ = audit.log_command_output("health.check", &output);
 
     if blocked { 2 } else { 0 }
 }
@@ -317,4 +320,27 @@ fn render_human(response: &HealthResponse) -> String {
     ));
 
     out
+}
+
+fn tabular_payload(response: &HealthResponse) -> serde_json::Value {
+    serde_json::Value::Array(
+        response
+            .checks
+            .iter()
+            .map(|check| {
+                serde_json::json!({
+                    "overall_status": response.status,
+                    "pass": response.summary.pass,
+                    "warn": response.summary.warn,
+                    "fail": response.summary.fail,
+                    "id": check.id,
+                    "label": check.label,
+                    "status": check.status,
+                    "severity": check.severity,
+                    "detail": check.detail,
+                    "fix": check.fix,
+                })
+            })
+            .collect(),
+    )
 }

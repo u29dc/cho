@@ -48,24 +48,24 @@ Primary API references:
 
 Core orientation commands:
 
-- `cho tools --json`
-- `cho tools <name> --json`
-- `cho health --json`
-- `cho config show --json`
-- `cho config set <key> <value> --json`
+- `cho tools`
+- `cho tools <name>`
+- `cho health`
+- `cho config show`
+- `cho config set <key> <value>`
 - `cho start` (launches `cho-tui`)
 
 Auth:
 
-- `cho auth login [--port <n>] [--no-browser] --json`
-- `cho auth status --json`
-- `cho auth refresh --json`
-- `cho auth logout --json`
+- `cho auth login [--port <n>] [--no-browser]`
+- `cho auth status`
+- `cho auth refresh`
+- `cho auth logout`
 
 Company and reports:
 
-- `cho company {get|tax-timeline|business-categories} --json`
-- `cho reports {profit-and-loss|balance-sheet|trial-balance|cashflow} --json`
+- `cho company {get|tax-timeline|business-categories}`
+- `cho reports {profit-and-loss|balance-sheet|trial-balance|cashflow}`
 
 Resource groups (agent primitives):
 
@@ -116,7 +116,7 @@ Invariants:
 - `cho-sdk` is interface-agnostic and reusable.
 - `cho-cli` is a thin command adapter around SDK primitives.
 - `cho-tui` is a read-first terminal UI over SDK routes with command-palette navigation.
-- JSON mode prints one compact envelope line to stdout.
+- Non-interactive commands print one compact JSON envelope line to stdout by default; use `--text` or `--format table|csv` for human output.
 - Error envelopes use stable codes + hints.
 - Mutating operations require `[safety] allow_writes = true`.
 - Every command start/input/output/end is appended to `history.log` with timestamp and run id.

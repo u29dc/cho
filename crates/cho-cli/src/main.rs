@@ -10,7 +10,6 @@ mod error;
 mod output;
 mod registry;
 
-use std::io::IsTerminal;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -39,20 +38,20 @@ use crate::commands::tax::{
 };
 use crate::commands::utils::AppConfig;
 use crate::context::CliContext;
-use crate::output::OutputFormat;
 use crate::output::json::JsonOptions;
+use crate::output::{OutputFormat, OutputMode};
 
 /// `cho` CLI args.
 #[derive(Debug, Parser)]
 #[command(name = "cho", version, about, long_about = None)]
 struct Cli {
-    /// Output format.
+    /// Human-readable output format.
     #[arg(long, value_enum, global = true)]
     format: Option<OutputFormat>,
 
-    /// Shorthand for `--format json`.
-    #[arg(long, global = true)]
-    json: bool,
+    /// Emit human-readable text on stdout instead of the default JSON envelope.
+    #[arg(long, global = true, conflicts_with = "format")]
+    text: bool,
 
     /// Convert decimal-like numbers to strings in JSON output.
     #[arg(long, global = true)]
@@ -339,6 +338,8 @@ enum Commands {
 async fn main() {
     let start = Instant::now();
     let cli = Cli::parse();
+    let output_mode = resolve_output_mode(&cli);
+    let json_mode = output_mode.is_json();
 
     if cli.verbose {
         let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -348,13 +349,11 @@ async fn main() {
     let config = match AppConfig::load() {
         Ok(config) => config,
         Err(err) => {
-            emit_bootstrap_error(&err, cli.json, "config.load", start, 2, None);
+            emit_bootstrap_error(&err, json_mode, "config.load", start, 2, None);
             return;
         }
     };
 
-    let format = resolve_output_format(&cli, &config);
-    let json_mode = format == OutputFormat::Json;
     let limit = cli.limit.or(config.defaults.limit).unwrap_or(100);
 
     let run_id = uuid::Uuid::new_v4().to_string();
@@ -394,18 +393,18 @@ async fn main() {
             }
         },
         Commands::Tools { name } => {
-            commands::tools::run(name.as_deref(), json_mode, start, &audit);
+            commands::tools::run(name.as_deref(), output_mode, start, &audit);
             let _ = audit.log_command_end(&tool_name, 0, start.elapsed().as_millis() as u64);
             return;
         }
         Commands::Health => {
-            let exit_code = commands::health::run(json_mode, start, &audit).await;
+            let exit_code = commands::health::run(output_mode, start, &audit).await;
             let _ =
                 audit.log_command_end(&tool_name, exit_code, start.elapsed().as_millis() as u64);
             std::process::exit(exit_code);
         }
         Commands::Config { command } => {
-            match commands::config::run(command, json_mode, start, &audit) {
+            match commands::config::run(command, output_mode, start, &audit) {
                 Ok(()) => {
                     let _ =
                         audit.log_command_end(&tool_name, 0, start.elapsed().as_millis() as u64);
@@ -498,7 +497,7 @@ async fn main() {
 
     let context = CliContext::new(
         client,
-        format,
+        output_mode,
         JsonOptions {
             precise: cli.precise,
         },
@@ -707,28 +706,18 @@ async fn dispatch_command(
     }
 }
 
-fn resolve_output_format(cli: &Cli, config: &AppConfig) -> OutputFormat {
-    if cli.json {
-        return OutputFormat::Json;
-    }
-
+fn resolve_output_mode(cli: &Cli) -> OutputMode {
     if let Some(format) = cli.format {
-        return format;
+        return match format {
+            OutputFormat::Table => OutputMode::Table,
+            OutputFormat::Csv => OutputMode::Csv,
+        };
     }
 
-    if let Some(default) = config.defaults.format.as_deref() {
-        match default {
-            "json" => return OutputFormat::Json,
-            "table" => return OutputFormat::Table,
-            "csv" => return OutputFormat::Csv,
-            _ => {}
-        }
-    }
-
-    if std::io::stdout().is_terminal() {
-        OutputFormat::Table
+    if cli.text {
+        OutputMode::Text
     } else {
-        OutputFormat::Json
+        OutputMode::Json
     }
 }
 

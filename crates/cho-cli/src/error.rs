@@ -59,13 +59,13 @@ impl ErrorCode {
         match self {
             Self::AuthRequired => "Run 'cho auth login' to authenticate",
             Self::TokenExpired => "Run 'cho auth login' to re-authenticate",
-            Self::RateLimited => "Wait and retry using error.retry_after when provided",
+            Self::RateLimited => "Wait and retry using error.details.retryAfter when provided",
             Self::NotFound => "Verify the resource identifier/path",
             Self::ValidationError => "Check request payload fields and values",
             Self::ApiError => "Retry once and inspect FreeAgent API response details",
             Self::NetworkError => "Check network connectivity and retry",
             Self::ParseError => "Use --verbose and inspect raw response data",
-            Self::ConfigError => "Run 'cho health --json' and fix reported checks",
+            Self::ConfigError => "Run 'cho health' and fix reported checks",
             Self::WriteNotAllowed => "Set [safety] allow_writes = true in config.toml",
             Self::UsageError => "Run command with --help for valid arguments",
             Self::AuditLogUnavailable => {
@@ -116,8 +116,10 @@ impl From<&ChoSdkError> for ErrorCode {
 /// Formats an error for current output mode.
 pub fn format_error(err: &ChoSdkError, json_mode: bool, tool: &str, start: Instant) -> String {
     let code = ErrorCode::from(err);
-    let retry_after = match err {
-        ChoSdkError::RateLimited { retry_after } => Some(*retry_after),
+    let details = match err {
+        ChoSdkError::RateLimited { retry_after } => {
+            Some(serde_json::json!({ "retryAfter": retry_after }))
+        }
         _ => None,
     };
 
@@ -127,7 +129,7 @@ pub fn format_error(err: &ChoSdkError, json_mode: bool, tool: &str, start: Insta
             code.as_str(),
             err.to_string(),
             code.hint().to_string(),
-            retry_after,
+            details,
             start,
         )
     } else {

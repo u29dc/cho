@@ -38,18 +38,13 @@ pub struct AuthConfig {
 /// Defaults config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefaultsConfig {
-    /// Default output format.
-    pub format: Option<String>,
     /// Default list limit.
     pub limit: Option<usize>,
 }
 
 impl Default for DefaultsConfig {
     fn default() -> Self {
-        Self {
-            format: Some("json".to_string()),
-            limit: Some(100),
-        }
+        Self { limit: Some(100) }
     }
 }
 
@@ -168,7 +163,6 @@ impl AppConfig {
         match key {
             "auth.client_id" => self.auth.client_id = Some(value.to_string()),
             "auth.client_secret" => self.auth.client_secret = Some(value.to_string()),
-            "defaults.format" => self.defaults.format = Some(value.to_string()),
             "defaults.limit" => {
                 let parsed = value.parse::<usize>().map_err(|e| ChoSdkError::Config {
                     message: format!("defaults.limit must be an integer: {e}"),

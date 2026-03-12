@@ -35,9 +35,9 @@ pub struct EnvelopeError {
     pub message: String,
     /// Actionable hint.
     pub hint: String,
-    /// Retry delay when applicable.
+    /// Optional structured details.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub retry_after: Option<u64>,
+    pub details: Option<serde_json::Value>,
 }
 
 /// Envelope metadata.
@@ -95,7 +95,7 @@ pub fn emit_error(
     code: &'static str,
     message: String,
     hint: String,
-    retry_after: Option<u64>,
+    details: Option<serde_json::Value>,
     start: Instant,
 ) -> String {
     let envelope = ErrorEnvelope {
@@ -104,7 +104,7 @@ pub fn emit_error(
             code,
             message,
             hint,
-            retry_after,
+            details,
         },
         meta: Meta {
             tool: tool.to_string(),

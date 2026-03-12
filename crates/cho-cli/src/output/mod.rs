@@ -6,11 +6,9 @@ pub mod table;
 
 use serde_json::Value;
 
-/// Output format.
+/// Human-readable output format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum OutputFormat {
-    /// JSON output.
-    Json,
     /// Table output.
     Table,
     /// CSV output.
@@ -20,9 +18,47 @@ pub enum OutputFormat {
 impl std::fmt::Display for OutputFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Json => write!(f, "json"),
             Self::Table => write!(f, "table"),
             Self::Csv => write!(f, "csv"),
+        }
+    }
+}
+
+/// Effective output mode after CLI flag resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputMode {
+    /// Compact JSON envelope on stdout.
+    Json,
+    /// Human-readable text on stdout.
+    Text,
+    /// Human-readable table on stdout.
+    Table,
+    /// Human-readable CSV on stdout.
+    Csv,
+}
+
+impl OutputMode {
+    /// Returns true when the command should emit a JSON envelope.
+    pub fn is_json(self) -> bool {
+        matches!(self, Self::Json)
+    }
+}
+
+/// Formats a structured JSON value as human-readable table or CSV output.
+pub fn format_value(value: &Value, format: OutputFormat) -> String {
+    let (headers, rows) = value_to_rows(value);
+
+    match format {
+        OutputFormat::Table => {
+            let columns = headers
+                .iter()
+                .map(|header| crate::output::table::text_col_static(header))
+                .collect::<Vec<_>>();
+            crate::output::table::format_table(&columns, &rows)
+        }
+        OutputFormat::Csv => {
+            let refs = headers.iter().map(String::as_str).collect::<Vec<_>>();
+            crate::output::csv::format_csv(&refs, &rows)
         }
     }
 }

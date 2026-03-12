@@ -10,12 +10,12 @@ use serde::Serialize;
 use crate::audit::AuditLogger;
 use crate::envelope;
 use crate::output::json::{JsonOptions, apply_json_options};
-use crate::output::{OutputFormat, value_to_rows};
+use crate::output::{OutputFormat, OutputMode, format_value};
 
 /// Shared command execution context.
 pub struct CliContext {
     client: FreeAgentClient,
-    format: OutputFormat,
+    output_mode: OutputMode,
     json_options: JsonOptions,
     limit: usize,
     all: bool,
@@ -27,7 +27,7 @@ impl CliContext {
     /// Creates a new context.
     pub fn new(
         client: FreeAgentClient,
-        format: OutputFormat,
+        output_mode: OutputMode,
         json_options: JsonOptions,
         limit: usize,
         all: bool,
@@ -36,7 +36,7 @@ impl CliContext {
     ) -> Self {
         Self {
             client,
-            format,
+            output_mode,
             json_options,
             limit,
             all,
@@ -85,10 +85,10 @@ impl CliContext {
     pub fn emit_success<T: Serialize>(&self, tool: &str, data: &T, start: Instant) -> Result<()> {
         let value = serialize_transform(data, &self.json_options)?;
 
-        let output = match self.format {
-            OutputFormat::Json => envelope::emit_success(tool, value, start, None, None, None),
-            OutputFormat::Table => format_table_or_csv(value, OutputFormat::Table),
-            OutputFormat::Csv => format_table_or_csv(value, OutputFormat::Csv),
+        let output = match self.output_mode {
+            OutputMode::Json => envelope::emit_success(tool, value, start, None, None, None),
+            OutputMode::Text | OutputMode::Table => format_value(&value, OutputFormat::Table),
+            OutputMode::Csv => format_value(&value, OutputFormat::Csv),
         };
 
         println!("{output}");
@@ -100,8 +100,8 @@ impl CliContext {
     pub fn emit_list(&self, tool: &str, result: &ListResult, start: Instant) -> Result<()> {
         let value = serialize_transform(&result.items, &self.json_options)?;
 
-        let output = match self.format {
-            OutputFormat::Json => envelope::emit_success(
+        let output = match self.output_mode {
+            OutputMode::Json => envelope::emit_success(
                 tool,
                 value,
                 start,
@@ -109,8 +109,8 @@ impl CliContext {
                 result.total,
                 Some(result.has_more),
             ),
-            OutputFormat::Table => format_table_or_csv(value, OutputFormat::Table),
-            OutputFormat::Csv => format_table_or_csv(value, OutputFormat::Csv),
+            OutputMode::Text | OutputMode::Table => format_value(&value, OutputFormat::Table),
+            OutputMode::Csv => format_value(&value, OutputFormat::Csv),
         };
 
         println!("{output}");
@@ -128,23 +128,4 @@ fn serialize_transform<T: Serialize + ?Sized>(
     })?;
 
     Ok(apply_json_options(value, json_options))
-}
-
-fn format_table_or_csv(value: serde_json::Value, format: OutputFormat) -> String {
-    let (headers, rows) = value_to_rows(&value);
-
-    match format {
-        OutputFormat::Table => {
-            let columns = headers
-                .iter()
-                .map(|header| crate::output::table::text_col_static(header))
-                .collect::<Vec<_>>();
-            crate::output::table::format_table(&columns, &rows)
-        }
-        OutputFormat::Csv => {
-            let refs = headers.iter().map(String::as_str).collect::<Vec<_>>();
-            crate::output::csv::format_csv(&refs, &rows)
-        }
-        OutputFormat::Json => unreachable!("JSON formatting is handled by envelopes"),
-    }
 }

@@ -37,7 +37,7 @@ fn run_json(
     let code = output.status.code().unwrap_or(-1);
     let stdout = String::from_utf8(output.stdout).expect("stdout must be valid utf8");
     let json = serde_json::from_str::<Value>(&stdout)
-        .expect("stdout must contain JSON envelope in --json mode");
+        .expect("stdout must contain the default JSON envelope");
 
     (code, json, stdout)
 }
@@ -81,7 +81,7 @@ fn run_help(home: &Path, args: &[&str]) -> (i32, String) {
 #[test]
 fn tools_registry_has_unique_names_and_json_examples() {
     let home = TempDir::new().expect("temp home");
-    let (code, json, stdout) = run_json(home.path(), &["tools", "--json"], false, None);
+    let (code, json, stdout) = run_json(home.path(), &["tools"], false, None);
 
     assert_eq!(code, 0);
     assert_eq!(json["ok"], true);
@@ -103,8 +103,16 @@ fn tools_registry_has_unique_names_and_json_examples() {
             .as_str()
             .expect("tool command should be a string");
         assert!(
-            command.contains("--json"),
-            "tool command should advertise json mode: {command}"
+            !command.contains("--json"),
+            "tool command should not advertise the removed --json flag: {command}"
+        );
+
+        let example = tool["example"]
+            .as_str()
+            .expect("tool example should be a string");
+        assert!(
+            !example.contains("--json"),
+            "tool example should not advertise the removed --json flag: {example}"
         );
     }
 
@@ -116,7 +124,7 @@ fn tools_registry_has_unique_names_and_json_examples() {
         .collect::<HashSet<_>>();
 
     for required in [
-        "--json",
+        "--text",
         "--format",
         "--limit",
         "--all",
@@ -128,6 +136,10 @@ fn tools_registry_has_unique_names_and_json_examples() {
             "missing global flag metadata for {required}"
         );
     }
+    assert!(
+        !global_flags.contains("--json"),
+        "removed --json flag should not be advertised"
+    );
 }
 
 #[test]
@@ -136,13 +148,7 @@ fn config_set_secret_redacts_value_in_audit_log() {
 
     let (code, json, _) = run_json(
         home.path(),
-        &[
-            "config",
-            "set",
-            "auth.client_secret",
-            "super-secret-value",
-            "--json",
-        ],
+        &["config", "set", "auth.client_secret", "super-secret-value"],
         false,
         None,
     );
@@ -201,7 +207,7 @@ async fn bank_transactions_list_without_filter_merges_accounts_sorted_newest_fir
 
     let (code, json, _) = run_json(
         home.path(),
-        &["bank-transactions", "list", "--json"],
+        &["bank-transactions", "list"],
         true,
         Some(&format!("{}/v2/", server.uri())),
     );
@@ -248,7 +254,7 @@ async fn bank_transactions_for_approval_uses_marked_for_review_view() {
 
     let (code, json, _) = run_json(
         home.path(),
-        &["bank-transactions", "for-approval", "--json"],
+        &["bank-transactions", "for-approval"],
         true,
         Some(&format!("{}/v2/", server.uri())),
     );
@@ -277,7 +283,7 @@ async fn bank_transactions_delete_uses_documented_singular_endpoint_path() {
 
     let (code, json, _) = run_json(
         home.path(),
-        &["bank-transactions", "delete", "tx-44", "--json"],
+        &["bank-transactions", "delete", "tx-44"],
         true,
         Some(&format!("{}/v2/", server.uri())),
     );
@@ -293,13 +299,7 @@ fn mutating_commands_are_blocked_when_write_gate_is_disabled() {
 
     let (code, json, _) = run_json(
         home.path(),
-        &[
-            "invoices",
-            "create",
-            "--file",
-            "/tmp/does-not-matter.json",
-            "--json",
-        ],
+        &["invoices", "create", "--file", "/tmp/does-not-matter.json"],
         true,
         None,
     );
@@ -364,7 +364,6 @@ async fn update_explanation_accepts_local_attachment_path_and_partial_fields() {
         "false",
         "--attachment",
         &receipt_arg,
-        "--json",
     ];
     let (code, json, _) = run_json(
         home.path(),
@@ -407,7 +406,7 @@ async fn categories_list_handles_grouped_freeagent_response_shape() {
 
     let (code, json, _) = run_json(
         home.path(),
-        &["categories", "list", "--limit", "1", "--json"],
+        &["categories", "list", "--limit", "1"],
         true,
         Some(&format!("{}/v2/", server.uri())),
     );
@@ -443,7 +442,7 @@ async fn reports_cashflow_defaults_to_months_12_when_no_dates_are_provided() {
 
     let (code, json, _) = run_json(
         home.path(),
-        &["reports", "cashflow", "--json"],
+        &["reports", "cashflow"],
         true,
         Some(&format!("{}/v2/", server.uri())),
     );
@@ -504,13 +503,7 @@ async fn payroll_mark_payment_paid_uses_put_endpoint() {
 
     let (code, json, _) = run_json(
         home.path(),
-        &[
-            "payroll",
-            "mark-payment-paid",
-            "2026",
-            "2026-04-30",
-            "--json",
-        ],
+        &["payroll", "mark-payment-paid", "2026", "2026-04-30"],
         true,
         Some(&format!("{}/v2/", server.uri())),
     );
@@ -546,7 +539,6 @@ async fn vat_mark_payment_paid_uses_put_endpoint() {
             "mark-payment-paid",
             "2026-03-31",
             "2026-05-07",
-            "--json",
         ],
         true,
         Some(&format!("{}/v2/", server.uri())),
@@ -604,7 +596,7 @@ async fn invoices_timeline_hits_dedicated_endpoint() {
 
     let (code, json, _) = run_json(
         home.path(),
-        &["invoices", "timeline", "--json"],
+        &["invoices", "timeline"],
         true,
         Some(&format!("{}/v2/", server.uri())),
     );
@@ -631,7 +623,7 @@ async fn timeslips_start_timer_uses_post_endpoint() {
 
     let (code, json, _) = run_json(
         home.path(),
-        &["timeslips", "start-timer", "42", "--json"],
+        &["timeslips", "start-timer", "42"],
         true,
         Some(&format!("{}/v2/", server.uri())),
     );
@@ -677,7 +669,7 @@ async fn users_update_me_uses_put_users_me_endpoint() {
         .await;
 
     let payload_arg = payload_path.to_string_lossy().to_string();
-    let args = vec!["users", "update-me", "--file", &payload_arg, "--json"];
+    let args = vec!["users", "update-me", "--file", &payload_arg];
     let (code, json, _) = run_json(
         home.path(),
         &args,
@@ -733,7 +725,6 @@ async fn create_resource_accepts_query_pairs_for_company_api_edge_cases() {
         &payload_arg,
         "--query",
         &query_arg,
-        "--json",
     ];
     let (code, json, _) = run_json(
         home.path(),

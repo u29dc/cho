@@ -346,19 +346,11 @@ mod tests {
             "set",
             "auth.client_secret",
             "topsecret",
-            "--json",
         ]));
 
         assert_eq!(
             sanitized,
-            to_vec(&[
-                "cho",
-                "config",
-                "set",
-                "auth.client_secret",
-                "[REDACTED]",
-                "--json",
-            ])
+            to_vec(&["cho", "config", "set", "auth.client_secret", "[REDACTED]",])
         );
     }
 

@@ -105,11 +105,23 @@ impl AuthManager {
                 authenticated: !pair.is_expired(),
                 expires_at: Some(pair.expires_at().to_rfc3339()),
                 expires_in_seconds: Some(pair.expires_in_seconds()),
+                token_state: Some(if !pair.is_expired() {
+                    "valid".to_string()
+                } else if pair.can_refresh() {
+                    "refreshable_expired".to_string()
+                } else {
+                    "expired".to_string()
+                }),
+                can_refresh: Some(pair.can_refresh()),
+                needs_refresh: Some(pair.needs_refresh()),
             },
             None => TokenStatus {
                 authenticated: false,
                 expires_at: None,
                 expires_in_seconds: None,
+                token_state: Some("missing".to_string()),
+                can_refresh: Some(false),
+                needs_refresh: Some(false),
             },
         }
     }

@@ -18,6 +18,7 @@ pub struct CliContext {
     output_mode: OutputMode,
     json_options: JsonOptions,
     limit: usize,
+    explicit_limit: bool,
     all: bool,
     allow_writes: bool,
     audit: AuditLogger,
@@ -39,10 +40,17 @@ impl CliContext {
             output_mode,
             json_options,
             limit,
+            explicit_limit: false,
             all,
             allow_writes,
             audit,
         }
+    }
+
+    /// Marks whether the global limit came from an explicit CLI flag.
+    pub fn with_explicit_limit(mut self, explicit_limit: bool) -> Self {
+        self.explicit_limit = explicit_limit;
+        self
     }
 
     /// Returns client.
@@ -61,6 +69,25 @@ impl CliContext {
                 all: false,
             }
         }
+    }
+
+    /// Returns the configured item limit regardless of `--all`.
+    pub fn limit(&self) -> usize {
+        self.limit.min(10_000)
+    }
+
+    /// Returns a compact summary slice unless the user explicitly requested a limit.
+    pub fn summary_limit(&self, default_limit: usize) -> usize {
+        if self.explicit_limit {
+            self.limit()
+        } else {
+            self.limit().min(default_limit.max(1))
+        }
+    }
+
+    /// Returns true when `--all` was requested.
+    pub fn all_requested(&self) -> bool {
+        self.all
     }
 
     /// Fails when writes are disabled.

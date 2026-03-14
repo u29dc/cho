@@ -5,6 +5,7 @@ use std::time::Instant;
 use serde::Serialize;
 
 use cho_sdk::auth::AuthManager;
+use cho_sdk::client::FreeAgentClient;
 use secrecy::SecretString;
 
 use crate::audit::AuditLogger;
@@ -257,37 +258,61 @@ async fn check_auth_token() -> Check {
         };
     }
 
-    if auth.is_authenticated().await {
-        let status = auth.status().await;
-        Check {
-            id: "auth",
-            label: "Auth token",
-            status: "pass",
-            severity: "blocking",
-            detail: format!(
-                "Authenticated, expires_at={}",
-                status.expires_at.unwrap_or_else(|| "unknown".to_string())
-            ),
-            fix: "Run `cho auth refresh` if needed".to_string(),
-        }
-    } else {
-        match auth.refresh().await {
-            Ok(()) => Check {
-                id: "auth",
-                label: "Auth token",
-                status: "warn",
-                severity: "blocking",
-                detail: "Token was expired but refresh succeeded".to_string(),
-                fix: "No action required".to_string(),
-            },
-            Err(err) => Check {
+    let client = match FreeAgentClient::builder()
+        .config(config.sdk_config())
+        .auth_manager(auth)
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            return Check {
                 id: "auth",
                 label: "Auth token",
                 status: "fail",
                 severity: "blocking",
                 detail: err.to_string(),
-                fix: "Run `cho auth login`".to_string(),
+                fix: "Fix auth credentials and config".to_string(),
+            };
+        }
+    };
+
+    let status = client.session_status().await;
+    if status.session_usable {
+        let detail = if status.refresh_succeeded {
+            format!(
+                "Session usable after refresh+probe, expires_at={}",
+                status.expires_at.unwrap_or_else(|| "unknown".to_string())
+            )
+        } else {
+            format!(
+                "Session usable, expires_at={}",
+                status.expires_at.unwrap_or_else(|| "unknown".to_string())
+            )
+        };
+
+        Check {
+            id: "auth",
+            label: "Auth token",
+            status: if status.refresh_succeeded {
+                "warn"
+            } else {
+                "pass"
             },
+            severity: "blocking",
+            detail,
+            fix: "Run `cho auth refresh` or `cho auth login` if the session becomes unusable"
+                .to_string(),
+        }
+    } else {
+        Check {
+            id: "auth",
+            label: "Auth token",
+            status: "fail",
+            severity: "blocking",
+            detail: status
+                .probe_error
+                .unwrap_or_else(|| "Trusted auth probe failed".to_string()),
+            fix: "Run `cho auth login`".to_string(),
         }
     }
 }

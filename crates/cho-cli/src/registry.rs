@@ -125,6 +125,13 @@ pub fn tool_catalog() -> Vec<ToolMeta> {
             true,
         ),
         static_tool(
+            "tax-calendar.get",
+            "cho tax-calendar [--user <id>] [--merge-personal] [--payroll-year <year>]",
+            "tax-calendar",
+            "Get a merged company/personal tax calendar",
+            true,
+        ),
+        static_tool(
             "config.show",
             "cho config show",
             "config",
@@ -216,6 +223,27 @@ pub fn tool_catalog() -> Vec<ToolMeta> {
             true,
         ),
         static_tool(
+            "summary.obligations",
+            "cho summary obligations [--user <id>] [--payroll-year <year>] [--details]",
+            "summary",
+            "Summarize tax and payroll obligations with reconciliation status",
+            true,
+        ),
+        static_tool(
+            "summary.receivables",
+            "cho summary receivables [--status <status>] [--unpaid-only]",
+            "summary",
+            "Summarize invoice receivables",
+            true,
+        ),
+        static_tool(
+            "summary.payroll",
+            "cho summary payroll [--year <year>] [--details]",
+            "summary",
+            "Summarize payroll obligations for a year",
+            true,
+        ),
+        static_tool(
             "self-assessment-returns.list",
             "cho self-assessment-returns list --user <id>",
             "self-assessment-returns",
@@ -292,6 +320,13 @@ pub fn tool_catalog() -> Vec<ToolMeta> {
             "List payroll profiles",
             true,
         ),
+        static_tool(
+            "taxes.reconcile",
+            "cho taxes reconcile [--user <id>] [--payroll-year <year>] [--match-window-days <n>]",
+            "taxes",
+            "Reconcile likely HMRC payments against known obligations",
+            true,
+        ),
     ];
 
     for spec in RESOURCES {
@@ -345,6 +380,20 @@ pub fn tool_catalog() -> Vec<ToolMeta> {
                 format!("Delete {} item", spec.name),
                 false,
             ));
+        }
+    }
+
+    for tool in &mut tools {
+        if tool.name == "invoices.list" {
+            tool.command =
+                "cho invoices list [--status <status>] [--unpaid-only] [--from <date>] [--to <date>]"
+                    .to_string();
+            tool.example = tool.command.clone();
+            tool.description =
+                "List invoices with optional client-side status/unpaid filters".to_string();
+        }
+        if tool.name == "expenses.list" {
+            tool.description = "List explicit FreeAgent expense objects; bank-ledger spend may instead live under bank-transactions".to_string();
         }
     }
 

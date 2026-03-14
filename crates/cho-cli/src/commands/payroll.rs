@@ -3,6 +3,7 @@
 use std::time::Instant;
 
 use cho_sdk::error::Result;
+use cho_sdk::liabilities::annotate_tax_response;
 use clap::Subcommand;
 
 use crate::context::CliContext;
@@ -76,22 +77,24 @@ pub async fn run_payroll(
 ) -> Result<()> {
     match command {
         PayrollCommands::Periods { year } => {
-            let value = ctx
+            let mut value = ctx
                 .client()
                 .get_json(&format!("payroll/{year}"), &[])
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("payroll.periods", &value, start)
         }
         PayrollCommands::Period { year, period } => {
-            let value = ctx
+            let mut value = ctx
                 .client()
                 .get_json(&format!("payroll/{year}/{period}"), &[])
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("payroll.period", &value, start)
         }
         PayrollCommands::MarkPaymentPaid { year, payment_date } => {
             ctx.require_writes_allowed()?;
-            let value = ctx
+            let mut value = ctx
                 .client()
                 .put_json(
                     &format!(
@@ -103,11 +106,12 @@ pub async fn run_payroll(
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("payroll.mark-payment-paid", &value, start)
         }
         PayrollCommands::MarkPaymentUnpaid { year, payment_date } => {
             ctx.require_writes_allowed()?;
-            let value = ctx
+            let mut value = ctx
                 .client()
                 .get_json(
                     &format!(
@@ -118,6 +122,7 @@ pub async fn run_payroll(
                     &[],
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("payroll.mark-payment-unpaid", &value, start)
         }
     }
@@ -137,10 +142,11 @@ pub async fn run_payroll_profiles(
             {
                 query.push(("user".to_string(), user.clone()));
             }
-            let value = ctx
+            let mut value = ctx
                 .client()
                 .get_json(&format!("payroll_profiles/{year}"), &query)
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("payroll-profiles.list", &value, start)
         }
     }

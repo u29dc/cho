@@ -32,10 +32,10 @@ pub struct ListArgs {
     #[arg(long)]
     pub sort: Option<String>,
     /// From-date filter (`YYYY-MM-DD`).
-    #[arg(long)]
+    #[arg(long, visible_alias = "from")]
     pub from_date: Option<String>,
     /// To-date filter (`YYYY-MM-DD`).
-    #[arg(long)]
+    #[arg(long, visible_alias = "to")]
     pub to_date: Option<String>,
     /// Updated-since timestamp.
     #[arg(long)]
@@ -204,10 +204,24 @@ pub enum ContactCommands {
 }
 
 /// Invoice resource commands.
+#[derive(Debug, Clone, Args)]
+pub struct InvoiceListArgs {
+    /// Shared list filters/query parameters.
+    #[command(flatten)]
+    pub list: ListArgs,
+    /// Case-insensitive invoice status filter applied client-side.
+    #[arg(long)]
+    pub status: Option<String>,
+    /// Convenience filter for open/unpaid receivables.
+    #[arg(long)]
+    pub unpaid_only: bool,
+}
+
+/// Invoice resource commands.
 #[derive(Debug, Clone, Subcommand)]
 pub enum InvoiceCommands {
     /// List invoices.
-    List(Box<ListArgs>),
+    List(Box<InvoiceListArgs>),
     /// Get one invoice.
     Get { id: String },
     /// Create invoice.
@@ -455,7 +469,7 @@ pub enum BankTransactionCommands {
 /// Expense commands.
 #[derive(Debug, Clone, Subcommand)]
 pub enum ExpenseCommands {
-    /// List expenses.
+    /// List explicit FreeAgent expense objects; bank-ledger spend may instead live under bank-transactions.
     List(Box<ListArgs>),
     /// Get one expense.
     Get { id: String },
@@ -641,7 +655,14 @@ pub async fn run_resource(
         && let ResourceCommands::List(args) = command
         && !has_bank_account_filter(args)
     {
-        return list_bank_resource_across_accounts(resource, args, ctx, start).await;
+        return list_bank_resource_across_accounts(
+            resource,
+            args,
+            &format!("{resource}.list"),
+            ctx,
+            start,
+        )
+        .await;
     }
 
     let spec = by_name(resource).ok_or_else(|| ChoSdkError::Config {
@@ -858,11 +879,14 @@ pub async fn run_bank_transactions(
     start: Instant,
 ) -> Result<()> {
     match command {
-        BankTransactionCommands::List(args) => run_bank_transactions_list(args, ctx, start).await,
+        BankTransactionCommands::List(args) => {
+            run_bank_transactions_list(args, "bank-transactions.list", ctx, start).await
+        }
         BankTransactionCommands::ForApproval(args) => {
             let mut list_args = (**args).clone();
             list_args.view = Some("marked_for_review".to_string());
-            run_bank_transactions_list(&list_args, ctx, start).await
+            run_bank_transactions_list(&list_args, "bank-transactions.for-approval", ctx, start)
+                .await
         }
         BankTransactionCommands::Get { id } => {
             run_resource(
@@ -931,20 +955,22 @@ pub async fn run_bank_transactions(
 
 async fn run_bank_transactions_list(
     args: &ListArgs,
+    tool: &str,
     ctx: &CliContext,
     start: Instant,
 ) -> Result<()> {
     if has_bank_account_filter(args) {
-        return run_resource(
-            "bank-transactions",
-            &ResourceCommands::List(args.clone()),
-            ctx,
-            start,
-        )
-        .await;
+        let spec = by_name("bank-transactions").ok_or_else(|| ChoSdkError::Config {
+            message: "Unsupported resource 'bank-transactions'".to_string(),
+        })?;
+        let api = ctx.client().resource(spec);
+        let result = api
+            .list(&list_query(args)?, pagination_from_args(ctx, args))
+            .await?;
+        return ctx.emit_list(tool, &result, start);
     }
 
-    list_bank_resource_across_accounts("bank-transactions", args, ctx, start).await
+    list_bank_resource_across_accounts("bank-transactions", args, tool, ctx, start).await
 }
 
 async fn update_bank_transaction_explanation(
@@ -1662,6 +1688,7 @@ async fn search_contacts(
 async fn list_bank_resource_across_accounts(
     resource: &str,
     list_args: &ListArgs,
+    tool: &str,
     ctx: &CliContext,
     start: Instant,
 ) -> Result<()> {
@@ -1717,5 +1744,13 @@ async fn list_bank_resource_across_accounts(
         per_page: pagination.per_page,
     };
 
-    ctx.emit_list(&format!("{resource}.list"), &result, start)
+    ctx.emit_list(tool, &result, start)
+}
+
+fn pagination_from_args(ctx: &CliContext, args: &ListArgs) -> Pagination {
+    let mut pagination = ctx.pagination();
+    if let Some(per_page) = args.per_page {
+        pagination.per_page = per_page.clamp(1, 100);
+    }
+    pagination
 }

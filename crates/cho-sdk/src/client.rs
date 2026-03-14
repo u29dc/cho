@@ -13,7 +13,8 @@ use crate::api::specs::ResourceSpec;
 use crate::auth::AuthManager;
 use crate::config::SdkConfig;
 use crate::error::{ChoSdkError, Result};
-use crate::models::{ListResult, Pagination};
+use crate::liabilities::LiabilitiesService;
+use crate::models::{ListResult, Pagination, SessionStatus};
 
 /// Observer for low-level HTTP events.
 pub trait HttpObserver: Send + Sync {
@@ -91,6 +92,71 @@ impl FreeAgentClient {
     /// Returns generic resource API wrapper for a spec.
     pub fn resource(&self, spec: ResourceSpec) -> ResourceApi<'_> {
         ResourceApi::new(self, spec)
+    }
+
+    /// Returns finance/status helpers for liability and reconciliation workflows.
+    pub fn liabilities(&self) -> LiabilitiesService<'_> {
+        LiabilitiesService::new(self)
+    }
+
+    /// Returns a trusted auth status by probing a lightweight authenticated read.
+    pub async fn session_status(&self) -> SessionStatus {
+        const PROBE_ENDPOINT: &str = "company";
+
+        let initial = self.auth.status().await;
+        let mut checked_via = vec!["cached".to_string()];
+        let mut refresh_attempted = false;
+        let mut refresh_succeeded = false;
+        let cached_authenticated = initial.authenticated;
+        let can_refresh = initial.can_refresh.unwrap_or(false);
+        let needs_refresh = initial.needs_refresh.unwrap_or(false);
+        let mut probe_error = None;
+
+        if (!cached_authenticated || needs_refresh) && can_refresh {
+            refresh_attempted = true;
+            match self.auth.refresh().await {
+                Ok(()) => {
+                    refresh_succeeded = true;
+                    checked_via.push("refresh".to_string());
+                }
+                Err(err) => {
+                    probe_error = Some(err.to_string());
+                }
+            }
+        }
+
+        let mut latest = self.auth.status().await;
+        let mut authenticated = false;
+        let mut session_usable = false;
+
+        if probe_error.is_none() {
+            match self.get_json(PROBE_ENDPOINT, &[]).await {
+                Ok(_) => {
+                    checked_via.push("probe".to_string());
+                    authenticated = true;
+                    session_usable = true;
+                    latest = self.auth.status().await;
+                }
+                Err(err) => {
+                    probe_error = Some(err.to_string());
+                }
+            }
+        }
+
+        SessionStatus {
+            authenticated,
+            session_usable,
+            cached_authenticated,
+            expires_at: latest.expires_at,
+            expires_in_seconds: latest.expires_in_seconds,
+            token_state: latest.token_state.unwrap_or_else(|| "unknown".to_string()),
+            can_refresh: latest.can_refresh.unwrap_or(false),
+            refresh_attempted,
+            refresh_succeeded,
+            checked_via,
+            probe_endpoint: Some(PROBE_ENDPOINT.to_string()),
+            probe_error,
+        }
     }
 
     /// Fetches a singleton resource/object.

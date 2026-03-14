@@ -13,4 +13,5 @@ pub mod client;
 pub mod config;
 pub mod error;
 pub mod home;
+pub mod liabilities;
 pub mod models;

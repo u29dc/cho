@@ -43,11 +43,27 @@ fn run_json(
 }
 
 fn seed_tokens(home: &Path, access_token: &str, refresh_token: &str) {
+    seed_tokens_with_expiry(
+        home,
+        access_token,
+        refresh_token,
+        Utc::now() + Duration::minutes(30),
+        Utc::now() + Duration::hours(1),
+    );
+}
+
+fn seed_tokens_with_expiry(
+    home: &Path,
+    access_token: &str,
+    refresh_token: &str,
+    expires_at: chrono::DateTime<Utc>,
+    refresh_expires_at: chrono::DateTime<Utc>,
+) {
     let tokens = json!({
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "expires_at": (Utc::now() + Duration::minutes(30)).to_rfc3339(),
-        "refresh_expires_at": (Utc::now() + Duration::hours(1)).to_rfc3339()
+        "expires_at": expires_at.to_rfc3339(),
+        "refresh_expires_at": refresh_expires_at.to_rfc3339()
     });
 
     let path = home.join("tokens.json");
@@ -61,6 +77,10 @@ fn seed_tokens(home: &Path, access_token: &str, refresh_token: &str) {
 fn enable_writes(home: &Path) {
     fs::write(home.join("config.toml"), "[safety]\nallow_writes = true\n")
         .expect("config file should be written");
+}
+
+fn write_config(home: &Path, config: &str) {
+    fs::write(home.join("config.toml"), config).expect("config file should be written");
 }
 
 fn run_help(home: &Path, args: &[&str]) -> (i32, String) {
@@ -261,9 +281,713 @@ async fn bank_transactions_for_approval_uses_marked_for_review_view() {
 
     assert_eq!(code, 0);
     assert_eq!(json["ok"], true);
+    assert_eq!(json["meta"]["tool"], "bank-transactions.for-approval");
     let data = json["data"].as_array().expect("data should be an array");
     assert_eq!(data.len(), 1);
     assert_eq!(data[0]["url"], "btx-1");
+}
+
+#[tokio::test]
+async fn auth_status_confirms_usable_session_with_refresh_and_probe() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens_with_expiry(
+        home.path(),
+        "expired-access",
+        "refresh-token",
+        Utc::now() - Duration::minutes(5),
+        Utc::now() + Duration::hours(1),
+    );
+    let server = MockServer::start().await;
+    write_config(
+        home.path(),
+        &format!("[sdk]\ntoken_url = \"{}/oauth/token\"\n", server.uri()),
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "refreshed-access",
+            "refresh_token": "refresh-token",
+            "expires_in": 3600,
+            "refresh_token_expires_in": 7200
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/company"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "company": { "name": "Example Ltd" }
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &["auth", "status"],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["data"]["authenticated"], true);
+    assert_eq!(json["data"]["session_usable"], true);
+    assert_eq!(json["data"]["cached_authenticated"], false);
+    assert_eq!(json["data"]["refresh_attempted"], true);
+    assert_eq!(json["data"]["refresh_succeeded"], true);
+    assert_eq!(json["data"]["probe_endpoint"], "company");
+}
+
+#[tokio::test]
+async fn corporation_tax_list_includes_status_trust_fields() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/corporation_tax_returns"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "corporation_tax_returns": [
+                {
+                    "period_ends_on": "2025-12-31",
+                    "status": "draft",
+                    "amount_due": "900.00"
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &["corporation-tax-returns", "list"],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    let data = json["data"].as_array().expect("data should be an array");
+    assert_eq!(data[0]["system_status"], "draft");
+    assert_eq!(data[0]["status_source"], "freeagent");
+    assert_eq!(data[0]["bank_reconciled"], false);
+    assert_eq!(data[0]["not_bank_reconciled"], true);
+    assert_eq!(data[0]["confidence"], "low");
+}
+
+#[tokio::test]
+async fn tax_calendar_merges_company_payroll_and_self_assessment_items() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/company/tax_timeline"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tax_timeline": [
+                {
+                    "description": "Corporation Tax, year ending 31 Mar 25",
+                    "dated_on": "2026-03-31",
+                    "nature": "Submission Due"
+                },
+                {
+                    "description": "2 Payslips",
+                    "dated_on": "2026-04-22",
+                    "nature": "PAYE/NI Payment Due",
+                    "amount_due": "487.85"
+                },
+                {
+                    "description": "VAT Return 03 26",
+                    "dated_on": "2026-05-07",
+                    "nature": "Refund Due",
+                    "amount_due": "-243.71"
+                },
+                {
+                    "description": "Corporation Tax, year ending 31 Mar 26",
+                    "dated_on": "2027-01-01",
+                    "nature": "Payment Due",
+                    "amount_due": "10457.18"
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/payroll/2026"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "periods": [
+                {
+                    "period": 1,
+                    "frequency": "Monthly",
+                    "dated_on": "2026-05-28",
+                    "status": "filed"
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/users/42/self_assessment_returns"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "self_assessment_returns": [
+                {
+                    "period_ends_on": "2025-12-31",
+                    "due_on": "2026-01-30",
+                    "status": "unpaid",
+                    "description": "Self Assessment payment"
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &[
+            "tax-calendar",
+            "--user",
+            "42",
+            "--merge-personal",
+            "--payroll-year",
+            "2026",
+        ],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    let items = json["data"]["items"]
+        .as_array()
+        .expect("items should be an array");
+    let corporation_submission = items
+        .iter()
+        .find(|item| item["label"] == "Corporation Tax, year ending 31 Mar 25")
+        .expect("corporation submission");
+    assert_eq!(corporation_submission["event_date"], "2026-03-31");
+    assert_eq!(corporation_submission["event_type"], "filing_event");
+
+    let payslips = items
+        .iter()
+        .find(|item| item["label"] == "2 Payslips")
+        .expect("payslips item");
+    assert_eq!(payslips["kind"], "payroll");
+    assert_eq!(payslips["event_date"], "2026-04-22");
+    assert_eq!(payslips["event_type"], "payment_event");
+    assert_eq!(payslips["is_cash_obligation"], true);
+    assert_eq!(payslips["can_bank_reconcile"], true);
+
+    let vat_refund = items
+        .iter()
+        .find(|item| item["label"] == "VAT Return 03 26")
+        .expect("vat refund item");
+    assert_eq!(vat_refund["event_date"], "2026-05-07");
+    assert_eq!(vat_refund["event_type"], "refund_event");
+    assert_eq!(vat_refund["is_cash_obligation"], false);
+
+    let payroll_period = items
+        .iter()
+        .find(|item| item["source_tool"] == "payroll.periods")
+        .expect("payroll period");
+    assert_eq!(payroll_period["event_date"], "2026-05-28");
+    assert_eq!(payroll_period["event_type"], "status_record");
+    assert_eq!(payroll_period["is_cash_obligation"], false);
+    assert_eq!(payroll_period["can_bank_reconcile"], false);
+
+    let corporation_payment = items
+        .iter()
+        .find(|item| item["label"] == "Corporation Tax, year ending 31 Mar 26")
+        .expect("corporation payment");
+    assert_eq!(corporation_payment["event_date"], "2027-01-01");
+    assert_eq!(corporation_payment["event_type"], "payment_event");
+
+    let self_assessment = items
+        .iter()
+        .find(|item| item["kind"] == "self-assessment")
+        .expect("self assessment item");
+    assert_eq!(self_assessment["can_bank_reconcile"], false);
+}
+
+#[tokio::test]
+async fn taxes_reconcile_surfaces_likely_stale_unpaid_status_with_bank_evidence() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/company/tax_timeline"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tax_timeline": [
+                {
+                    "description": "Corporation Tax due",
+                    "due_on": "2026-01-31",
+                    "status": "unpaid",
+                    "amount_due": "100.00"
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/payroll/2026"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "payroll": []
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/users/42/self_assessment_returns"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "self_assessment_returns": []
+        })))
+        .mount(&server)
+        .await;
+
+    let bank_account = "https://api.freeagent.com/v2/bank_accounts/11";
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_accounts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_accounts": [
+                { "url": bank_account, "name": "Monzo GBP" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_transactions"))
+        .and(query_param("bank_account", bank_account))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_transactions": [
+                {
+                    "url": "btx-1",
+                    "dated_on": "2026-01-30",
+                    "amount": "-100.00",
+                    "description": "HMRC Self Assessment"
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &[
+            "taxes",
+            "reconcile",
+            "--user",
+            "42",
+            "--payroll-year",
+            "2026",
+        ],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["data"]["summary"]["likely_stale"], 1);
+    assert_eq!(
+        json["data"]["items"][0]["reconciliation_status"],
+        "likely_stale"
+    );
+    assert_eq!(
+        json["data"]["items"][0]["obligation"]["status_trust"]["bank_reconciled"],
+        true
+    );
+    assert_eq!(
+        json["data"]["items"][0]["obligation"]["status_trust"]["documentary_evidence"][0]["url"],
+        "btx-1"
+    );
+}
+
+#[tokio::test]
+async fn taxes_reconcile_marks_personal_self_assessment_as_cannot_reconcile() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/company/tax_timeline"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tax_timeline": []
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/payroll/2026"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "payroll": []
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/users/42/self_assessment_returns"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "self_assessment_returns": [
+                {
+                    "period_ends_on": "2025-12-31",
+                    "due_on": "2026-01-31",
+                    "status": "unpaid",
+                    "amount_due": "100.00",
+                    "description": "Self Assessment payment"
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_accounts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_accounts": []
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &[
+            "taxes",
+            "reconcile",
+            "--user",
+            "42",
+            "--payroll-year",
+            "2026",
+        ],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(
+        json["data"]["summary"]["cannot_reconcile_with_current_data_source"],
+        1
+    );
+    assert_eq!(
+        json["data"]["items"][0]["reconciliation_status"],
+        "cannot_reconcile_with_current_data_source"
+    );
+}
+
+#[tokio::test]
+async fn taxes_reconcile_excludes_filing_events_from_bank_matching() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/company/tax_timeline"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tax_timeline": [
+                {
+                    "description": "Corporation Tax submission due",
+                    "due_on": "2026-01-31",
+                    "status": "draft"
+                }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/payroll/2026"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "payroll": []
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_accounts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_accounts": []
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &["taxes", "reconcile", "--payroll-year", "2026"],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["data"]["summary"]["not_a_payment_obligation"], 1);
+    assert_eq!(
+        json["data"]["items"][0]["reconciliation_status"],
+        "not_a_payment_obligation"
+    );
+}
+
+#[tokio::test]
+async fn invoices_list_supports_unpaid_only_client_side_filter() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/invoices"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "invoices": [
+                { "url": "inv-open", "status": "Open", "total_value": "120.00" },
+                { "url": "inv-paid", "status": "Paid", "total_value": "80.00" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &["invoices", "list", "--unpaid-only"],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    let data = json["data"].as_array().expect("data should be an array");
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0]["url"], "inv-open");
+    assert_eq!(json["meta"]["total"], 1);
+}
+
+#[tokio::test]
+async fn summary_receivables_returns_compact_totals() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/invoices"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "invoices": [
+                { "url": "inv-open", "status": "Open", "total_value": "120.00", "outstanding_value": "120.00" },
+                { "url": "inv-overdue", "status": "Overdue", "total_value": "80.00", "outstanding_value": "80.00" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &["summary", "receivables", "--unpaid-only"],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["data"]["count"], 2);
+    assert_eq!(json["data"]["open_count"], 2);
+    assert_eq!(json["data"]["overdue_count"], 1);
+    assert_eq!(json["data"]["outstanding_value"], 200.0);
+}
+
+#[tokio::test]
+async fn summary_obligations_honors_limit_and_stays_compact_by_default() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/company/tax_timeline"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tax_timeline": [
+                { "description": "Corporation Tax due", "due_on": "2026-01-10", "status": "unpaid", "amount_due": "100.00" },
+                { "description": "VAT return due", "due_on": "2026-01-20", "status": "draft" },
+                { "description": "PAYE due", "due_on": "2026-01-25", "status": "unpaid", "amount_due": "50.00" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/payroll/2026"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "payroll": []
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/users/42/self_assessment_returns"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "self_assessment_returns": []
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_accounts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_accounts": []
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &[
+            "--limit",
+            "2",
+            "summary",
+            "obligations",
+            "--user",
+            "42",
+            "--payroll-year",
+            "2026",
+        ],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(
+        json["data"]["upcoming"]
+            .as_array()
+            .expect("upcoming array")
+            .len(),
+        2
+    );
+    assert_eq!(json["data"]["items"], Value::Null);
+}
+
+#[tokio::test]
+async fn summary_obligations_honors_explicit_limit_above_default_slice() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/company/tax_timeline"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tax_timeline": [
+                { "description": "Corporation Tax due", "due_on": "2026-01-10", "status": "unpaid", "amount_due": "100.00" },
+                { "description": "VAT payment due", "due_on": "2026-01-11", "status": "unpaid", "amount_due": "90.00" },
+                { "description": "PAYE due", "due_on": "2026-01-12", "status": "unpaid", "amount_due": "80.00" },
+                { "description": "Corporation Tax due", "due_on": "2026-01-13", "status": "unpaid", "amount_due": "70.00" },
+                { "description": "VAT payment due", "due_on": "2026-01-14", "status": "unpaid", "amount_due": "60.00" },
+                { "description": "PAYE due", "due_on": "2026-01-15", "status": "unpaid", "amount_due": "50.00" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/payroll/2026"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "payroll": []
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/users/42/self_assessment_returns"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "self_assessment_returns": []
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/bank_accounts"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "bank_accounts": []
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &[
+            "--limit",
+            "6",
+            "summary",
+            "obligations",
+            "--user",
+            "42",
+            "--payroll-year",
+            "2026",
+        ],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(
+        json["data"]["upcoming"]
+            .as_array()
+            .expect("upcoming array")
+            .len(),
+        6
+    );
+    assert_eq!(json["data"]["items"], Value::Null);
+}
+
+#[tokio::test]
+async fn summary_payroll_is_compact_without_details() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/company/tax_timeline"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "tax_timeline": []
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/payroll/2026"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "payroll": [
+                { "description": "Period 1", "due_on": "2026-01-10", "status": "filed" },
+                { "description": "Period 2", "due_on": "2026-02-10", "status": "filed" },
+                { "description": "Period 3", "due_on": "2026-03-10", "status": "unfiled" }
+            ]
+        })))
+        .mount(&server)
+        .await;
+
+    let (code, json, _) = run_json(
+        home.path(),
+        &["summary", "payroll", "--year", "2026"],
+        true,
+        Some(&format!("{}/v2/", server.uri())),
+    );
+
+    assert_eq!(code, 0);
+    assert_eq!(json["data"]["filed_count"], 2);
+    assert_eq!(json["data"]["unfiled_count"], 1);
+    assert_eq!(json["data"]["items"], Value::Null);
+    assert!(
+        json["data"]["recent_history"]
+            .as_array()
+            .expect("recent_history array")
+            .len()
+            <= 5
+    );
 }
 
 #[tokio::test]
@@ -471,6 +1195,15 @@ fn help_for_read_only_resources_hides_mutating_commands() {
     assert!(!capital_help.contains("\n  create"));
     assert!(!capital_help.contains("\n  update"));
     assert!(!capital_help.contains("\n  delete"));
+}
+
+#[test]
+fn expenses_help_explains_bank_transaction_led_workflow() {
+    let home = TempDir::new().expect("temp home");
+    let (code, help) = run_help(home.path(), &["expenses", "--help"]);
+
+    assert_eq!(code, 0);
+    assert!(help.contains("bank-transactions"));
 }
 
 #[test]

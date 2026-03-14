@@ -4,15 +4,18 @@ use std::time::Instant;
 
 use cho_sdk::api::specs::by_name;
 use cho_sdk::error::{ChoSdkError, Result};
+use cho_sdk::models::{ListResult, Pagination};
+use serde_json::Value;
 
 use crate::context::CliContext;
 
 use super::resources::{
     CreditNoteCommands, CreditNoteTransition, DefaultAdditionalTextCommands, EstimateCommands,
-    EstimateTransition, InvoiceCommands, InvoiceTransition, ResourceCommands, run_resource,
+    EstimateTransition, InvoiceCommands, InvoiceListArgs, InvoiceTransition, ResourceCommands,
+    run_resource,
 };
 use super::resources_helpers::{
-    fetch_pdf_resource, read_optional_json_file, run_default_additional_text,
+    fetch_pdf_resource, list_query, read_optional_json_file, run_default_additional_text,
 };
 
 /// Executes invoice command.
@@ -23,13 +26,8 @@ pub async fn run_invoices(
 ) -> Result<()> {
     match command {
         InvoiceCommands::List(args) => {
-            run_resource(
-                "invoices",
-                &ResourceCommands::List((**args).clone()),
-                ctx,
-                start,
-            )
-            .await
+            let result = fetch_filtered_invoices(args, ctx).await?;
+            ctx.emit_list("invoices.list", &result, start)
         }
         InvoiceCommands::Get { id } => {
             run_resource(
@@ -166,6 +164,76 @@ pub async fn run_invoices(
             run_default_additional_text("invoices", command, "invoices", ctx, start).await
         }
     }
+}
+
+pub(crate) async fn fetch_filtered_invoices(
+    args: &InvoiceListArgs,
+    ctx: &CliContext,
+) -> Result<ListResult> {
+    let spec = by_name("invoices").ok_or_else(|| ChoSdkError::Config {
+        message: "Missing invoices resource spec".to_string(),
+    })?;
+    let api = ctx.client().resource(spec);
+    let query = list_query(&args.list)?;
+    let client_filter = args.unpaid_only || args.status.is_some();
+
+    let mut fetch_pagination = if client_filter {
+        Pagination::all()
+    } else {
+        ctx.pagination()
+    };
+    if let Some(per_page) = args.list.per_page {
+        fetch_pagination.per_page = per_page.clamp(1, 100);
+    }
+
+    let mut result = api.list(&query, fetch_pagination).await?;
+
+    if client_filter {
+        let status_filter = args
+            .status
+            .as_deref()
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| !value.is_empty());
+
+        result.items.retain(|item| {
+            invoice_matches_filters(item, status_filter.as_deref(), args.unpaid_only)
+        });
+
+        let total = result.items.len();
+        let pagination = ctx.pagination();
+        let mut has_more = false;
+        if !pagination.all && pagination.limit > 0 && total > pagination.limit {
+            result.items.truncate(pagination.limit);
+            has_more = true;
+        }
+        result.total = Some(total);
+        result.has_more = has_more;
+        result.page = 1;
+        result.per_page = pagination.per_page;
+    }
+
+    Ok(result)
+}
+
+fn invoice_matches_filters(item: &Value, status_filter: Option<&str>, unpaid_only: bool) -> bool {
+    let status = item
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+
+    if let Some(status_filter) = status_filter
+        && status != status_filter
+    {
+        return false;
+    }
+
+    if unpaid_only {
+        return matches!(status.as_str(), "open" | "overdue" | "unpaid" | "sent");
+    }
+
+    true
 }
 
 /// Returns tool name for invoice command.

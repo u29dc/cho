@@ -24,6 +24,7 @@ use crate::audit::AuditLogger;
 use crate::commands::auth::AuthCommands;
 use crate::commands::company::CompanyCommands;
 use crate::commands::config::ConfigCommands;
+use crate::commands::finance::{TaxCalendarArgs, TaxesCommands};
 use crate::commands::payroll::{PayrollCommands, PayrollProfileCommands};
 use crate::commands::reports::ReportCommands;
 use crate::commands::resources::{
@@ -32,6 +33,7 @@ use crate::commands::resources::{
     ListOnlyResourceCommands, ReadOnlyResourceCommands, ResourceCommands, TimeslipCommands,
     UserCommands, WriteOnlyResourceCommands,
 };
+use crate::commands::summary::SummaryCommands;
 use crate::commands::tax::{
     CorporationTaxReturnCommands, FinalAccountsReportCommands, SelfAssessmentReturnCommands,
     VatReturnCommands,
@@ -94,6 +96,9 @@ enum Commands {
     },
     /// Readiness checks.
     Health,
+    /// Merged company/personal tax calendar.
+    #[command(name = "tax-calendar")]
+    TaxCalendar(TaxCalendarArgs),
     /// Config operations.
     Config {
         #[command(subcommand)]
@@ -113,6 +118,11 @@ enum Commands {
     Reports {
         #[command(subcommand)]
         command: ReportCommands,
+    },
+    /// Concise finance summaries.
+    Summary {
+        #[command(subcommand)]
+        command: SummaryCommands,
     },
 
     /// Contacts.
@@ -205,6 +215,11 @@ enum Commands {
     FinalAccountsReports {
         #[command(subcommand)]
         command: FinalAccountsReportCommands,
+    },
+    /// Tax-focused helper commands.
+    Taxes {
+        #[command(subcommand)]
+        command: TaxesCommands,
     },
 
     /// Payroll data.
@@ -354,6 +369,7 @@ async fn main() {
         }
     };
 
+    let explicit_limit = cli.limit.is_some();
     let limit = cli.limit.or(config.defaults.limit).unwrap_or(100);
 
     let run_id = uuid::Uuid::new_v4().to_string();
@@ -505,7 +521,8 @@ async fn main() {
         cli.all,
         allow_writes,
         audit.clone(),
-    );
+    )
+    .with_explicit_limit(explicit_limit);
 
     let (tool, result) = dispatch_command(&cli.command, &context, start).await;
 
@@ -531,6 +548,10 @@ async fn dispatch_command(
         Commands::Start | Commands::Tools { .. } | Commands::Health | Commands::Config { .. } => {
             unreachable!("Early-dispatch command reached runtime dispatch")
         }
+        Commands::TaxCalendar(args) => (
+            "tax-calendar.get".to_string(),
+            commands::finance::run_tax_calendar(args, ctx, start).await,
+        ),
         Commands::Auth { command } => (
             commands::auth::tool_name(command).to_string(),
             commands::auth::run(command, ctx, start).await,
@@ -542,6 +563,10 @@ async fn dispatch_command(
         Commands::Reports { command } => (
             commands::reports::tool_name(command).to_string(),
             commands::reports::run(command, ctx, start).await,
+        ),
+        Commands::Summary { command } => (
+            commands::summary::tool_name(command).to_string(),
+            commands::summary::run(command, ctx, start).await,
         ),
         Commands::Contacts { command } => (
             commands::resources::contacts_tool_name(command),
@@ -608,6 +633,10 @@ async fn dispatch_command(
         Commands::FinalAccountsReports { command } => (
             commands::tax::final_accounts_tool_name(command).to_string(),
             commands::tax::run_final_accounts(command, ctx, start).await,
+        ),
+        Commands::Taxes { command } => (
+            commands::finance::taxes_tool_name(command).to_string(),
+            commands::finance::run_taxes(command, ctx, start).await,
         ),
         Commands::Payroll { command } => (
             commands::payroll::payroll_tool_name(command).to_string(),
@@ -770,10 +799,12 @@ fn top_level_tool_name(command: &Commands) -> String {
             }
         }
         Commands::Health => "health.check".to_string(),
+        Commands::TaxCalendar(_) => "tax-calendar.get".to_string(),
         Commands::Config { command } => commands::config::tool_name(command).to_string(),
         Commands::Auth { command } => commands::auth::tool_name(command).to_string(),
         Commands::Company { command } => commands::company::tool_name(command).to_string(),
         Commands::Reports { command } => commands::reports::tool_name(command).to_string(),
+        Commands::Summary { command } => commands::summary::tool_name(command).to_string(),
         Commands::Contacts { command } => commands::resources::contacts_tool_name(command),
         Commands::Invoices { command } => commands::resources::invoices_tool_name(command),
         Commands::BankAccounts { command } => {
@@ -810,6 +841,7 @@ fn top_level_tool_name(command: &Commands) -> String {
         Commands::FinalAccountsReports { command } => {
             commands::tax::final_accounts_tool_name(command).to_string()
         }
+        Commands::Taxes { command } => commands::finance::taxes_tool_name(command).to_string(),
         Commands::Payroll { command } => commands::payroll::payroll_tool_name(command).to_string(),
         Commands::PayrollProfiles { command } => {
             commands::payroll::payroll_profile_tool_name(command).to_string()

@@ -108,6 +108,7 @@ pub struct ApiEngine {
     client: Option<FreeAgentClient>,
     app_config: AppConfig,
     startup_warnings: Vec<String>,
+    trusted_session_authenticated: bool,
 }
 
 impl ApiEngine {
@@ -129,6 +130,7 @@ impl ApiEngine {
         };
 
         let mut client = None;
+        let mut trusted_session_authenticated = false;
         let client_id = app_config.resolve_client_id();
         let client_secret = app_config.resolve_client_secret();
         if client_id.is_none() || client_secret.is_none() {
@@ -154,7 +156,18 @@ impl ApiEngine {
                         .auth_manager(auth)
                         .build()
                     {
-                        Ok(built) => client = Some(built),
+                        Ok(built) => {
+                            let session_status = runtime.block_on(built.session_status());
+                            trusted_session_authenticated = session_status.session_usable;
+                            if !session_status.session_usable
+                                && let Some(error) = session_status.probe_error
+                            {
+                                startup_warnings.push(format!(
+                                    "auth.probe failed; API session not confirmed ({error})"
+                                ));
+                            }
+                            client = Some(built);
+                        }
                         Err(err) => {
                             startup_warnings.push(format!("client.build failed: {err}"));
                         }
@@ -169,6 +182,7 @@ impl ApiEngine {
             client,
             app_config,
             startup_warnings,
+            trusted_session_authenticated,
         })
     }
 
@@ -182,12 +196,9 @@ impl ApiEngine {
         &self.startup_warnings
     }
 
-    /// Returns true if client exists and auth token is currently valid.
+    /// Returns true if the startup trusted auth probe confirmed a usable session.
     pub fn is_authenticated(&self) -> bool {
-        let Some(client) = &self.client else {
-            return false;
-        };
-        self.runtime.block_on(client.auth().is_authenticated())
+        self.trusted_session_authenticated
     }
 
     /// Fetches data for the provided route.
@@ -623,7 +634,7 @@ impl ApiEngine {
             .runtime
             .block_on(client.auth().load_stored_tokens())
             .unwrap_or(false);
-        let status = self.runtime.block_on(client.auth().status());
+        let status = self.runtime.block_on(client.session_status());
         Ok(RoutePayload::Object(serde_json::json!({
             "loaded_token": loaded,
             "status": status

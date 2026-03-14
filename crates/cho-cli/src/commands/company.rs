@@ -3,6 +3,7 @@
 use std::time::Instant;
 
 use cho_sdk::error::Result;
+use cho_sdk::liabilities::annotate_tax_response;
 use clap::Subcommand;
 
 use crate::context::CliContext;
@@ -37,6 +38,9 @@ pub async fn run(command: &CompanyCommands, ctx: &CliContext, start: Instant) ->
         }
     };
 
-    let value = ctx.client().get_json(path, &[]).await?;
+    let mut value = ctx.client().get_json(path, &[]).await?;
+    if matches!(command, CompanyCommands::TaxTimeline) {
+        annotate_tax_response(&mut value);
+    }
     ctx.emit_success(tool, &value, start)
 }

@@ -4,11 +4,14 @@ use std::time::Instant;
 
 use cho_sdk::api::specs::by_name;
 use cho_sdk::error::{ChoSdkError, Result};
+use cho_sdk::liabilities::annotate_tax_response;
+use cho_sdk::models::{ListResult, Pagination};
 use clap::Subcommand;
 
 use crate::context::CliContext;
 
-use super::resources::{ListArgs, ResourceCommands};
+use super::resources::ListArgs;
+use super::resources_helpers::list_query;
 
 /// Corporation tax return commands.
 #[derive(Debug, Clone, Subcommand)]
@@ -184,21 +187,20 @@ pub async fn run_corporation_tax(
 
     match command {
         CorporationTaxReturnCommands::List(args) => {
-            super::resources::run_resource(
-                "corporation-tax-returns",
-                &ResourceCommands::List((**args).clone()),
-                ctx,
-                start,
-            )
-            .await
+            let result = tax_list_result(
+                api.list(&list_query(args)?, pagination_from(ctx, args))
+                    .await?,
+            );
+            ctx.emit_list("corporation-tax-returns.list", &result, start)
         }
         CorporationTaxReturnCommands::Get { period_ends_on } => {
-            let value = api.get(period_ends_on).await?;
+            let mut value = api.get(period_ends_on).await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("corporation-tax-returns.get", &value, start)
         }
         CorporationTaxReturnCommands::MarkFiled { period_ends_on } => {
             ctx.require_writes_allowed()?;
-            let value = api
+            let mut value = api
                 .action(
                     period_ends_on,
                     reqwest::Method::PUT,
@@ -207,11 +209,12 @@ pub async fn run_corporation_tax(
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("corporation-tax-returns.mark-filed", &value, start)
         }
         CorporationTaxReturnCommands::MarkUnfiled { period_ends_on } => {
             ctx.require_writes_allowed()?;
-            let value = api
+            let mut value = api
                 .action(
                     period_ends_on,
                     reqwest::Method::PUT,
@@ -220,11 +223,12 @@ pub async fn run_corporation_tax(
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("corporation-tax-returns.mark-unfiled", &value, start)
         }
         CorporationTaxReturnCommands::MarkPaid { period_ends_on } => {
             ctx.require_writes_allowed()?;
-            let value = api
+            let mut value = api
                 .action(
                     period_ends_on,
                     reqwest::Method::PUT,
@@ -233,11 +237,12 @@ pub async fn run_corporation_tax(
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("corporation-tax-returns.mark-paid", &value, start)
         }
         CorporationTaxReturnCommands::MarkUnpaid { period_ends_on } => {
             ctx.require_writes_allowed()?;
-            let value = api
+            let mut value = api
                 .action(
                     period_ends_on,
                     reqwest::Method::PUT,
@@ -246,6 +251,7 @@ pub async fn run_corporation_tax(
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("corporation-tax-returns.mark-unpaid", &value, start)
         }
     }
@@ -260,21 +266,20 @@ pub async fn run_vat(command: &VatReturnCommands, ctx: &CliContext, start: Insta
 
     match command {
         VatReturnCommands::List(args) => {
-            super::resources::run_resource(
-                "vat-returns",
-                &ResourceCommands::List((**args).clone()),
-                ctx,
-                start,
-            )
-            .await
+            let result = tax_list_result(
+                api.list(&list_query(args)?, pagination_from(ctx, args))
+                    .await?,
+            );
+            ctx.emit_list("vat-returns.list", &result, start)
         }
         VatReturnCommands::Get { period_ends_on } => {
-            let value = api.get(period_ends_on).await?;
+            let mut value = api.get(period_ends_on).await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("vat-returns.get", &value, start)
         }
         VatReturnCommands::MarkFiled { period_ends_on } => {
             ctx.require_writes_allowed()?;
-            let value = api
+            let mut value = api
                 .action(
                     period_ends_on,
                     reqwest::Method::PUT,
@@ -283,11 +288,12 @@ pub async fn run_vat(command: &VatReturnCommands, ctx: &CliContext, start: Insta
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("vat-returns.mark-filed", &value, start)
         }
         VatReturnCommands::MarkUnfiled { period_ends_on } => {
             ctx.require_writes_allowed()?;
-            let value = api
+            let mut value = api
                 .action(
                     period_ends_on,
                     reqwest::Method::PUT,
@@ -296,6 +302,7 @@ pub async fn run_vat(command: &VatReturnCommands, ctx: &CliContext, start: Insta
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("vat-returns.mark-unfiled", &value, start)
         }
         VatReturnCommands::MarkPaymentPaid {
@@ -303,7 +310,7 @@ pub async fn run_vat(command: &VatReturnCommands, ctx: &CliContext, start: Insta
             payment_date,
         } => {
             ctx.require_writes_allowed()?;
-            let value = api
+            let mut value = api
                 .action(
                     period_ends_on,
                     reqwest::Method::PUT,
@@ -315,6 +322,7 @@ pub async fn run_vat(command: &VatReturnCommands, ctx: &CliContext, start: Insta
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("vat-returns.mark-payment-paid", &value, start)
         }
         VatReturnCommands::MarkPaymentUnpaid {
@@ -322,7 +330,7 @@ pub async fn run_vat(command: &VatReturnCommands, ctx: &CliContext, start: Insta
             payment_date,
         } => {
             ctx.require_writes_allowed()?;
-            let value = api
+            let mut value = api
                 .action(
                     period_ends_on,
                     reqwest::Method::PUT,
@@ -334,6 +342,7 @@ pub async fn run_vat(command: &VatReturnCommands, ctx: &CliContext, start: Insta
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("vat-returns.mark-payment-unpaid", &value, start)
         }
     }
@@ -352,21 +361,20 @@ pub async fn run_final_accounts(
 
     match command {
         FinalAccountsReportCommands::List(args) => {
-            super::resources::run_resource(
-                "final-accounts-reports",
-                &ResourceCommands::List((**args).clone()),
-                ctx,
-                start,
-            )
-            .await
+            let result = tax_list_result(
+                api.list(&list_query(args)?, pagination_from(ctx, args))
+                    .await?,
+            );
+            ctx.emit_list("final-accounts-reports.list", &result, start)
         }
         FinalAccountsReportCommands::Get { period_ends_on } => {
-            let value = api.get(period_ends_on).await?;
+            let mut value = api.get(period_ends_on).await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("final-accounts-reports.get", &value, start)
         }
         FinalAccountsReportCommands::MarkFiled { period_ends_on } => {
             ctx.require_writes_allowed()?;
-            let value = api
+            let mut value = api
                 .action(
                     period_ends_on,
                     reqwest::Method::PUT,
@@ -375,11 +383,12 @@ pub async fn run_final_accounts(
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("final-accounts-reports.mark-filed", &value, start)
         }
         FinalAccountsReportCommands::MarkUnfiled { period_ends_on } => {
             ctx.require_writes_allowed()?;
-            let value = api
+            let mut value = api
                 .action(
                     period_ends_on,
                     reqwest::Method::PUT,
@@ -388,6 +397,7 @@ pub async fn run_final_accounts(
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("final-accounts-reports.mark-unfiled", &value, start)
         }
     }
@@ -421,7 +431,7 @@ pub async fn run_self_assessment(
                     pagination,
                 )
                 .await?;
-
+            let result = tax_list_result(result);
             ctx.emit_list("self-assessment-returns.list", &result, start)
         }
         SelfAssessmentReturnCommands::Get {
@@ -439,10 +449,11 @@ pub async fn run_self_assessment(
                     &[],
                 )
                 .await?;
-            let payload = value
+            let mut payload = value
                 .get("self_assessment_return")
                 .cloned()
                 .unwrap_or(value);
+            annotate_tax_response(&mut payload);
             ctx.emit_success("self-assessment-returns.get", &payload, start)
         }
         SelfAssessmentReturnCommands::MarkFiled {
@@ -450,7 +461,7 @@ pub async fn run_self_assessment(
             period_ends_on,
         } => {
             ctx.require_writes_allowed()?;
-            let value = ctx
+            let mut value = ctx
                 .client()
                 .put_json(
                     &format!(
@@ -462,6 +473,7 @@ pub async fn run_self_assessment(
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("self-assessment-returns.mark-filed", &value, start)
         }
         SelfAssessmentReturnCommands::MarkUnfiled {
@@ -469,7 +481,7 @@ pub async fn run_self_assessment(
             period_ends_on,
         } => {
             ctx.require_writes_allowed()?;
-            let value = ctx
+            let mut value = ctx
                 .client()
                 .put_json(
                     &format!(
@@ -481,6 +493,7 @@ pub async fn run_self_assessment(
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("self-assessment-returns.mark-unfiled", &value, start)
         }
         SelfAssessmentReturnCommands::MarkPaymentPaid {
@@ -489,7 +502,7 @@ pub async fn run_self_assessment(
             payment_date,
         } => {
             ctx.require_writes_allowed()?;
-            let value = ctx
+            let mut value = ctx
                 .client()
                 .put_json(
                     &format!(
@@ -502,6 +515,7 @@ pub async fn run_self_assessment(
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("self-assessment-returns.mark-payment-paid", &value, start)
         }
         SelfAssessmentReturnCommands::MarkPaymentUnpaid {
@@ -510,7 +524,7 @@ pub async fn run_self_assessment(
             payment_date,
         } => {
             ctx.require_writes_allowed()?;
-            let value = ctx
+            let mut value = ctx
                 .client()
                 .put_json(
                     &format!(
@@ -523,9 +537,25 @@ pub async fn run_self_assessment(
                     true,
                 )
                 .await?;
+            annotate_tax_response(&mut value);
             ctx.emit_success("self-assessment-returns.mark-payment-unpaid", &value, start)
         }
     }
+}
+
+fn tax_list_result(mut result: ListResult) -> ListResult {
+    for item in &mut result.items {
+        annotate_tax_response(item);
+    }
+    result
+}
+
+fn pagination_from(ctx: &CliContext, args: &ListArgs) -> Pagination {
+    let mut pagination = ctx.pagination();
+    if let Some(per_page) = args.per_page {
+        pagination.per_page = per_page.clamp(1, 100);
+    }
+    pagination
 }
 
 fn encode_path_segment(value: &str) -> String {

@@ -1,145 +1,89 @@
+> `cho` is a Rust workspace for FreeAgent automation: [`crates/cho-sdk/`](crates/cho-sdk/) owns OAuth, transport, resources, and finance heuristics; [`crates/cho-cli/`](crates/cho-cli/) exposes a compact JSON-first command surface; [`crates/cho-tui/`](crates/cho-tui/) is a read-first ratatui navigator over the same config, auth, and runtime state.
+
 ## 1. Documentation
 
-cho is a Rust workspace focused on FreeAgent. Current scope includes SDK, CLI, and a
-production TUI surface (`cho-sdk`, `cho-cli`, `cho-tui`).
-
-Primary API references:
-
-- Docs hub: https://dev.freeagent.com/docs
-- Introduction (auth, pagination, rate limits): https://dev.freeagent.com/docs/introduction
-- OAuth details: https://dev.freeagent.com/docs/oauth
-- Changes feed: https://dev.freeagent.com/docs/changes
+- Primary external references: [FreeAgent docs hub](https://dev.freeagent.com/docs), [Introduction](https://dev.freeagent.com/docs/introduction), [OAuth](https://dev.freeagent.com/docs/oauth), [Changes feed](https://dev.freeagent.com/docs/changes)
+- Local source-of-truth files: [`crates/cho-cli/src/main.rs`](crates/cho-cli/src/main.rs), [`crates/cho-cli/src/registry.rs`](crates/cho-cli/src/registry.rs), [`crates/cho-sdk/src/api/specs.rs`](crates/cho-sdk/src/api/specs.rs), [`crates/cho-sdk/src/client.rs`](crates/cho-sdk/src/client.rs), [`crates/cho-sdk/src/liabilities.rs`](crates/cho-sdk/src/liabilities.rs), [`crates/cho-tui/src/routes.rs`](crates/cho-tui/src/routes.rs), [`crates/cho-tui/src/api.rs`](crates/cho-tui/src/api.rs)
+- Contract-heavy tests: [`crates/cho-cli/tests/cli_contract.rs`](crates/cho-cli/tests/cli_contract.rs), [`crates/cho-cli/tests/cli_drift.rs`](crates/cho-cli/tests/cli_drift.rs), [`crates/cho-sdk/tests/http_contract.rs`](crates/cho-sdk/tests/http_contract.rs)
+- Canonical repo instructions live in [`AGENTS.md`](AGENTS.md); [`CLAUDE.md`](CLAUDE.md) and [`README.md`](README.md) mirror it in this repository
 
 ## 2. Repository Structure
 
 ```text
 .
-├── AGENTS.md
-├── Cargo.toml
-├── package.json
-├── .husky/
-├── commitlint.config.js
-├── lint-staged.config.js
-├── rustfmt.toml
-└── crates/
-    ├── cho-sdk/
-    │   └── src/{api,auth,client,config,error,home,models,blocking}
-    ├── cho-cli/
-    │   └── src/{commands,output,audit,context,envelope,error,registry,main}
-    └── cho-tui/
-        └── src/{api,app,config,palette,routes,theme,ui,main}
+├── crates/
+│   ├── cho-sdk/            reusable FreeAgent client, auth, resource specs, liabilities logic
+│   ├── cho-cli/            clap CLI, audit log, output envelopes, command registry, tests
+│   └── cho-tui/            ratatui app, route catalog, background fetch worker, cache
+├── AGENTS.md               canonical repo-level instructions
+├── Cargo.toml              workspace manifest and shared Rust deps/lints
+├── package.json            Bun quality gate and release/install wrapper
+└── .husky/                 pre-commit and commit-msg hooks
 ```
+
+- Start in [`crates/cho-cli/src/commands/`](crates/cho-cli/src/commands/) for user-facing command changes, [`crates/cho-sdk/src/`](crates/cho-sdk/src/) for API/auth/transport behavior, and [`crates/cho-tui/src/`](crates/cho-tui/src/) for interactive navigation
+- Treat [`crates/cho-cli/src/registry.rs`](crates/cho-cli/src/registry.rs), [`crates/cho-sdk/src/api/specs.rs`](crates/cho-sdk/src/api/specs.rs), and [`crates/cho-tui/src/routes.rs`](crates/cho-tui/src/routes.rs) as catalog files that often need coordinated edits
 
 ## 3. Stack
 
 | Layer | Choice | Notes |
 | --- | --- | --- |
-| Language | Rust 2024 | workspace-based |
-| Runtime | tokio | async CLI + SDK |
-| HTTP | reqwest + rustls | retries + 401 refresh + 429 handling |
-| CLI | clap | command tree for agent primitives |
-| TUI | ratatui + crossterm | full-screen workspace navigator + command palette |
-| Serialization | serde/serde_json | FreeAgent snake_case wire format |
-| Secrets | secrecy | tokens persisted in `${CHO_HOME}/tokens.json` |
-| Logging | custom audit log + tracing | append-only history at `~/.tools/cho/history.log` |
-| JS Tooling | bun + biome + commitlint + husky | quality-gate orchestration |
+| Workspace | Rust 2024 | three-crate workspace with shared deps in [`Cargo.toml`](Cargo.toml) |
+| SDK/runtime | `tokio` + `reqwest` + `rustls` | async transport, pagination, retries, 401 refresh, 429 handling |
+| CLI | `clap` + custom JSON envelope/output adapters | default stdout is one compact JSON object; table/csv/text are opt-in |
+| TUI | `ratatui` + `crossterm` | direct SDK consumer with background fetch worker and persisted cache |
+| Auth/secrets | OAuth code flow + `secrecy` | tokens stored in `tokens.json`, login callback defaults to `127.0.0.1:53682` |
+| JS tooling | Bun + Husky + commitlint + Biome | hooks, lockfile, and `util:*` quality orchestration only |
 
 ## 4. Commands
 
-Core orientation commands:
-
-- `cho tools`
-- `cho tools <name>`
-- `cho health`
-- `cho config show`
-- `cho config set <key> <value>`
-- `cho start` (launches `cho-tui`)
-
-Auth:
-
-- `cho auth login [--port <n>] [--no-browser]`
-- `cho auth status`
-- `cho auth refresh`
-- `cho auth logout`
-
-Company and reports:
-
-- `cho company {get|tax-timeline|business-categories}`
-- `cho reports {profit-and-loss|balance-sheet|trial-balance|cashflow}`
-
-Resource groups (agent primitives):
-
-- `contacts {list|get|create|update|delete|search}`
-- `invoices {list|get|create|update|delete|transition|send-email}`
-- `bank-accounts {list|get|create|update|delete}`
-- `bank-transactions {list|for-approval|get|upload-statement|update-explanation}`
-- `bank-transaction-explanations {list|get|create|update|delete}`
-- `bills {list|get|create|update|delete}`
-- `expenses {list|get|create|update|delete|mileage-settings}`
-- `categories {list|get|create|update|delete}`
-- `transactions {list|get}`
-- `sales-tax-periods {list|get|create|update|delete}`
-- `credit-notes {list|get|create|update|delete}`
-- `estimates {list|get|create|update|delete}`
-- `recurring-invoices {list|get}`
-- `journal-sets {list|get|create|update|delete}`
-- `users {list|get|create|update|delete}`
-- `capital-assets {list|get}`
-- `stock-items {list|get}`
-- `projects {list|get|create|update|delete}`
-- `timeslips {list|get|create|update|delete}`
-- `attachments {get|delete}`
-
-Tax and payroll:
-
-- `corporation-tax-returns {list|get|mark-filed|mark-unfiled|mark-paid|mark-unpaid}`
-- `self-assessment-returns {list|get|mark-filed|mark-unfiled|mark-payment-paid|mark-payment-unpaid}`
-- `vat-returns {list|get|mark-filed|mark-unfiled|mark-payment-paid|mark-payment-unpaid}`
-- `final-accounts-reports {list|get|mark-filed|mark-unfiled}`
-- `payroll {periods|period|mark-payment-paid|mark-payment-unpaid}`
-- `payroll-profiles list`
+- `bun install` installs JS tooling and Husky hooks
+- `cargo run -p cho-cli -- tools` and `cargo run -p cho-cli -- tools <name>` are the authoritative machine-readable command catalog
+- `cargo run -p cho-cli -- health` checks home/config/credentials/audit/token readiness before trying real work
+- `cargo run -p cho-cli -- --help`, `cargo run -p cho-cli -- start`, and `cargo run -p cho-tui` are the fastest local iteration paths
+- `cargo test --workspace` runs all Rust tests; use the crate-specific contract suites when narrowing failures
+- `bun run util:check` is the required full gate before completion
+- `bun run build` builds release binaries and installs `cho` plus `cho-tui` into `${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}/`
 
 ## 5. Architecture
 
-Runtime flow:
+- [`crates/cho-cli/src/main.rs`](crates/cho-cli/src/main.rs) bootstraps `config -> audit -> auth -> FreeAgentClient`; early commands `tools`, `health`, `config`, and `start` intentionally bypass full API bootstrap
+- [`crates/cho-cli/src/audit.rs`](crates/cho-cli/src/audit.rs) is safety-critical: it records `command.start/input/output/end` plus HTTP request/response events, redacts secrets, and hard-fails bootstrap when the audit log is unavailable
+- [`crates/cho-sdk/src/client.rs`](crates/cho-sdk/src/client.rs) enforces same-origin absolute URLs, clamps pagination, follows `Link` pagination, retries rate limits/transient failures, refreshes on 401, and blocks mutating requests unless `allow_writes` is enabled
+- [`crates/cho-sdk/src/liabilities.rs`](crates/cho-sdk/src/liabilities.rs) is the non-trivial finance layer behind `tax-calendar`, `taxes reconcile`, and `summary`; it merges company, payroll, bank, and optional self-assessment data and adds derived `status_trust` fields
+- [`crates/cho-cli/src/registry.rs`](crates/cho-cli/src/registry.rs) and [`crates/cho-sdk/src/api/specs.rs`](crates/cho-sdk/src/api/specs.rs) are hand-maintained, not generated; command/resource additions usually also require test updates and TUI route decisions
+- [`crates/cho-tui/src/api.rs`](crates/cho-tui/src/api.rs) talks to `cho-sdk` directly rather than shelling out to `cho`; [`crates/cho-cli/src/commands/start.rs`](crates/cho-cli/src/commands/start.rs) only launches a sibling or `PATH` `cho-tui` binary
 
-```text
-Agent/Human -> cho-cli / cho-tui
-  -> cho-sdk::FreeAgentClient
-    -> AuthManager (OAuth + token refresh)
-    -> reqwest transport (retry/rate-limit handling)
-      -> FreeAgent API
-```
+## 6. Runtime and State
 
-Invariants:
+- Home resolution order is `CHO_HOME` -> `TOOLS_HOME/cho` -> `$HOME/.tools/cho` via [`crates/cho-sdk/src/home.rs`](crates/cho-sdk/src/home.rs)
+- Runtime files live outside the repo: `config.toml`, `history.log`, `tokens.json`, and `tui-cache.json` under the resolved `cho` home
+- CLI credential precedence is `--client-id/--client-secret` -> `CHO_CLIENT_ID` / `CHO_CLIENT_SECRET` -> `config.toml` `auth.*`; SDK base URL precedence is `CHO_BASE_URL` -> `config.toml` `sdk.base_url` -> FreeAgent default
+- `auth status`, `health`, CLI bootstrap, and TUI startup all call trusted session checks that can refresh tokens and rewrite `tokens.json`; these are not read-only inspections
+- TUI route data uses stale-while-revalidate caching in [`crates/cho-tui/src/cache.rs`](crates/cho-tui/src/cache.rs); preview and full payloads persist to `tui-cache.json`, oversized cache files are rejected, and stale cached data may be shown while a refresh is in flight
+- JSON mode writes only the compact envelope to stdout; `--verbose` enables tracing to stderr, `--text` or `--format table|csv` switch stdout into human output
 
-- `cho-sdk` is interface-agnostic and reusable.
-- `cho-cli` is a thin command adapter around SDK primitives.
-- `cho-tui` is a read-first terminal UI over SDK routes with command-palette navigation.
-- Non-interactive commands print one compact JSON envelope line to stdout by default; use `--text` or `--format table|csv` for human output.
-- Error envelopes use stable codes + hints.
-- Mutating operations require `[safety] allow_writes = true`.
-- Every command start/input/output/end is appended to `history.log` with timestamp and run id.
+## 7. Conventions
 
-## 6. Quality
+- `cho tools` is the authoritative contract surface; [`crates/cho-cli/tests/cli_contract.rs`](crates/cho-cli/tests/cli_contract.rs) and [`crates/cho-cli/tests/cli_drift.rs`](crates/cho-cli/tests/cli_drift.rs) reject duplicate names, stale help/output metadata, and any reintroduction of the removed `--json` flag
+- Generic resource writes consume JSON files up to 50 MB, auto-wrap unwrapped payloads under the singular resource key, and support repeated `--query key=value` pairs for FreeAgent edge cases
+- Bank transaction explanation updates can attach local files; attachments are base64-encoded client-side, MIME-sniffed by extension, and capped at FreeAgent's 5 MB limit
+- Several surfaces are client-composed rather than direct endpoint pass-through: cross-account bank transaction listing, invoice `--unpaid-only` filtering, grouped category flattening, tax-calendar assembly, HMRC reconciliation, and TUI bank annotations
+- `--precise` preserves decimal-like JSON values as strings; JSON output also compact-redacts signed company logo URLs instead of dumping volatile query tokens
 
-Required checks before completion:
+## 8. Constraints
 
-- `cargo fmt --all`
-- `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-- `cargo check --workspace`
-- `cargo test --workspace`
-- `bun run util:check`
+- Never commit or hand-edit runtime state under `CHO_HOME`, including `config.toml`, `tokens.json`, `history.log`, `tui-cache.json`, or binaries installed by `bun run build`
+- Never bypass `[safety] allow_writes = true`; write blocking is enforced in both [`crates/cho-cli/src/context.rs`](crates/cho-cli/src/context.rs) and [`crates/cho-sdk/src/client.rs`](crates/cho-sdk/src/client.rs)
+- Never trust arbitrary absolute resource URLs; the SDK only accepts `http(s)` URLs on the configured FreeAgent origin and base path
+- Treat [`crates/cho-cli/src/registry.rs`](crates/cho-cli/src/registry.rs), [`crates/cho-sdk/src/api/specs.rs`](crates/cho-sdk/src/api/specs.rs), [`crates/cho-tui/src/routes.rs`](crates/cho-tui/src/routes.rs), [`crates/cho-cli/tests/cli_contract.rs`](crates/cho-cli/tests/cli_contract.rs), and [`crates/cho-cli/tests/cli_drift.rs`](crates/cho-cli/tests/cli_drift.rs) as a coordinated change set for command-surface work
+- Keep stdout clean in JSON mode; ad-hoc diagnostics break the machine contract and belong on stderr or in the audit log
 
-Build/install helper:
+## 9. Validation
 
-- `bun run build` compiles release binaries, installs both `cho` and `cho-tui` to
-  `${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}/`.
-
-Config path:
-
-- `~/.tools/cho/config.toml` (or `CHO_HOME/config.toml`)
-
-Audit path:
-
-- `~/.tools/cho/history.log` (or `CHO_HOME/history.log`)
+- Required gate: `bun run util:check`
+- If you change CLI command surface, registry metadata, help text, output envelopes, or write gating, run `cargo test -p cho-cli --test cli_contract --test cli_drift` and smoke `cargo run -p cho-cli -- tools`
+- If you change SDK auth, transport, pagination, absolute URL handling, or resource behavior, run `cargo test -p cho-sdk --test http_contract`
+- If you change TUI routes, fetch context, cache logic, or palette/navigation behavior, run `cargo run -p cho-tui` and verify startup warnings, palette prompts, stale-cache revalidation, and route refresh with a seeded `CHO_HOME`
+- For mutating workflows, validate both the default blocked path and an explicit `[safety] allow_writes = true` path
+- There is no checked-in CI workflow; the local commands above are the completion bar

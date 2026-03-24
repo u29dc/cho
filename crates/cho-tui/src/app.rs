@@ -8,7 +8,9 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 
-use crate::api::{ApiEngine, FetchContext, RouteLoadOptions, RoutePayload};
+use crate::api::{
+    ApiEngine, AuthOutcome, FetchContext, RouteLoadOptions, RoutePayload, StartupUiState,
+};
 use crate::cache::{CacheKey, CacheTier, RouteCache};
 use crate::fetch::{FetchRequest, FetchResponse, FetchWorker, LoadReason};
 use crate::palette::{
@@ -92,8 +94,10 @@ pub struct RouteView {
 
 /// Runtime application.
 pub struct App {
-    /// API bridge.
-    pub(crate) api: ApiEngine,
+    /// Startup footer state and warnings.
+    pub(crate) startup_ui: StartupUiState,
+    /// Lazily initialized API bridge for synchronous detail/prompt fetches.
+    pub(crate) detail_api: Option<ApiEngine>,
     /// Routes in deterministic display order.
     pub(crate) routes: Vec<RouteDefinition>,
     /// Active route index.
@@ -153,7 +157,7 @@ pub struct App {
 impl App {
     /// Creates and initializes the app.
     pub fn new() -> Result<Self, String> {
-        let api = ApiEngine::new()?;
+        let startup_ui = StartupUiState::load()?;
         let fetch_worker = FetchWorker::new()?;
         let routes = build_routes();
         if routes.is_empty() {
@@ -166,7 +170,7 @@ impl App {
         let cache_max_age = Duration::from_secs(60 * 60 * 24);
         let cache_path = cho_sdk::home::tui_cache_path()
             .map_err(|err| format!("failed resolving TUI cache path: {err}"))?;
-        let mut startup_messages = api.startup_warnings().to_vec();
+        let mut startup_messages = startup_ui.startup_warnings().to_vec();
         let route_cache =
             match RouteCache::load_from_disk(&cache_path, cache_capacity, cache_max_age) {
                 Ok(cache) => cache,
@@ -176,7 +180,8 @@ impl App {
                 }
             };
         let mut app = Self {
-            api,
+            startup_ui,
+            detail_api: None,
             fetch_worker,
             routes,
             active_route: 0,
@@ -215,7 +220,7 @@ impl App {
             CacheTier::Full,
             LoadReason::Startup,
             true,
-            true,
+            false,
         );
         Ok(app)
     }
@@ -262,6 +267,16 @@ impl App {
     pub fn current_view_mut(&mut self) -> Option<&mut RouteView> {
         let route_id = self.current_route().id.clone();
         self.views.get_mut(&route_id)
+    }
+
+    /// Footer auth label.
+    pub fn auth_indicator_label(&self) -> &'static str {
+        self.startup_ui.auth_indicator().label()
+    }
+
+    /// Returns true when writes are enabled in config.
+    pub fn writes_allowed(&self) -> bool {
+        self.startup_ui.writes_allowed()
     }
 
     fn handle_key_event(&mut self, key: KeyEvent) {
@@ -503,6 +518,7 @@ impl App {
             reason,
             elapsed_ms,
             payload,
+            auth_outcome,
         } = response;
 
         if self.in_flight_nav_request == Some(request_id) {
@@ -517,6 +533,8 @@ impl App {
         if expected != request_id {
             return;
         }
+
+        self.apply_auth_outcome(auth_outcome);
 
         match payload {
             Ok(payload) => {
@@ -617,12 +635,13 @@ impl App {
                 self.preview_cache_ttl,
                 self.full_cache_ttl,
             ) {
+                let skip_network = should_skip_network_load(Some(&snapshot), force_network);
                 self.apply_cache_snapshot(
                     route_index,
                     context_fingerprint.clone(),
                     snapshot.clone(),
                 );
-                if snapshot.fresh && !force_network {
+                if skip_network {
                     self.status = format!("Loaded {} (cache)", route.label);
                     return;
                 }
@@ -658,6 +677,17 @@ impl App {
         } else {
             self.status = format!("Loading {}", route.label);
         }
+    }
+
+    fn apply_auth_outcome(&mut self, auth_outcome: Option<AuthOutcome>) {
+        self.startup_ui.apply_auth_outcome(auth_outcome);
+    }
+
+    fn ensure_detail_api(&mut self) -> Result<&ApiEngine, String> {
+        if self.detail_api.is_none() {
+            self.detail_api = Some(ApiEngine::new()?);
+        }
+        Ok(self.detail_api.as_ref().expect("detail_api initialized"))
     }
 
     fn route_load_options(&self, tier: CacheTier, reason: LoadReason) -> RouteLoadOptions {
@@ -1211,7 +1241,15 @@ impl App {
                     self.status = "Selected row does not contain id/url".to_string();
                     return;
                 };
-                match self.api.fetch_resource_item(spec, &id) {
+                let result = match self.ensure_detail_api() {
+                    Ok(api) => api.fetch_resource_item_outcome(spec, &id),
+                    Err(err) => {
+                        self.status = err;
+                        return;
+                    }
+                };
+                self.apply_auth_outcome(result.auth_outcome);
+                match result.into_result() {
                     Ok(payload) => {
                         let entry = self.views.entry(route.id.clone()).or_default();
                         entry.payload = Some(payload);
@@ -1245,7 +1283,15 @@ impl App {
                     self.status = "Selected row missing period_ends_on".to_string();
                     return;
                 };
-                match self.api.fetch_self_assessment_item(&user, &period_ends_on) {
+                let result = match self.ensure_detail_api() {
+                    Ok(api) => api.fetch_self_assessment_item_outcome(&user, &period_ends_on),
+                    Err(err) => {
+                        self.status = err;
+                        return;
+                    }
+                };
+                self.apply_auth_outcome(result.auth_outcome);
+                match result.into_result() {
                     Ok(payload) => {
                         let entry = self.views.entry(route.id.clone()).or_default();
                         entry.payload = Some(payload);
@@ -1324,7 +1370,22 @@ impl App {
             return Vec::new();
         };
 
-        match self.api.fetch_route(&route, &self.context, self.list_limit) {
+        let context = self.context.clone();
+        let list_limit = self.list_limit;
+        let result = match self.ensure_detail_api() {
+            Ok(api) => api.fetch_route_with_options_outcome(
+                &route,
+                &context,
+                RouteLoadOptions::full(list_limit),
+            ),
+            Err(err) => {
+                self.status = err;
+                return Vec::new();
+            }
+        };
+        self.apply_auth_outcome(result.auth_outcome);
+
+        match result.into_result() {
             Ok(RoutePayload::List { items, .. }) => items.iter().filter_map(mapper).collect(),
             Ok(RoutePayload::Message(message)) => {
                 self.status = message;
@@ -1337,6 +1398,13 @@ impl App {
             }
         }
     }
+}
+
+fn should_skip_network_load(
+    snapshot: Option<&crate::cache::CacheSnapshot>,
+    force_network: bool,
+) -> bool {
+    snapshot.is_some_and(|snapshot| snapshot.fresh && !force_network)
 }
 
 fn clamp_selected_row(view: &mut RouteView) {
@@ -1524,4 +1592,49 @@ fn user_prompt_option(item: &serde_json::Value) -> Option<PromptOption> {
         value,
         meta: meta_parts.join(" | "),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use crate::api::RoutePayload;
+    use crate::cache::{CacheSnapshot, CacheTier};
+
+    use super::should_skip_network_load;
+
+    fn snapshot(fresh: bool) -> CacheSnapshot {
+        CacheSnapshot {
+            payload: RoutePayload::Message("cached".to_string()),
+            fresh,
+            age: Duration::from_secs(if fresh { 1 } else { 90 }),
+            tier: CacheTier::Full,
+        }
+    }
+
+    #[test]
+    fn fresh_cache_skips_network_when_not_forced() {
+        let snapshot = snapshot(true);
+
+        assert!(should_skip_network_load(Some(&snapshot), false));
+    }
+
+    #[test]
+    fn fresh_cache_does_not_skip_when_forced() {
+        let snapshot = snapshot(true);
+
+        assert!(!should_skip_network_load(Some(&snapshot), true));
+    }
+
+    #[test]
+    fn stale_cache_does_not_skip_network() {
+        let snapshot = snapshot(false);
+
+        assert!(!should_skip_network_load(Some(&snapshot), false));
+    }
+
+    #[test]
+    fn missing_cache_does_not_skip_network() {
+        assert!(!should_skip_network_load(None, false));
+    }
 }

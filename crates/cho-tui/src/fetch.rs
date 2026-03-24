@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
-use crate::api::{ApiEngine, FetchContext, RouteLoadOptions, RoutePayload};
+use crate::api::{ApiEngine, AuthOutcome, FetchContext, RouteLoadOptions, RoutePayload};
 use crate::cache::CacheKey;
 use crate::routes::RouteDefinition;
 
@@ -57,6 +57,8 @@ pub struct FetchResponse {
     pub elapsed_ms: u64,
     /// Route payload or error string.
     pub payload: Result<RoutePayload, String>,
+    /// Verified auth-state outcome from the request, when one was established.
+    pub auth_outcome: Option<AuthOutcome>,
 }
 
 #[derive(Debug)]
@@ -131,19 +133,23 @@ fn run_worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<FetchRespon
                 }
 
                 let started = Instant::now();
-                let payload = if let Some(engine) = api.as_ref() {
-                    engine.fetch_route_with_options(
+                let (payload, auth_outcome) = if let Some(engine) = api.as_ref() {
+                    let result = engine.fetch_route_with_options_outcome(
                         &request.route,
                         &request.context,
                         request.options,
-                    )
+                    );
+                    (result.result, result.auth_outcome)
                 } else {
-                    Err(format!(
-                        "fetch worker initialization failed: {}",
-                        init_error
-                            .clone()
-                            .unwrap_or_else(|| "unknown error".to_string())
-                    ))
+                    (
+                        Err(format!(
+                            "fetch worker initialization failed: {}",
+                            init_error
+                                .clone()
+                                .unwrap_or_else(|| "unknown error".to_string())
+                        )),
+                        None,
+                    )
                 };
 
                 let response = FetchResponse {
@@ -153,6 +159,7 @@ fn run_worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<FetchRespon
                     reason: request.reason,
                     elapsed_ms: started.elapsed().as_millis() as u64,
                     payload,
+                    auth_outcome,
                 };
                 if result_tx.send(response).is_err() {
                     break;

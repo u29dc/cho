@@ -327,16 +327,8 @@ fn render_footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     ]));
     frame.render_widget(hints, chunks[0]);
 
-    let auth = if app.api.is_authenticated() {
-        "ok"
-    } else {
-        "off"
-    };
-    let writes = if app.api.writes_allowed() {
-        "on"
-    } else {
-        "off"
-    };
+    let auth = app.auth_indicator_label();
+    let writes = if app.writes_allowed() { "on" } else { "off" };
     let fetch = if app.in_flight_nav_request.is_some() {
         "busy"
     } else {

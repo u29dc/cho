@@ -8,7 +8,7 @@ use cho_sdk::api::specs::{ResourceSpec, by_name};
 use cho_sdk::auth::AuthManager;
 use cho_sdk::client::{FreeAgentClient, RequestPolicy};
 use cho_sdk::error::ChoSdkError;
-use cho_sdk::models::{ListResult, Pagination};
+use cho_sdk::models::{ListResult, Pagination, TokenStatus};
 use chrono::{DateTime, Datelike, NaiveDate};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -102,13 +102,150 @@ impl RouteLoadOptions {
     }
 }
 
+/// Footer auth state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthIndicator {
+    /// Local token state suggests auth may work, but no trusted network read has confirmed it yet.
+    Cached,
+    /// A network read confirmed the current session works.
+    Ok,
+    /// Auth is unavailable or a trusted check failed.
+    Off,
+}
+
+impl AuthIndicator {
+    /// Footer label for the indicator.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Cached => "cached",
+            Self::Ok => "ok",
+            Self::Off => "off",
+        }
+    }
+}
+
+/// Verified auth outcome from a network-backed operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthOutcome {
+    /// A network read succeeded with the current session.
+    VerifiedOk,
+    /// Auth failed or no usable session was available.
+    VerifiedOff,
+}
+
+impl AuthOutcome {
+    /// Maps a verified outcome to the footer auth indicator.
+    pub fn indicator(self) -> AuthIndicator {
+        match self {
+            Self::VerifiedOk => AuthIndicator::Ok,
+            Self::VerifiedOff => AuthIndicator::Off,
+        }
+    }
+}
+
+/// Startup UI state that can be loaded without a trusted network probe.
+#[derive(Debug, Clone)]
+pub struct StartupUiState {
+    startup_warnings: Vec<String>,
+    writes_allowed: bool,
+    auth_indicator: AuthIndicator,
+}
+
+impl StartupUiState {
+    /// Loads the startup UI state without a blocking network auth probe.
+    pub fn load() -> Result<Self, String> {
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| format!("Failed to create runtime for cho-tui startup: {e}"))?;
+        let bootstrap = bootstrap(&runtime);
+
+        Ok(Self {
+            startup_warnings: bootstrap.startup_warnings,
+            writes_allowed: bootstrap.app_config.safety.allow_writes,
+            auth_indicator: bootstrap.auth_indicator,
+        })
+    }
+
+    /// Returns startup warnings shown to the user on first render.
+    pub fn startup_warnings(&self) -> &[String] {
+        &self.startup_warnings
+    }
+
+    /// Returns true when writes are enabled in config.
+    pub fn writes_allowed(&self) -> bool {
+        self.writes_allowed
+    }
+
+    /// Returns the current footer auth indicator.
+    pub fn auth_indicator(&self) -> AuthIndicator {
+        self.auth_indicator
+    }
+
+    /// Applies a verified auth outcome from a later network operation.
+    pub fn apply_auth_outcome(&mut self, auth_outcome: Option<AuthOutcome>) {
+        if let Some(outcome) = auth_outcome {
+            self.auth_indicator = outcome.indicator();
+        }
+    }
+}
+
+/// Result of an API-backed operation plus any auth-state signal it produced.
+#[derive(Debug)]
+pub struct ApiCallResult<T> {
+    /// Operation result for the caller.
+    pub result: Result<T, String>,
+    /// Verified auth-state outcome, when the operation established one.
+    pub auth_outcome: Option<AuthOutcome>,
+}
+
+impl<T> ApiCallResult<T> {
+    fn ok(value: T) -> Self {
+        Self {
+            result: Ok(value),
+            auth_outcome: None,
+        }
+    }
+
+    fn ok_with_auth(value: T, auth_outcome: AuthOutcome) -> Self {
+        Self {
+            result: Ok(value),
+            auth_outcome: Some(auth_outcome),
+        }
+    }
+
+    fn err(error: String, auth_outcome: Option<AuthOutcome>) -> Self {
+        Self {
+            result: Err(error),
+            auth_outcome,
+        }
+    }
+
+    fn map<U>(self, map: impl FnOnce(T) -> U) -> ApiCallResult<U> {
+        ApiCallResult {
+            result: self.result.map(map),
+            auth_outcome: self.auth_outcome,
+        }
+    }
+
+    /// Extracts the caller-facing result.
+    pub fn into_result(self) -> Result<T, String> {
+        self.result
+    }
+}
+
+#[derive(Debug)]
+struct BootstrapState {
+    app_config: AppConfig,
+    startup_warnings: Vec<String>,
+    auth_indicator: AuthIndicator,
+    client: Option<FreeAgentClient>,
+}
+
 /// Runtime API facade.
 pub struct ApiEngine {
     runtime: tokio::runtime::Runtime,
     client: Option<FreeAgentClient>,
     app_config: AppConfig,
     startup_warnings: Vec<String>,
-    trusted_session_authenticated: bool,
 }
 
 impl ApiEngine {
@@ -116,73 +253,13 @@ impl ApiEngine {
     pub fn new() -> Result<Self, String> {
         let runtime = tokio::runtime::Runtime::new()
             .map_err(|e| format!("Failed to create runtime for cho-tui: {e}"))?;
-
-        let mut startup_warnings = Vec::new();
-        let app_config = match AppConfig::load() {
-            Ok(config) => config,
-            Err(err) => {
-                startup_warnings.push(format!(
-                    "config.load failed; running with defaults ({})",
-                    err
-                ));
-                AppConfig::default()
-            }
-        };
-
-        let mut client = None;
-        let mut trusted_session_authenticated = false;
-        let client_id = app_config.resolve_client_id();
-        let client_secret = app_config.resolve_client_secret();
-        if client_id.is_none() || client_secret.is_none() {
-            startup_warnings.push(
-                "Missing OAuth credentials (set CHO_CLIENT_ID / CHO_CLIENT_SECRET or config auth.*)"
-                    .to_string(),
-            );
-        } else if let (Some(client_id), Some(client_secret)) = (client_id, client_secret) {
-            let sdk_config = app_config.sdk_config();
-            match AuthManager::new(
-                client_id,
-                SecretString::new(client_secret.into()),
-                sdk_config.clone(),
-            ) {
-                Ok(auth) => {
-                    if let Err(err) = runtime.block_on(auth.load_stored_tokens()) {
-                        startup_warnings
-                            .push(format!("token.load failed (run `cho auth login`): {err}"));
-                    }
-
-                    match FreeAgentClient::builder()
-                        .config(sdk_config)
-                        .auth_manager(auth)
-                        .build()
-                    {
-                        Ok(built) => {
-                            let session_status = runtime.block_on(built.session_status());
-                            trusted_session_authenticated = session_status.session_usable;
-                            if !session_status.session_usable
-                                && let Some(error) = session_status.probe_error
-                            {
-                                startup_warnings.push(format!(
-                                    "auth.probe failed; API session not confirmed ({error})"
-                                ));
-                            }
-                            client = Some(built);
-                        }
-                        Err(err) => {
-                            startup_warnings.push(format!("client.build failed: {err}"));
-                        }
-                    }
-                }
-                Err(err) => startup_warnings.push(format!("auth.init failed: {err}")),
-            }
-        }
+        let bootstrap = bootstrap(&runtime);
 
         Ok(Self {
             runtime,
-            client,
-            app_config,
-            startup_warnings,
-            trusted_session_authenticated,
+            client: bootstrap.client,
+            app_config: bootstrap.app_config,
+            startup_warnings: bootstrap.startup_warnings,
         })
     }
 
@@ -191,33 +268,13 @@ impl ApiEngine {
         self.app_config.safety.allow_writes
     }
 
-    /// Startup warnings captured during initialization.
-    pub fn startup_warnings(&self) -> &[String] {
-        &self.startup_warnings
-    }
-
-    /// Returns true if the startup trusted auth probe confirmed a usable session.
-    pub fn is_authenticated(&self) -> bool {
-        self.trusted_session_authenticated
-    }
-
-    /// Fetches data for the provided route.
-    pub fn fetch_route(
-        &self,
-        route: &RouteDefinition,
-        context: &FetchContext,
-        limit: usize,
-    ) -> Result<RoutePayload, String> {
-        self.fetch_route_with_options(route, context, RouteLoadOptions::full(limit))
-    }
-
-    /// Fetches data for the provided route with interactive options.
-    pub fn fetch_route_with_options(
+    /// Fetches route data and returns any verified auth signal produced by the call.
+    pub fn fetch_route_with_options_outcome(
         &self,
         route: &RouteDefinition,
         context: &FetchContext,
         options: RouteLoadOptions,
-    ) -> Result<RoutePayload, String> {
+    ) -> ApiCallResult<RoutePayload> {
         match route.kind {
             RouteKind::Resource(spec) => self.fetch_resource(spec, route, context, options),
             RouteKind::CompanyGet => {
@@ -274,48 +331,53 @@ impl ApiEngine {
                 self.fetch_payroll_profiles(context.payroll_year, options.request_policy)
             }
             RouteKind::AuthStatus => self.fetch_auth_status(),
-            RouteKind::Health => Ok(self.fetch_health_snapshot()),
-            RouteKind::Config => Ok(RoutePayload::Object(self.app_config.as_redacted_json())),
+            RouteKind::Health => ApiCallResult::ok(self.fetch_health_snapshot()),
+            RouteKind::Config => {
+                ApiCallResult::ok(RoutePayload::Object(self.app_config.as_redacted_json()))
+            }
         }
     }
 
-    /// Fetches one resource item by id/url.
-    pub fn fetch_resource_item(
+    /// Fetches one resource item by id/url and reports auth-state outcomes.
+    pub fn fetch_resource_item_outcome(
         &self,
         spec: cho_sdk::api::specs::ResourceSpec,
         id: &str,
-    ) -> Result<RoutePayload, String> {
-        let client = self.client()?;
-        let value = self
-            .runtime
-            .block_on(client.resource(spec).get(id))
-            .map_err(|e| format!("{}.get failed: {e}", spec.name))?;
-        Ok(RoutePayload::Object(value))
+    ) -> ApiCallResult<RoutePayload> {
+        let spec_name = spec.name;
+        self.run_client_call(
+            |runtime, client| runtime.block_on(client.resource(spec).get(id)),
+            |err| format!("{spec_name}.get failed: {err}"),
+        )
+        .map(RoutePayload::Object)
     }
 
-    /// Fetches one self-assessment return by user and period end date.
-    pub fn fetch_self_assessment_item(
+    /// Fetches one self-assessment return by user and period end date and reports auth-state outcomes.
+    pub fn fetch_self_assessment_item_outcome(
         &self,
         user: &str,
         period_ends_on: &str,
-    ) -> Result<RoutePayload, String> {
-        let client = self.client()?;
-        let value = self
-            .runtime
-            .block_on(client.get_json(
-                &format!(
-                    "users/{}/self_assessment_returns/{}",
-                    user_id_segment(user),
-                    encode_path_segment(period_ends_on)
-                ),
-                &[],
-            ))
-            .map_err(|e| format!("self-assessment-returns.get failed: {e}"))?;
-        let payload = value
-            .get("self_assessment_return")
-            .cloned()
-            .unwrap_or(value);
-        Ok(RoutePayload::Object(payload))
+    ) -> ApiCallResult<RoutePayload> {
+        self.run_client_call(
+            |runtime, client| {
+                runtime.block_on(client.get_json(
+                    &format!(
+                        "users/{}/self_assessment_returns/{}",
+                        user_id_segment(user),
+                        encode_path_segment(period_ends_on)
+                    ),
+                    &[],
+                ))
+            },
+            |err| format!("self-assessment-returns.get failed: {err}"),
+        )
+        .map(|value| {
+            let payload = value
+                .get("self_assessment_return")
+                .cloned()
+                .unwrap_or(value);
+            RoutePayload::Object(payload)
+        })
     }
 
     fn fetch_resource(
@@ -324,21 +386,28 @@ impl ApiEngine {
         route: &RouteDefinition,
         context: &FetchContext,
         options: RouteLoadOptions,
-    ) -> Result<RoutePayload, String> {
-        let client = self.client()?;
-
+    ) -> ApiCallResult<RoutePayload> {
         if spec.name == "categories" {
-            let value = self
-                .runtime
-                .block_on(client.get_json_with_policy("categories", &[], options.request_policy))
-                .map_err(|e| format!("categories.list failed: {e}"))?;
-            let items = flatten_category_groups(&value);
-            let capped = cap_items(items, options.limit);
-            return Ok(RoutePayload::List {
-                items: capped.items,
-                total: Some(capped.total),
-                has_more: capped.has_more,
-            });
+            return self
+                .run_client_call(
+                    |runtime, client| {
+                        runtime.block_on(client.get_json_with_policy(
+                            "categories",
+                            &[],
+                            options.request_policy,
+                        ))
+                    },
+                    |err| format!("categories.list failed: {err}"),
+                )
+                .map(|value| {
+                    let items = flatten_category_groups(&value);
+                    let capped = cap_items(items, options.limit);
+                    RoutePayload::List {
+                        items: capped.items,
+                        total: Some(capped.total),
+                        has_more: capped.has_more,
+                    }
+                });
         }
 
         if spec.capabilities.list {
@@ -353,23 +422,28 @@ impl ApiEngine {
                 all: false,
             };
 
-            let result = self
-                .runtime
-                .block_on(client.resource(spec).list_with_policy(
-                    &query,
-                    pagination,
-                    options.request_policy,
-                ))
-                .map_err(|e| format!("{}.list failed: {e}", spec.name))?;
+            let spec_name = spec.name;
+            return self
+                .run_client_call(
+                    |runtime, client| {
+                        runtime.block_on(client.resource(spec).list_with_policy(
+                            &query,
+                            pagination,
+                            options.request_policy,
+                        ))
+                    },
+                    |err| format!("{spec_name}.list failed: {err}"),
+                )
+                .map(|result| {
+                    let mut items = result.items;
+                    sort_items_by_latest_date(&mut items);
 
-            let mut items = result.items;
-            sort_items_by_latest_date(&mut items);
-
-            return Ok(RoutePayload::List {
-                items,
-                total: result.total,
-                has_more: result.has_more,
-            });
+                    RoutePayload::List {
+                        items,
+                        total: result.total,
+                        has_more: result.has_more,
+                    }
+                });
         }
 
         if spec.capabilities.get {
@@ -378,24 +452,28 @@ impl ApiEngine {
                 .get(&route.id)
                 .filter(|value| !value.trim().is_empty())
             else {
-                return Ok(RoutePayload::Message(format!(
+                return ApiCallResult::ok(RoutePayload::Message(format!(
                     "{} requires an item id/url (Cmd/Ctrl+P -> Set target id)",
                     route.label
                 )));
             };
 
-            let value = self
-                .runtime
-                .block_on(
-                    client
-                        .resource(spec)
-                        .get_with_policy(id, options.request_policy),
+            let spec_name = spec.name;
+            return self
+                .run_client_call(
+                    |runtime, client| {
+                        runtime.block_on(
+                            client
+                                .resource(spec)
+                                .get_with_policy(id, options.request_policy),
+                        )
+                    },
+                    |err| format!("{spec_name}.get failed: {err}"),
                 )
-                .map_err(|e| format!("{}.get failed: {e}", spec.name))?;
-            return Ok(RoutePayload::Object(value));
+                .map(RoutePayload::Object);
         }
 
-        Ok(RoutePayload::Message(
+        ApiCallResult::ok(RoutePayload::Message(
             "This route has no read-only surface in the current API model.".to_string(),
         ))
     }
@@ -405,13 +483,29 @@ impl ApiEngine {
         spec: ResourceSpec,
         context: &FetchContext,
         options: RouteLoadOptions,
-    ) -> Result<RoutePayload, String> {
-        let client = self.client()?;
-        let account_scope = self.resolve_bank_account_scope(context, options.request_policy)?;
+    ) -> ApiCallResult<RoutePayload> {
+        let client = match self.client() {
+            Ok(client) => client,
+            Err(err) => return ApiCallResult::err(err, None),
+        };
+
+        let account_scope =
+            match self.resolve_bank_account_scope(client, context, options.request_policy) {
+                Ok(account_scope) => account_scope,
+                Err(err) => {
+                    return ApiCallResult::err(
+                        format!("bank-accounts.list failed: {err}"),
+                        classify_auth_error(&err),
+                    );
+                }
+            };
         if account_scope.is_empty() {
-            return Ok(RoutePayload::Message(
-                "No bank accounts found. Open Bank Accounts and refresh.".to_string(),
-            ));
+            return ApiCallResult::ok_with_auth(
+                RoutePayload::Message(
+                    "No bank accounts found. Open Bank Accounts and refresh.".to_string(),
+                ),
+                AuthOutcome::VerifiedOk,
+            );
         }
 
         let fetch_all = options.limit >= 100;
@@ -428,14 +522,21 @@ impl ApiEngine {
         let mut items = Vec::<Value>::new();
         for account in account_scope {
             let query = vec![("bank_account".to_string(), account.url.clone())];
-            let result = self
+            let result = match self
                 .runtime
                 .block_on(client.resource(spec).list_with_policy(
                     &query,
                     pagination,
                     options.request_policy,
-                ))
-                .map_err(|e| format!("{}.list failed: {e}", spec.name))?;
+                )) {
+                Ok(result) => result,
+                Err(err) => {
+                    return ApiCallResult::err(
+                        format!("{}.list failed: {err}", spec.name),
+                        classify_auth_error(&err),
+                    );
+                }
+            };
 
             for mut item in result.items {
                 annotate_bank_account(&mut item, &account);
@@ -451,25 +552,32 @@ impl ApiEngine {
         let total = items.len();
         if !fetch_all && options.limit > 0 && total > options.limit {
             items.truncate(options.limit);
-            return Ok(RoutePayload::List {
-                items,
-                total: Some(total),
-                has_more: true,
-            });
+            return ApiCallResult::ok_with_auth(
+                RoutePayload::List {
+                    items,
+                    total: Some(total),
+                    has_more: true,
+                },
+                AuthOutcome::VerifiedOk,
+            );
         }
 
-        Ok(RoutePayload::List {
-            items,
-            total: Some(total),
-            has_more: false,
-        })
+        ApiCallResult::ok_with_auth(
+            RoutePayload::List {
+                items,
+                total: Some(total),
+                has_more: false,
+            },
+            AuthOutcome::VerifiedOk,
+        )
     }
 
     fn resolve_bank_account_scope(
         &self,
+        client: &FreeAgentClient,
         context: &FetchContext,
         policy: RequestPolicy,
-    ) -> Result<Vec<BankAccountScope>, String> {
+    ) -> cho_sdk::error::Result<Vec<BankAccountScope>> {
         if let Some(bank_account) = context
             .bank_account_filter
             .as_ref()
@@ -481,17 +589,16 @@ impl ApiEngine {
             }]);
         }
 
-        let spec = by_name("bank-accounts")
-            .ok_or_else(|| "Missing bank-accounts resource spec".to_string())?;
-        let client = self.client()?;
+        let spec = by_name("bank-accounts").ok_or_else(|| ChoSdkError::Config {
+            message: "Missing bank-accounts resource spec".to_string(),
+        })?;
         let result = self
             .runtime
             .block_on(
                 client
                     .resource(spec)
                     .list_with_policy(&[], Pagination::all(), policy),
-            )
-            .map_err(|e| format!("bank-accounts.list failed: {e}"))?;
+            )?;
 
         let mut accounts = Vec::new();
         for item in result.items {
@@ -510,13 +617,12 @@ impl ApiEngine {
         path: &str,
         tool: &str,
         policy: RequestPolicy,
-    ) -> Result<RoutePayload, String> {
-        let client = self.client()?;
-        let value = self
-            .runtime
-            .block_on(client.get_json_with_policy(path, &[], policy))
-            .map_err(|e| format!("{tool} failed: {e}"))?;
-        Ok(RoutePayload::Object(value))
+    ) -> ApiCallResult<RoutePayload> {
+        self.run_client_call(
+            |runtime, client| runtime.block_on(client.get_json_with_policy(path, &[], policy)),
+            |err| format!("{tool} failed: {err}"),
+        )
+        .map(RoutePayload::Object)
     }
 
     fn fetch_object_with_query(
@@ -525,31 +631,29 @@ impl ApiEngine {
         query: &[(&str, &str)],
         tool: &str,
         policy: RequestPolicy,
-    ) -> Result<RoutePayload, String> {
-        let client = self.client()?;
+    ) -> ApiCallResult<RoutePayload> {
         let query = query
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect::<Vec<_>>();
-        let value = self
-            .runtime
-            .block_on(client.get_json_with_policy(path, &query, policy))
-            .map_err(|e| format!("{tool} failed: {e}"))?;
-        Ok(RoutePayload::Object(value))
+        self.run_client_call(
+            |runtime, client| runtime.block_on(client.get_json_with_policy(path, &query, policy)),
+            |err| format!("{tool} failed: {err}"),
+        )
+        .map(RoutePayload::Object)
     }
 
     fn fetch_self_assessment_returns(
         &self,
         context: &FetchContext,
         options: RouteLoadOptions,
-    ) -> Result<RoutePayload, String> {
-        let client = self.client()?;
+    ) -> ApiCallResult<RoutePayload> {
         let Some(user) = context
             .self_assessment_user
             .as_ref()
             .filter(|value| !value.trim().is_empty())
         else {
-            return Ok(RoutePayload::Message(
+            return ApiCallResult::ok(RoutePayload::Message(
                 "Set a self-assessment user first (Cmd/Ctrl+P -> Set self-assessment user)"
                     .to_string(),
             ));
@@ -561,24 +665,27 @@ impl ApiEngine {
             limit: options.limit,
             all: false,
         };
-        let result = self
-            .runtime
-            .block_on(client.list_paginated_with_policy(
-                &path,
-                "self_assessment_returns",
-                &[],
-                pagination,
-                options.request_policy,
-            ))
-            .map_err(|e| format!("self-assessment-returns.list failed: {e}"))?;
+        self.run_client_call(
+            |runtime, client| {
+                runtime.block_on(client.list_paginated_with_policy(
+                    &path,
+                    "self_assessment_returns",
+                    &[],
+                    pagination,
+                    options.request_policy,
+                ))
+            },
+            |err| format!("self-assessment-returns.list failed: {err}"),
+        )
+        .map(|result| {
+            let mut items = result.items;
+            sort_items_by_latest_date(&mut items);
 
-        let mut items = result.items;
-        sort_items_by_latest_date(&mut items);
-
-        Ok(RoutePayload::List {
-            items,
-            total: result.total,
-            has_more: result.has_more,
+            RoutePayload::List {
+                items,
+                total: result.total,
+                has_more: result.has_more,
+            }
         })
     }
 
@@ -586,13 +693,18 @@ impl ApiEngine {
         &self,
         year: i32,
         policy: RequestPolicy,
-    ) -> Result<RoutePayload, String> {
-        let client = self.client()?;
-        let value = self
-            .runtime
-            .block_on(client.get_json_with_policy(&format!("payroll/{year}"), &[], policy))
-            .map_err(|e| format!("payroll.periods failed: {e}"))?;
-        Ok(RoutePayload::Object(value))
+    ) -> ApiCallResult<RoutePayload> {
+        self.run_client_call(
+            |runtime, client| {
+                runtime.block_on(client.get_json_with_policy(
+                    &format!("payroll/{year}"),
+                    &[],
+                    policy,
+                ))
+            },
+            |err| format!("payroll.periods failed: {err}"),
+        )
+        .map(RoutePayload::Object)
     }
 
     fn fetch_payroll_period_detail(
@@ -600,34 +712,47 @@ impl ApiEngine {
         year: i32,
         period: i32,
         policy: RequestPolicy,
-    ) -> Result<RoutePayload, String> {
-        let client = self.client()?;
-        let value = self
-            .runtime
-            .block_on(client.get_json_with_policy(&format!("payroll/{year}/{period}"), &[], policy))
-            .map_err(|e| format!("payroll.period failed: {e}"))?;
-        Ok(RoutePayload::Object(value))
+    ) -> ApiCallResult<RoutePayload> {
+        self.run_client_call(
+            |runtime, client| {
+                runtime.block_on(client.get_json_with_policy(
+                    &format!("payroll/{year}/{period}"),
+                    &[],
+                    policy,
+                ))
+            },
+            |err| format!("payroll.period failed: {err}"),
+        )
+        .map(RoutePayload::Object)
     }
 
     fn fetch_payroll_profiles(
         &self,
         year: i32,
         policy: RequestPolicy,
-    ) -> Result<RoutePayload, String> {
-        let client = self.client()?;
-        let value = self
-            .runtime
-            .block_on(client.get_json_with_policy(&format!("payroll_profiles/{year}"), &[], policy))
-            .map_err(|e| format!("payroll-profiles.list failed: {e}"))?;
-        Ok(RoutePayload::Object(value))
+    ) -> ApiCallResult<RoutePayload> {
+        self.run_client_call(
+            |runtime, client| {
+                runtime.block_on(client.get_json_with_policy(
+                    &format!("payroll_profiles/{year}"),
+                    &[],
+                    policy,
+                ))
+            },
+            |err| format!("payroll-profiles.list failed: {err}"),
+        )
+        .map(RoutePayload::Object)
     }
 
-    fn fetch_auth_status(&self) -> Result<RoutePayload, String> {
+    fn fetch_auth_status(&self) -> ApiCallResult<RoutePayload> {
         let Some(client) = &self.client else {
-            return Ok(RoutePayload::Object(serde_json::json!({
-                "authenticated": false,
-                "reason": "API client unavailable (credentials missing or initialization failed)"
-            })));
+            return ApiCallResult::ok_with_auth(
+                RoutePayload::Object(serde_json::json!({
+                    "authenticated": false,
+                    "reason": "API client unavailable (credentials missing or initialization failed)"
+                })),
+                AuthOutcome::VerifiedOff,
+            );
         };
 
         let loaded = self
@@ -635,10 +760,19 @@ impl ApiEngine {
             .block_on(client.auth().load_stored_tokens())
             .unwrap_or(false);
         let status = self.runtime.block_on(client.session_status());
-        Ok(RoutePayload::Object(serde_json::json!({
-            "loaded_token": loaded,
-            "status": status
-        })))
+        let auth_outcome = if status.session_usable {
+            AuthOutcome::VerifiedOk
+        } else {
+            AuthOutcome::VerifiedOff
+        };
+
+        ApiCallResult::ok_with_auth(
+            RoutePayload::Object(serde_json::json!({
+                "loaded_token": loaded,
+                "status": status
+            })),
+            auth_outcome,
+        )
     }
 
     fn fetch_health_snapshot(&self) -> RoutePayload {
@@ -702,6 +836,108 @@ impl ApiEngine {
         self.client.as_ref().ok_or_else(|| {
             "API client unavailable. Check credentials/config and open System > Health".to_string()
         })
+    }
+
+    fn run_client_call<T>(
+        &self,
+        call: impl FnOnce(&tokio::runtime::Runtime, &FreeAgentClient) -> cho_sdk::error::Result<T>,
+        format_error: impl FnOnce(&ChoSdkError) -> String,
+    ) -> ApiCallResult<T> {
+        let client = match self.client() {
+            Ok(client) => client,
+            Err(err) => return ApiCallResult::err(err, None),
+        };
+
+        match call(&self.runtime, client) {
+            Ok(value) => ApiCallResult::ok_with_auth(value, AuthOutcome::VerifiedOk),
+            Err(err) => ApiCallResult::err(format_error(&err), classify_auth_error(&err)),
+        }
+    }
+}
+
+fn bootstrap(runtime: &tokio::runtime::Runtime) -> BootstrapState {
+    let mut startup_warnings = Vec::new();
+    let app_config = match AppConfig::load() {
+        Ok(config) => config,
+        Err(err) => {
+            startup_warnings.push(format!(
+                "config.load failed; running with defaults ({})",
+                err
+            ));
+            AppConfig::default()
+        }
+    };
+
+    let mut client = None;
+    let mut auth_indicator = AuthIndicator::Off;
+    let client_id = app_config.resolve_client_id();
+    let client_secret = app_config.resolve_client_secret();
+    if client_id.is_none() || client_secret.is_none() {
+        startup_warnings.push(
+            "Missing OAuth credentials (set CHO_CLIENT_ID / CHO_CLIENT_SECRET or config auth.*)"
+                .to_string(),
+        );
+    } else if let (Some(client_id), Some(client_secret)) = (client_id, client_secret) {
+        let sdk_config = app_config.sdk_config();
+        match AuthManager::new(
+            client_id,
+            SecretString::new(client_secret.into()),
+            sdk_config.clone(),
+        ) {
+            Ok(auth) => {
+                let loaded = match runtime.block_on(auth.load_stored_tokens()) {
+                    Ok(loaded) => loaded,
+                    Err(err) => {
+                        startup_warnings
+                            .push(format!("token.load failed (run `cho auth login`): {err}"));
+                        false
+                    }
+                };
+
+                if loaded {
+                    auth_indicator =
+                        derive_startup_auth_indicator(&runtime.block_on(auth.status()));
+                }
+
+                match FreeAgentClient::builder()
+                    .config(sdk_config)
+                    .auth_manager(auth)
+                    .build()
+                {
+                    Ok(built) => client = Some(built),
+                    Err(err) => {
+                        auth_indicator = AuthIndicator::Off;
+                        startup_warnings.push(format!("client.build failed: {err}"));
+                    }
+                }
+            }
+            Err(err) => startup_warnings.push(format!("auth.init failed: {err}")),
+        }
+    }
+
+    BootstrapState {
+        app_config,
+        startup_warnings,
+        auth_indicator,
+        client,
+    }
+}
+
+fn derive_startup_auth_indicator(status: &TokenStatus) -> AuthIndicator {
+    if status.authenticated || status.can_refresh.unwrap_or(false) {
+        AuthIndicator::Cached
+    } else {
+        AuthIndicator::Off
+    }
+}
+
+fn classify_auth_error(err: &ChoSdkError) -> Option<AuthOutcome> {
+    match err {
+        ChoSdkError::AuthRequired { .. } | ChoSdkError::TokenExpired { .. } => {
+            Some(AuthOutcome::VerifiedOff)
+        }
+        ChoSdkError::ApiError { status, .. } if *status == 401 => Some(AuthOutcome::VerifiedOff),
+        _ => None,
     }
 }
 
@@ -1125,5 +1361,101 @@ fn _list_to_payload(result: ListResult) -> RoutePayload {
         items: result.items,
         total: result.total,
         has_more: result.has_more,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AuthIndicator, AuthOutcome, classify_auth_error, derive_startup_auth_indicator};
+    use cho_sdk::error::ChoSdkError;
+    use cho_sdk::models::TokenStatus;
+
+    #[test]
+    fn derive_startup_auth_indicator_marks_valid_tokens_as_cached() {
+        let status = TokenStatus {
+            authenticated: true,
+            expires_at: None,
+            expires_in_seconds: None,
+            token_state: Some("valid".to_string()),
+            can_refresh: Some(true),
+            needs_refresh: Some(false),
+        };
+
+        assert_eq!(
+            derive_startup_auth_indicator(&status),
+            AuthIndicator::Cached
+        );
+    }
+
+    #[test]
+    fn derive_startup_auth_indicator_marks_refreshable_tokens_as_cached() {
+        let status = TokenStatus {
+            authenticated: false,
+            expires_at: None,
+            expires_in_seconds: None,
+            token_state: Some("refreshable_expired".to_string()),
+            can_refresh: Some(true),
+            needs_refresh: Some(true),
+        };
+
+        assert_eq!(
+            derive_startup_auth_indicator(&status),
+            AuthIndicator::Cached
+        );
+    }
+
+    #[test]
+    fn derive_startup_auth_indicator_marks_missing_tokens_as_off() {
+        let status = TokenStatus {
+            authenticated: false,
+            expires_at: None,
+            expires_in_seconds: None,
+            token_state: Some("missing".to_string()),
+            can_refresh: Some(false),
+            needs_refresh: Some(false),
+        };
+
+        assert_eq!(derive_startup_auth_indicator(&status), AuthIndicator::Off);
+    }
+
+    #[test]
+    fn classify_auth_error_marks_auth_failures_as_verified_off() {
+        let auth_required = ChoSdkError::AuthRequired {
+            message: "login required".to_string(),
+        };
+        let token_expired = ChoSdkError::TokenExpired {
+            message: "refresh failed".to_string(),
+        };
+        let unauthorized = ChoSdkError::ApiError {
+            status: 401,
+            message: "unauthorized".to_string(),
+        };
+
+        assert_eq!(
+            classify_auth_error(&auth_required),
+            Some(AuthOutcome::VerifiedOff)
+        );
+        assert_eq!(
+            classify_auth_error(&token_expired),
+            Some(AuthOutcome::VerifiedOff)
+        );
+        assert_eq!(
+            classify_auth_error(&unauthorized),
+            Some(AuthOutcome::VerifiedOff)
+        );
+    }
+
+    #[test]
+    fn classify_auth_error_ignores_non_auth_failures() {
+        let forbidden = ChoSdkError::ApiError {
+            status: 403,
+            message: "forbidden".to_string(),
+        };
+        let config = ChoSdkError::Config {
+            message: "bad config".to_string(),
+        };
+
+        assert_eq!(classify_auth_error(&forbidden), None);
+        assert_eq!(classify_auth_error(&config), None);
     }
 }

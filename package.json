@@ -10,7 +10,7 @@
 	"scripts": {
 		"prepare": "husky",
 		"cho:dev": "cargo run -p cho-cli --",
-		"build": "cargo build --workspace --release && OUT_DIR=\"${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}\" && mkdir -p \"$OUT_DIR\" && cp target/release/cho \"$OUT_DIR/cho\" && cp target/release/cho-tui \"$OUT_DIR/cho-tui\"",
+		"build": "cargo build --workspace --release && OUT_DIR=\"${CHO_HOME:-${TOOLS_HOME:-$HOME/.tools}/cho}\" && mkdir -p \"$OUT_DIR\" && TMP_CHO=\"$OUT_DIR/.cho.$$.tmp\" && TMP_CHO_TUI=\"$OUT_DIR/.cho-tui.$$.tmp\" && rm -f \"$TMP_CHO\" \"$TMP_CHO_TUI\" && cp target/release/cho \"$TMP_CHO\" && cp target/release/cho-tui \"$TMP_CHO_TUI\" && chmod 755 \"$TMP_CHO\" \"$TMP_CHO_TUI\" && mv -f \"$TMP_CHO\" \"$OUT_DIR/cho\" && mv -f \"$TMP_CHO_TUI\" \"$OUT_DIR/cho-tui\"",
 		"util:format": "cargo fmt --all",
 		"util:lint": "cargo clippy --workspace --all-targets --all-features -- -D warnings",
 		"util:types": "cargo check --workspace",

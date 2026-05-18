@@ -13,7 +13,11 @@ mod theme;
 mod ui;
 
 use std::io::{self, Stdout};
+use std::panic::{self, PanicHookInfo};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread;
 
+use crossterm::cursor::Show;
 use crossterm::event::{
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
@@ -34,6 +38,7 @@ fn main() {
 fn run() -> Result<(), String> {
     let mut app = app::App::new()?;
     let mut session = TerminalSession::enter()?;
+    let _panic_hook = session.install_panic_hook();
     let run_result = app.run(session.terminal_mut());
     let restore_result = session.restore();
     merge_run_and_restore_result(run_result, restore_result)
@@ -41,7 +46,7 @@ fn run() -> Result<(), String> {
 
 struct TerminalSession {
     terminal: Option<Terminal<CrosstermBackend<Stdout>>>,
-    state: TerminalState,
+    state: Arc<Mutex<TerminalState>>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -57,29 +62,29 @@ impl TerminalSession {
     fn enter() -> Result<Self, String> {
         let mut session = Self {
             terminal: None,
-            state: TerminalState::default(),
+            state: Arc::new(Mutex::new(TerminalState::default())),
         };
         let setup_result = (|| -> Result<(), String> {
             enable_raw_mode().map_err(|e| format!("failed to enable raw mode: {e}"))?;
-            session.state.raw_mode_enabled = true;
+            lock_terminal_state(&session.state).raw_mode_enabled = true;
 
             let mut stdout = io::stdout();
             execute!(stdout, EnterAlternateScreen)
                 .map_err(|e| format!("failed to enter alternate screen: {e}"))?;
-            session.state.alternate_screen_entered = true;
+            lock_terminal_state(&session.state).alternate_screen_entered = true;
 
             execute!(
                 stdout,
                 PushKeyboardEnhancementFlags(keyboard_enhancement_flags())
             )
             .map_err(|e| format!("failed to enable keyboard enhancement flags: {e}"))?;
-            session.state.keyboard_flags_pushed = true;
+            lock_terminal_state(&session.state).keyboard_flags_pushed = true;
 
             let backend = CrosstermBackend::new(stdout);
             let terminal = Terminal::new(backend)
                 .map_err(|e| format!("failed to initialize terminal backend: {e}"))?;
             session.terminal = Some(terminal);
-            session.state.cursor_restore_needed = true;
+            lock_terminal_state(&session.state).cursor_restore_needed = true;
             Ok(())
         })();
 
@@ -108,7 +113,12 @@ impl TerminalSession {
         let mut cleanup = StdTerminalCleanupBackend {
             terminal: self.terminal.as_mut(),
         };
-        cleanup_terminal_state(&mut self.state, &mut cleanup)
+        let mut state = lock_terminal_state(&self.state);
+        cleanup_terminal_state(&mut state, &mut cleanup)
+    }
+
+    fn install_panic_hook(&self) -> PanicHookGuard {
+        install_terminal_panic_hook(Arc::clone(&self.state))
     }
 }
 
@@ -151,8 +161,76 @@ impl CleanupBackend for StdTerminalCleanupBackend<'_> {
             Some(terminal) => terminal
                 .show_cursor()
                 .map_err(|e| format!("failed to restore cursor: {e}")),
-            None => Ok(()),
+            None => {
+                let mut stdout = io::stdout();
+                execute!(stdout, Show).map_err(|e| format!("failed to restore cursor: {e}"))
+            }
         }
+    }
+}
+
+type PanicHook = Box<dyn Fn(&PanicHookInfo<'_>) + Sync + Send + 'static>;
+
+struct PanicHookGuard {
+    previous_hook: Arc<Mutex<Option<PanicHook>>>,
+}
+
+impl Drop for PanicHookGuard {
+    fn drop(&mut self) {
+        if thread::panicking() {
+            return;
+        }
+
+        if let Some(previous_hook) = lock_previous_panic_hook(&self.previous_hook).take() {
+            panic::set_hook(previous_hook);
+        }
+    }
+}
+
+fn install_terminal_panic_hook(state: Arc<Mutex<TerminalState>>) -> PanicHookGuard {
+    let previous_hook = Arc::new(Mutex::new(Some(panic::take_hook())));
+    let previous_hook_for_hook = Arc::clone(&previous_hook);
+    panic::set_hook(Box::new(move |info| {
+        let mut cleanup = StdTerminalCleanupBackend { terminal: None };
+        cleanup_before_delegated_panic_hook(&state, &mut cleanup, || {
+            let previous_hook = lock_previous_panic_hook(&previous_hook_for_hook);
+            if let Some(previous_hook) = previous_hook.as_ref() {
+                previous_hook(info);
+            }
+        });
+    }));
+
+    PanicHookGuard { previous_hook }
+}
+
+fn cleanup_before_delegated_panic_hook<B, F>(
+    state: &Arc<Mutex<TerminalState>>,
+    backend: &mut B,
+    delegated_hook: F,
+) where
+    B: CleanupBackend,
+    F: FnOnce(),
+{
+    {
+        let mut state = lock_terminal_state(state);
+        let _ = cleanup_terminal_state(&mut state, backend);
+    }
+    delegated_hook();
+}
+
+fn lock_terminal_state(state: &Arc<Mutex<TerminalState>>) -> MutexGuard<'_, TerminalState> {
+    match state.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+fn lock_previous_panic_hook(
+    hook: &Arc<Mutex<Option<PanicHook>>>,
+) -> MutexGuard<'_, Option<PanicHook>> {
+    match hook.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
     }
 }
 
@@ -266,6 +344,44 @@ mod tests {
         }
     }
 
+    struct SharedCallCleanupBackend {
+        calls: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl CleanupBackend for SharedCallCleanupBackend {
+        fn disable_raw_mode(&mut self) -> Result<(), String> {
+            self.calls
+                .lock()
+                .expect("call log should not be poisoned")
+                .push("disable_raw_mode");
+            Ok(())
+        }
+
+        fn pop_keyboard_flags(&mut self) -> Result<(), String> {
+            self.calls
+                .lock()
+                .expect("call log should not be poisoned")
+                .push("pop_keyboard_flags");
+            Ok(())
+        }
+
+        fn leave_alternate_screen(&mut self) -> Result<(), String> {
+            self.calls
+                .lock()
+                .expect("call log should not be poisoned")
+                .push("leave_alternate_screen");
+            Ok(())
+        }
+
+        fn show_cursor(&mut self) -> Result<(), String> {
+            self.calls
+                .lock()
+                .expect("call log should not be poisoned")
+                .push("show_cursor");
+            Ok(())
+        }
+    }
+
     #[test]
     fn cleanup_terminal_state_attempts_all_enabled_steps() {
         let mut state = TerminalState {
@@ -315,6 +431,44 @@ mod tests {
         cleanup_terminal_state(&mut state, &mut backend).expect("second cleanup should no-op");
 
         assert!(backend.calls.is_empty());
+    }
+
+    #[test]
+    fn cleanup_before_delegated_panic_hook_restores_terminal_first() {
+        let state = Arc::new(Mutex::new(TerminalState {
+            raw_mode_enabled: true,
+            alternate_screen_entered: true,
+            keyboard_flags_pushed: true,
+            cursor_restore_needed: true,
+            restored: false,
+        }));
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut backend = SharedCallCleanupBackend {
+            calls: Arc::clone(&calls),
+        };
+        let delegated_calls = Arc::clone(&calls);
+
+        cleanup_before_delegated_panic_hook(&state, &mut backend, || {
+            delegated_calls
+                .lock()
+                .expect("call log should not be poisoned")
+                .push("delegated_hook");
+        });
+
+        assert_eq!(
+            calls
+                .lock()
+                .expect("call log should not be poisoned")
+                .as_slice(),
+            [
+                "disable_raw_mode",
+                "pop_keyboard_flags",
+                "leave_alternate_screen",
+                "show_cursor",
+                "delegated_hook"
+            ]
+        );
+        assert!(lock_terminal_state(&state).restored);
     }
 
     #[test]

@@ -29,8 +29,10 @@ impl AuditLogger {
         let path = home::history_log_path()?;
 
         if !path.exists() {
-            std::fs::File::create(&path).map_err(|e| ChoSdkError::Config {
-                message: format!("Failed creating history log {}: {e}", path.display()),
+            std::fs::File::create(&path).map_err(|e| {
+                audit_unavailable_error(ChoSdkError::Config {
+                    message: format!("Failed creating history log {}: {e}", path.display()),
+                })
             })?;
         }
 
@@ -43,8 +45,10 @@ impl AuditLogger {
 
     /// Logs an event with arbitrary fields.
     pub fn log_event(&self, event: &str, fields: &[(&str, String)]) -> Result<()> {
-        let _guard = self.lock.lock().map_err(|_| ChoSdkError::Config {
-            message: "Audit log lock was poisoned".to_string(),
+        let _guard = self.lock.lock().map_err(|_| {
+            audit_unavailable_error(ChoSdkError::Config {
+                message: "Audit log lock was poisoned".to_string(),
+            })
         })?;
 
         let timestamp = Utc::now().to_rfc3339();
@@ -63,22 +67,28 @@ impl AuditLogger {
             .create(true)
             .append(true)
             .open(&self.path)
-            .map_err(|e| ChoSdkError::Config {
-                message: format!("Failed opening history log {}: {e}", self.path.display()),
+            .map_err(|e| {
+                audit_unavailable_error(ChoSdkError::Config {
+                    message: format!("Failed opening history log {}: {e}", self.path.display()),
+                })
             })?;
 
-        file.lock_exclusive().map_err(|e| ChoSdkError::Config {
-            message: format!("Failed locking history log {}: {e}", self.path.display()),
+        file.lock_exclusive().map_err(|e| {
+            audit_unavailable_error(ChoSdkError::Config {
+                message: format!("Failed locking history log {}: {e}", self.path.display()),
+            })
         })?;
 
-        let write_result = file
-            .write_all(line.as_bytes())
-            .map_err(|e| ChoSdkError::Config {
+        let write_result = file.write_all(line.as_bytes()).map_err(|e| {
+            audit_unavailable_error(ChoSdkError::Config {
                 message: format!("Failed writing history log {}: {e}", self.path.display()),
-            });
+            })
+        });
 
-        let unlock_result = FileExt::unlock(&file).map_err(|e| ChoSdkError::Config {
-            message: format!("Failed unlocking history log {}: {e}", self.path.display()),
+        let unlock_result = FileExt::unlock(&file).map_err(|e| {
+            audit_unavailable_error(ChoSdkError::Config {
+                message: format!("Failed unlocking history log {}: {e}", self.path.display()),
+            })
         });
 
         write_result?;
@@ -135,8 +145,8 @@ impl AuditLogger {
 }
 
 impl HttpObserver for AuditLogger {
-    fn on_request(&self, event: &HttpRequestEvent) {
-        let _ = self.log_event(
+    fn on_request(&self, event: &HttpRequestEvent) -> Result<()> {
+        self.log_event(
             "http.request",
             &[
                 ("method", event.method.clone()),
@@ -153,11 +163,11 @@ impl HttpObserver for AuditLogger {
                 ("has_body", event.has_body.to_string()),
                 ("mutating", event.mutating.to_string()),
             ],
-        );
+        )
     }
 
-    fn on_response(&self, event: &HttpResponseEvent) {
-        let _ = self.log_event(
+    fn on_response(&self, event: &HttpResponseEvent) -> Result<()> {
+        self.log_event(
             "http.response",
             &[
                 ("method", event.method.clone()),
@@ -182,7 +192,18 @@ impl HttpObserver for AuditLogger {
                     event.error.clone().unwrap_or_else(|| "none".to_string()),
                 ),
             ],
-        );
+        )
+    }
+}
+
+pub fn audit_unavailable_error(err: ChoSdkError) -> ChoSdkError {
+    match err {
+        ChoSdkError::Config { message } if message.contains("AUDIT_LOG_UNAVAILABLE") => {
+            ChoSdkError::Config { message }
+        }
+        other => ChoSdkError::Config {
+            message: format!("AUDIT_LOG_UNAVAILABLE: {other}"),
+        },
     }
 }
 

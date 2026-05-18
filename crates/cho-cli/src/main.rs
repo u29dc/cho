@@ -20,7 +20,7 @@ use tracing_subscriber::EnvFilter;
 use cho_sdk::auth::AuthManager;
 use cho_sdk::client::{FreeAgentClient, HttpObserver};
 
-use crate::audit::AuditLogger;
+use crate::audit::{AuditLogger, audit_unavailable_error};
 use crate::commands::auth::AuthCommands;
 use crate::commands::company::CompanyCommands;
 use crate::commands::config::ConfigCommands;
@@ -358,7 +358,10 @@ async fn main() {
 
     if cli.verbose {
         let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-        tracing_subscriber::fmt().with_env_filter(filter).init();
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_writer(std::io::stderr)
+            .init();
     }
 
     let config = match AppConfig::load() {
@@ -376,9 +379,7 @@ async fn main() {
     let audit = match AuditLogger::new(run_id) {
         Ok(audit) => audit,
         Err(err) => {
-            let wrapped = cho_sdk::error::ChoSdkError::Config {
-                message: format!("AUDIT_LOG_UNAVAILABLE: {err}"),
-            };
+            let wrapped = audit_unavailable_error(err);
             emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
             return;
         }
@@ -386,44 +387,65 @@ async fn main() {
 
     let tool_name = top_level_tool_name(&cli.command);
     let argv = std::env::args().collect::<Vec<_>>();
-    let _ = audit.log_command_start(&tool_name, &argv);
+    if let Err(err) = audit.log_command_start(&tool_name, &argv) {
+        let wrapped = audit_unavailable_error(err);
+        emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
+        return;
+    }
     let input_payload = serde_json::json!({ "tool": &tool_name });
-    let _ = audit.log_command_input(&tool_name, &input_payload.to_string());
+    if let Err(err) = audit.log_command_input(&tool_name, &input_payload.to_string()) {
+        let wrapped = audit_unavailable_error(err);
+        emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
+        return;
+    }
 
     // Early commands that do not require API client.
     match &cli.command {
         Commands::Start => match commands::start::run() {
             Ok(exit_code) => {
-                let _ = audit.log_command_end(
-                    &tool_name,
-                    exit_code,
-                    start.elapsed().as_millis() as u64,
-                );
+                log_command_end_or_exit(&audit, &tool_name, exit_code, start, json_mode);
                 std::process::exit(exit_code);
             }
             Err(err) => {
                 emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
                 let code = error::exit_code(&err);
-                let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
+                log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
                 std::process::exit(code);
             }
         },
         Commands::Tools { name } => {
-            commands::tools::run(name.as_deref(), output_mode, start, &audit);
-            let _ = audit.log_command_end(&tool_name, 0, start.elapsed().as_millis() as u64);
-            return;
+            match commands::tools::run(name.as_deref(), output_mode, start, &audit) {
+                Ok(exit_code) => {
+                    log_command_end_or_exit(&audit, &tool_name, exit_code, start, json_mode);
+                    if exit_code == 0 {
+                        return;
+                    }
+                    std::process::exit(exit_code);
+                }
+                Err(err) => {
+                    emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
+                    let code = error::exit_code(&err);
+                    log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
+                    std::process::exit(code);
+                }
+            }
         }
-        Commands::Health => {
-            let exit_code = commands::health::run(output_mode, start, &audit).await;
-            let _ =
-                audit.log_command_end(&tool_name, exit_code, start.elapsed().as_millis() as u64);
-            std::process::exit(exit_code);
-        }
+        Commands::Health => match commands::health::run(output_mode, start, &audit).await {
+            Ok(exit_code) => {
+                log_command_end_or_exit(&audit, &tool_name, exit_code, start, json_mode);
+                std::process::exit(exit_code);
+            }
+            Err(err) => {
+                emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
+                let code = error::exit_code(&err);
+                log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
+                std::process::exit(code);
+            }
+        },
         Commands::Config { command } => {
             match commands::config::run(command, output_mode, start, &audit) {
                 Ok(()) => {
-                    let _ =
-                        audit.log_command_end(&tool_name, 0, start.elapsed().as_millis() as u64);
+                    log_command_end_or_exit(&audit, &tool_name, 0, start, json_mode);
                     return;
                 }
                 Err(err) => {
@@ -435,8 +457,7 @@ async fn main() {
                         Some(&audit),
                     );
                     let code = error::exit_code(&err);
-                    let _ =
-                        audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
+                    log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
                     std::process::exit(code);
                 }
             }
@@ -452,7 +473,7 @@ async fn main() {
             };
             emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
+            log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
             std::process::exit(code);
         }
     };
@@ -466,7 +487,7 @@ async fn main() {
             };
             emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
+            log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
             std::process::exit(code);
         }
     };
@@ -483,7 +504,7 @@ async fn main() {
         Err(err) => {
             emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
+            log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
             std::process::exit(code);
         }
     };
@@ -491,7 +512,7 @@ async fn main() {
     if let Err(err) = auth.load_stored_tokens().await {
         emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
         let code = error::exit_code(&err);
-        let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
+        log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
         std::process::exit(code);
     }
 
@@ -506,7 +527,7 @@ async fn main() {
         Err(err) => {
             emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            let _ = audit.log_command_end(&tool_name, code, start.elapsed().as_millis() as u64);
+            log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
             std::process::exit(code);
         }
     };
@@ -528,12 +549,12 @@ async fn main() {
 
     match result {
         Ok(()) => {
-            let _ = audit.log_command_end(&tool, 0, start.elapsed().as_millis() as u64);
+            log_command_end_or_exit(&audit, &tool, 0, start, json_mode);
         }
         Err(err) => {
             emit_runtime_error(&err, json_mode, &tool, start, Some(&audit));
             let code = error::exit_code(&err);
-            let _ = audit.log_command_end(&tool, code, start.elapsed().as_millis() as u64);
+            log_command_end_or_exit(&audit, &tool, code, start, json_mode);
             std::process::exit(code);
         }
     }
@@ -758,13 +779,16 @@ fn emit_runtime_error(
     audit: Option<&AuditLogger>,
 ) {
     let output = error::format_error(err, json_mode, tool, start);
+    if let Some(audit) = audit
+        && let Err(err) = audit.log_command_output(tool, &output)
+    {
+        let wrapped = audit_unavailable_error(err);
+        emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
+    }
     if json_mode {
         println!("{output}");
     } else {
         eprintln!("{output}");
-    }
-    if let Some(audit) = audit {
-        let _ = audit.log_command_output(tool, &output);
     }
 }
 
@@ -777,15 +801,31 @@ fn emit_bootstrap_error(
     audit: Option<&AuditLogger>,
 ) {
     let output = error::format_error(err, json_mode, tool, start);
+    if let Some(audit) = audit
+        && let Err(err) = audit.log_command_output(tool, &output)
+    {
+        let wrapped = audit_unavailable_error(err);
+        emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
+    }
     if json_mode {
         println!("{output}");
     } else {
         eprintln!("{output}");
     }
-    if let Some(audit) = audit {
-        let _ = audit.log_command_output(tool, &output);
-    }
     std::process::exit(exit_code);
+}
+
+fn log_command_end_or_exit(
+    audit: &AuditLogger,
+    tool: &str,
+    exit_code: i32,
+    start: Instant,
+    json_mode: bool,
+) {
+    if let Err(err) = audit.log_command_end(tool, exit_code, start.elapsed().as_millis() as u64) {
+        let wrapped = audit_unavailable_error(err);
+        emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
+    }
 }
 
 fn top_level_tool_name(command: &Commands) -> String {

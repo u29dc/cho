@@ -19,9 +19,9 @@ use crate::models::{ListResult, Pagination, SessionStatus};
 /// Observer for low-level HTTP events.
 pub trait HttpObserver: Send + Sync {
     /// Called before a request is sent.
-    fn on_request(&self, event: &HttpRequestEvent);
+    fn on_request(&self, event: &HttpRequestEvent) -> Result<()>;
     /// Called after a response is received (or request fails).
-    fn on_response(&self, event: &HttpResponseEvent);
+    fn on_response(&self, event: &HttpResponseEvent) -> Result<()>;
 }
 
 /// HTTP request event.
@@ -357,7 +357,7 @@ impl FreeAgentClient {
                     query: query.to_vec(),
                     has_body: body.is_some(),
                     mutating,
-                });
+                })?;
             }
 
             let mut request = self
@@ -391,7 +391,7 @@ impl FreeAgentClient {
                             elapsed_ms,
                             retry_after: None,
                             error: Some(err.to_string()),
-                        });
+                        })?;
                     }
 
                     if attempt < max_retries && (err.is_connect() || err.is_timeout()) {
@@ -427,7 +427,7 @@ impl FreeAgentClient {
                     elapsed_ms,
                     retry_after,
                     error: None,
-                });
+                })?;
             }
 
             if status == reqwest::StatusCode::UNAUTHORIZED {
@@ -514,7 +514,7 @@ impl FreeAgentClient {
                     query: query.to_vec(),
                     has_body: body.is_some(),
                     mutating,
-                });
+                })?;
             }
 
             let mut request = self
@@ -549,7 +549,7 @@ impl FreeAgentClient {
                             elapsed_ms,
                             retry_after: None,
                             error: Some(err.to_string()),
-                        });
+                        })?;
                     }
 
                     if attempt < max_retries && (err.is_connect() || err.is_timeout()) {
@@ -584,7 +584,7 @@ impl FreeAgentClient {
                     elapsed_ms,
                     retry_after,
                     error: None,
-                });
+                })?;
             }
 
             if status == reqwest::StatusCode::UNAUTHORIZED {

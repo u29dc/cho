@@ -54,8 +54,8 @@ pub fn run(
                 OutputMode::Table => format_value(&payload, OutputFormat::Table),
                 OutputMode::Csv => format_value(&payload, OutputFormat::Csv),
             };
+            audit.log_command_output("config.show", &output)?;
             println!("{output}");
-            let _ = audit.log_command_output("config.show", &output);
             Ok(())
         }
         ConfigCommands::Set { key, value } => {
@@ -83,8 +83,8 @@ pub fn run(
                 OutputMode::Table => format_value(&payload, OutputFormat::Table),
                 OutputMode::Csv => format_value(&payload, OutputFormat::Csv),
             };
+            audit.log_command_output("config.set", &output)?;
             println!("{output}");
-            let _ = audit.log_command_output("config.set", &output);
             Ok(())
         }
     }

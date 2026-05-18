@@ -104,8 +104,8 @@ impl CliContext {
     }
 
     /// Logs structured command input payload.
-    pub fn log_input(&self, tool: &str, input: &serde_json::Value) {
-        let _ = self.audit.log_command_input(tool, &input.to_string());
+    pub fn log_input(&self, tool: &str, input: &serde_json::Value) -> Result<()> {
+        self.audit.log_command_input(tool, &input.to_string())
     }
 
     /// Emits one-item success output.
@@ -118,8 +118,8 @@ impl CliContext {
             OutputMode::Csv => format_value(&value, OutputFormat::Csv),
         };
 
+        self.audit.log_command_output(tool, &output)?;
         println!("{output}");
-        let _ = self.audit.log_command_output(tool, &output);
         Ok(())
     }
 
@@ -140,8 +140,8 @@ impl CliContext {
             OutputMode::Csv => format_value(&value, OutputFormat::Csv),
         };
 
+        self.audit.log_command_output(tool, &output)?;
         println!("{output}");
-        let _ = self.audit.log_command_output(tool, &output);
         Ok(())
     }
 }

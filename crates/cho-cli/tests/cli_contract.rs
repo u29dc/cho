@@ -202,3 +202,33 @@ fn command_execution_writes_history_log_entries() {
     assert!(history.contains("event=command.end"));
     assert!(history.contains("tool=tools.list"));
 }
+
+#[cfg(unix)]
+#[test]
+fn existing_unwritable_history_log_fails_closed_before_dispatch() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let home = TempDir::new().expect("temp home");
+    let history_path = home.path().join("history.log");
+    fs::write(&history_path, "seed\n").expect("history.log seed should be written");
+
+    let mut readonly = fs::metadata(&history_path)
+        .expect("history.log metadata should be readable")
+        .permissions();
+    readonly.set_mode(0o444);
+    fs::set_permissions(&history_path, readonly).expect("history.log should be made read-only");
+
+    let output = run_raw(home.path(), &["tools"]);
+
+    let mut writable = fs::metadata(&history_path)
+        .expect("history.log metadata should still be readable")
+        .permissions();
+    writable.set_mode(0o600);
+    let _ = fs::set_permissions(&history_path, writable);
+
+    assert_eq!(output.status.code(), Some(2));
+    let json = serde_json::from_slice::<Value>(&output.stdout)
+        .expect("stdout must contain an audit error envelope");
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"]["code"], "AUDIT_LOG_UNAVAILABLE");
+}

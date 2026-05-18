@@ -920,7 +920,7 @@ pub async fn run_bank_transactions(
                 "file": file.display().to_string(),
                 "statement_bytes": statement_bytes,
             });
-            ctx.log_input("bank-transactions.upload-statement", &audit_payload);
+            ctx.log_input("bank-transactions.upload-statement", &audit_payload)?;
             let value = ctx
                 .client()
                 .post_json(
@@ -1040,7 +1040,7 @@ async fn update_bank_transaction_explanation(
         "mark_for_review": mark_for_review,
         "attachment": attachment.map(|path| path.display().to_string()),
     });
-    ctx.log_input("bank-transactions.update-explanation", &audit_payload);
+    ctx.log_input("bank-transactions.update-explanation", &audit_payload)?;
 
     let explanations_spec =
         by_name("bank-transaction-explanations").ok_or_else(|| ChoSdkError::Config {
@@ -1312,7 +1312,7 @@ pub async fn run_users(command: &UserCommands, ctx: &CliContext, start: Instant)
         UserCommands::UpdateMe { file } => {
             ctx.require_writes_allowed()?;
             let payload = read_json_file(file)?;
-            ctx.log_input("users.update-me", &payload);
+            ctx.log_input("users.update-me", &payload)?;
             let value = ctx.client().put_json("users/me", &payload, true).await?;
             ctx.emit_success("users.update-me", &value, start)
         }
@@ -1458,7 +1458,7 @@ async fn run_resource_with_spec(
 
             ctx.require_writes_allowed()?;
             let payload = read_json_file(file)?;
-            ctx.log_input(&format!("{}.create", tool_prefix), &payload);
+            ctx.log_input(&format!("{}.create", tool_prefix), &payload)?;
             let query_pairs = parse_query_pairs(query)?;
             let value = if query_pairs.is_empty() {
                 api.create(&payload).await?
@@ -1479,7 +1479,7 @@ async fn run_resource_with_spec(
 
             ctx.require_writes_allowed()?;
             let payload = read_json_file(file)?;
-            ctx.log_input(&format!("{}.update", tool_prefix), &payload);
+            ctx.log_input(&format!("{}.update", tool_prefix), &payload)?;
             let query_pairs = parse_query_pairs(query)?;
             let value = if query_pairs.is_empty() {
                 api.update(id, &payload).await?

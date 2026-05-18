@@ -98,6 +98,45 @@ fn run_help(home: &Path, args: &[&str]) -> (i32, String) {
     (code, stdout)
 }
 
+#[tokio::test]
+async fn verbose_tracing_writes_to_stderr_without_corrupting_json_stdout() {
+    let home = TempDir::new().expect("temp home");
+    seed_tokens(home.path(), "seed-access", "seed-refresh");
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/v2/company"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "company": { "name": "Example Ltd" }
+        })))
+        .mount(&server)
+        .await;
+
+    let mut cmd = assert_cmd::cargo::cargo_bin_cmd!("cho");
+    let output = cmd
+        .args(["--verbose", "company", "get"])
+        .env("CHO_HOME", home.path())
+        .env("CHO_CLIENT_ID", "test-client-id")
+        .env("CHO_CLIENT_SECRET", "test-client-secret")
+        .env("CHO_BASE_URL", format!("{}/v2/", server.uri()))
+        .env("RUST_LOG", "cho_sdk=debug")
+        .env_remove("TOOLS_HOME")
+        .output()
+        .expect("command must execute");
+
+    assert_eq!(output.status.code(), Some(0));
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout must be valid utf8");
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be valid utf8");
+    let json =
+        serde_json::from_str::<Value>(&stdout).expect("stdout must stay a valid JSON envelope");
+
+    assert_eq!(json["ok"], true);
+    assert_eq!(json["meta"]["tool"], "company.get");
+    assert!(!stdout.contains("api request successful"));
+    assert!(stderr.contains("api request successful"));
+}
+
 #[test]
 fn tools_registry_has_unique_names_and_json_examples() {
     let home = TempDir::new().expect("temp home");

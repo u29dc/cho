@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use cho_sdk::auth::AuthManager;
 use cho_sdk::client::FreeAgentClient;
+use cho_sdk::error::Result;
 use secrecy::SecretString;
 
 use crate::audit::AuditLogger;
@@ -42,7 +43,7 @@ struct HealthResponse {
 }
 
 /// Runs health checks and returns process exit code.
-pub async fn run(output_mode: OutputMode, start: Instant, audit: &AuditLogger) -> i32 {
+pub async fn run(output_mode: OutputMode, start: Instant, audit: &AuditLogger) -> Result<i32> {
     let mut checks = Vec::new();
 
     checks.push(check_home());
@@ -82,10 +83,10 @@ pub async fn run(output_mode: OutputMode, start: Instant, audit: &AuditLogger) -
         OutputMode::Csv => format_value(&tabular_payload(&payload), OutputFormat::Csv),
     };
 
+    audit.log_command_output("health.check", &output)?;
     println!("{output}");
-    let _ = audit.log_command_output("health.check", &output);
 
-    if blocked { 2 } else { 0 }
+    Ok(if blocked { 2 } else { 0 })
 }
 
 fn check_home() -> Check {

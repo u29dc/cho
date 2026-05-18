@@ -97,7 +97,7 @@ pub async fn run_invoices(
             })?;
             let api = ctx.client().resource(spec);
             let payload = read_optional_json_file(file)?;
-            ctx.log_input("invoices.send-email", &payload);
+            ctx.log_input("invoices.send-email", &payload)?;
             let value = api
                 .action(
                     id,
@@ -133,7 +133,7 @@ pub async fn run_invoices(
             })?;
             let api = ctx.client().resource(spec);
             let payload = read_optional_json_file(file)?;
-            ctx.log_input("invoices.direct-debit", &payload);
+            ctx.log_input("invoices.direct-debit", &payload)?;
             let value = api
                 .action(
                     id,
@@ -345,7 +345,7 @@ pub async fn run_credit_notes(
             })?;
             let api = ctx.client().resource(spec);
             let payload = read_optional_json_file(file)?;
-            ctx.log_input("credit-notes.send-email", &payload);
+            ctx.log_input("credit-notes.send-email", &payload)?;
             let value = api
                 .action(
                     id,
@@ -469,7 +469,7 @@ pub async fn run_estimates(
             })?;
             let api = ctx.client().resource(spec);
             let payload = read_optional_json_file(file)?;
-            ctx.log_input("estimates.send-email", &payload);
+            ctx.log_input("estimates.send-email", &payload)?;
             let value = api
                 .action(
                     id,

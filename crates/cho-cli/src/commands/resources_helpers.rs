@@ -111,7 +111,7 @@ pub(super) async fn run_default_additional_text(
             ctx.log_input(
                 &format!("{tool_prefix}.default-additional-text.update"),
                 &payload,
-            );
+            )?;
             let value = ctx.client().put_json(&path, &payload, true).await?;
             ctx.emit_success(
                 &format!("{tool_prefix}.default-additional-text.update"),

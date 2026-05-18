@@ -2,6 +2,7 @@
 
 use std::time::Instant;
 
+use cho_sdk::error::Result;
 use serde::Serialize;
 
 use crate::audit::AuditLogger;
@@ -18,7 +19,12 @@ struct ToolsPayload {
 }
 
 /// Runs `tools` command.
-pub fn run(name: Option<&str>, output_mode: OutputMode, start: Instant, audit: &AuditLogger) {
+pub fn run(
+    name: Option<&str>,
+    output_mode: OutputMode,
+    start: Instant,
+    audit: &AuditLogger,
+) -> Result<i32> {
     let tools = tool_catalog();
 
     if let Some(name) = name {
@@ -40,9 +46,9 @@ pub fn run(name: Option<&str>, output_mode: OutputMode, start: Instant, audit: &
                     OutputFormat::Csv,
                 ),
             };
+            audit.log_command_output("tools.get", &output)?;
             println!("{output}");
-            let _ = audit.log_command_output("tools.get", &output);
-            return;
+            return Ok(0);
         }
 
         if output_mode.is_json() {
@@ -54,15 +60,15 @@ pub fn run(name: Option<&str>, output_mode: OutputMode, start: Instant, audit: &
                 None,
                 start,
             );
+            audit.log_command_output("tools.get", &output)?;
             println!("{output}");
-            let _ = audit.log_command_output("tools.get", &output);
-            std::process::exit(1);
+            return Ok(1);
         }
 
         let output = format!("Tool '{name}' not found.");
+        audit.log_command_output("tools.get", &output)?;
         eprintln!("{output}");
-        let _ = audit.log_command_output("tools.get", &output);
-        std::process::exit(1);
+        return Ok(1);
     }
 
     let output = match output_mode {
@@ -99,6 +105,7 @@ pub fn run(name: Option<&str>, output_mode: OutputMode, start: Instant, audit: &
         ),
     };
 
+    audit.log_command_output("tools.list", &output)?;
     println!("{output}");
-    let _ = audit.log_command_output("tools.list", &output);
+    Ok(0)
 }

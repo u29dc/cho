@@ -10,8 +10,7 @@ use cho_sdk::error::Result;
 use secrecy::SecretString;
 
 use crate::audit::AuditLogger;
-use crate::envelope;
-use crate::output::{OutputFormat, OutputMode, format_value};
+use crate::envelope::{self, OutputFormat};
 
 use super::utils::AppConfig;
 
@@ -43,7 +42,7 @@ struct HealthResponse {
 }
 
 /// Runs health checks and returns process exit code.
-pub async fn run(output_mode: OutputMode, start: Instant, audit: &AuditLogger) -> Result<i32> {
+pub async fn run(output_format: OutputFormat, start: Instant, audit: &AuditLogger) -> Result<i32> {
     let mut checks = Vec::new();
 
     checks.push(check_home());
@@ -74,17 +73,18 @@ pub async fn run(output_mode: OutputMode, start: Instant, audit: &AuditLogger) -
         summary: Summary { pass, warn, fail },
     };
 
-    let output = match output_mode {
-        OutputMode::Json => {
-            envelope::emit_success("health.check", &payload, start, None, None, None)
-        }
-        OutputMode::Text => render_human(&payload),
-        OutputMode::Table => format_value(&tabular_payload(&payload), OutputFormat::Table),
-        OutputMode::Csv => format_value(&tabular_payload(&payload), OutputFormat::Csv),
-    };
+    let output = envelope::emit_success(
+        "health.check",
+        &payload,
+        start,
+        None,
+        None,
+        None,
+        output_format,
+    );
 
     audit.log_command_output("health.check", &output)?;
-    println!("{output}");
+    envelope::write_stdout(&output);
 
     Ok(if blocked { 2 } else { 0 })
 }
@@ -316,57 +316,4 @@ async fn check_auth_token() -> Check {
             fix: "Run `cho auth login`".to_string(),
         }
     }
-}
-
-fn render_human(response: &HealthResponse) -> String {
-    let mut out = String::new();
-    out.push_str(&format!("status: {}\n\n", response.status));
-
-    for check in &response.checks {
-        let marker = match check.status {
-            "pass" => "[+]",
-            "warn" => "[~]",
-            "fail" => "[x]",
-            _ => "[?]",
-        };
-
-        out.push_str(&format!(
-            "{} {:<20} {}\n",
-            marker, check.label, check.detail
-        ));
-        if check.status != "pass" {
-            out.push_str(&format!("    fix: {}\n", check.fix));
-        }
-    }
-
-    out.push('\n');
-    out.push_str(&format!(
-        "summary: {} pass, {} warn, {} fail",
-        response.summary.pass, response.summary.warn, response.summary.fail
-    ));
-
-    out
-}
-
-fn tabular_payload(response: &HealthResponse) -> serde_json::Value {
-    serde_json::Value::Array(
-        response
-            .checks
-            .iter()
-            .map(|check| {
-                serde_json::json!({
-                    "overall_status": response.status,
-                    "pass": response.summary.pass,
-                    "warn": response.summary.warn,
-                    "fail": response.summary.fail,
-                    "id": check.id,
-                    "label": check.label,
-                    "status": check.status,
-                    "severity": check.severity,
-                    "detail": check.detail,
-                    "fix": check.fix,
-                })
-            })
-            .collect(),
-    )
 }

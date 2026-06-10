@@ -8,14 +8,13 @@ use cho_sdk::models::{ListResult, Pagination};
 use serde::Serialize;
 
 use crate::audit::AuditLogger;
-use crate::envelope;
+use crate::envelope::{self, OutputFormat};
 use crate::output::json::{JsonOptions, apply_json_options};
-use crate::output::{OutputFormat, OutputMode, format_value};
 
 /// Shared command execution context.
 pub struct CliContext {
     client: FreeAgentClient,
-    output_mode: OutputMode,
+    output_format: OutputFormat,
     json_options: JsonOptions,
     limit: usize,
     explicit_limit: bool,
@@ -28,7 +27,7 @@ impl CliContext {
     /// Creates a new context.
     pub fn new(
         client: FreeAgentClient,
-        output_mode: OutputMode,
+        output_format: OutputFormat,
         json_options: JsonOptions,
         limit: usize,
         all: bool,
@@ -37,7 +36,7 @@ impl CliContext {
     ) -> Self {
         Self {
             client,
-            output_mode,
+            output_format,
             json_options,
             limit,
             explicit_limit: false,
@@ -112,14 +111,11 @@ impl CliContext {
     pub fn emit_success<T: Serialize>(&self, tool: &str, data: &T, start: Instant) -> Result<()> {
         let value = serialize_transform(data, &self.json_options)?;
 
-        let output = match self.output_mode {
-            OutputMode::Json => envelope::emit_success(tool, value, start, None, None, None),
-            OutputMode::Text | OutputMode::Table => format_value(&value, OutputFormat::Table),
-            OutputMode::Csv => format_value(&value, OutputFormat::Csv),
-        };
+        let output =
+            envelope::emit_success(tool, value, start, None, None, None, self.output_format);
 
         self.audit.log_command_output(tool, &output)?;
-        println!("{output}");
+        envelope::write_stdout(&output);
         Ok(())
     }
 
@@ -127,21 +123,18 @@ impl CliContext {
     pub fn emit_list(&self, tool: &str, result: &ListResult, start: Instant) -> Result<()> {
         let value = serialize_transform(&result.items, &self.json_options)?;
 
-        let output = match self.output_mode {
-            OutputMode::Json => envelope::emit_success(
-                tool,
-                value,
-                start,
-                Some(result.items.len()),
-                result.total,
-                Some(result.has_more),
-            ),
-            OutputMode::Text | OutputMode::Table => format_value(&value, OutputFormat::Table),
-            OutputMode::Csv => format_value(&value, OutputFormat::Csv),
-        };
+        let output = envelope::emit_success(
+            tool,
+            value,
+            start,
+            Some(result.items.len()),
+            result.total,
+            Some(result.has_more),
+            self.output_format,
+        );
 
         self.audit.log_command_output(tool, &output)?;
-        println!("{output}");
+        envelope::write_stdout(&output);
         Ok(())
     }
 }

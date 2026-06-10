@@ -6,8 +6,7 @@ use cho_sdk::error::Result;
 use clap::Subcommand;
 
 use crate::audit::AuditLogger;
-use crate::envelope;
-use crate::output::{OutputFormat, OutputMode, format_value};
+use crate::envelope::{self, OutputFormat};
 
 use super::utils::AppConfig;
 
@@ -36,7 +35,7 @@ pub fn tool_name(command: &ConfigCommands) -> &'static str {
 /// Runs config subcommand.
 pub fn run(
     command: &ConfigCommands,
-    output_mode: OutputMode,
+    output_format: OutputFormat,
     start: Instant,
     audit: &AuditLogger,
 ) -> Result<()> {
@@ -44,18 +43,17 @@ pub fn run(
         ConfigCommands::Show => {
             let config = AppConfig::load()?;
             let payload = config.as_redacted_json();
-            let output = match output_mode {
-                OutputMode::Json => {
-                    envelope::emit_success("config.show", &payload, start, None, None, None)
-                }
-                OutputMode::Text => {
-                    serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string())
-                }
-                OutputMode::Table => format_value(&payload, OutputFormat::Table),
-                OutputMode::Csv => format_value(&payload, OutputFormat::Csv),
-            };
+            let output = envelope::emit_success(
+                "config.show",
+                &payload,
+                start,
+                None,
+                None,
+                None,
+                output_format,
+            );
             audit.log_command_output("config.show", &output)?;
-            println!("{output}");
+            envelope::write_stdout(&output);
             Ok(())
         }
         ConfigCommands::Set { key, value } => {
@@ -67,24 +65,17 @@ pub fn run(
                 "value": if key == "auth.client_secret" { "[REDACTED]" } else { value },
                 "path": path,
             });
-            let output = match output_mode {
-                OutputMode::Json => {
-                    envelope::emit_success("config.set", &payload, start, None, None, None)
-                }
-                OutputMode::Text => format!(
-                    "Set {} = {}",
-                    key,
-                    if key == "auth.client_secret" {
-                        "[REDACTED]"
-                    } else {
-                        value
-                    }
-                ),
-                OutputMode::Table => format_value(&payload, OutputFormat::Table),
-                OutputMode::Csv => format_value(&payload, OutputFormat::Csv),
-            };
+            let output = envelope::emit_success(
+                "config.set",
+                &payload,
+                start,
+                None,
+                None,
+                None,
+                output_format,
+            );
             audit.log_command_output("config.set", &output)?;
-            println!("{output}");
+            envelope::write_stdout(&output);
             Ok(())
         }
     }

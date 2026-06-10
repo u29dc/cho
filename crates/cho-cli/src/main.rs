@@ -13,7 +13,7 @@ mod registry;
 use std::sync::Arc;
 use std::time::Instant;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, error::ErrorKind};
 use secrecy::SecretString;
 use tracing_subscriber::EnvFilter;
 
@@ -40,20 +40,16 @@ use crate::commands::tax::{
 };
 use crate::commands::utils::AppConfig;
 use crate::context::CliContext;
+use crate::envelope::OutputFormat;
 use crate::output::json::JsonOptions;
-use crate::output::{OutputFormat, OutputMode};
 
 /// `cho` CLI args.
 #[derive(Debug, Parser)]
 #[command(name = "cho", version, about, long_about = None)]
 struct Cli {
-    /// Human-readable output format.
-    #[arg(long, value_enum, global = true)]
-    format: Option<OutputFormat>,
-
-    /// Emit human-readable text on stdout instead of the default JSON envelope.
-    #[arg(long, global = true, conflicts_with = "format")]
-    text: bool,
+    /// Emit Toon instead of the default JSON envelope.
+    #[arg(long, global = true)]
+    toon: bool,
 
     /// Convert decimal-like numbers to strings in JSON output.
     #[arg(long, global = true)]
@@ -352,9 +348,18 @@ enum Commands {
 #[tokio::main]
 async fn main() {
     let start = Instant::now();
-    let cli = Cli::parse();
-    let output_mode = resolve_output_mode(&cli);
-    let json_mode = output_mode.is_json();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => {
+            if let Some(path) = help_path_for_missing_subcommand(&error) {
+                print_help(&path);
+                return;
+            }
+            error.print().expect("print clap error");
+            std::process::exit(error.exit_code());
+        }
+    };
+    let output_format = resolve_output_format(&cli);
 
     if cli.verbose {
         let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -367,7 +372,7 @@ async fn main() {
     let config = match AppConfig::load() {
         Ok(config) => config,
         Err(err) => {
-            emit_bootstrap_error(&err, json_mode, "config.load", start, 2, None);
+            emit_bootstrap_error(&err, output_format, "config.load", start, 2, None);
             return;
         }
     };
@@ -380,7 +385,7 @@ async fn main() {
         Ok(audit) => audit,
         Err(err) => {
             let wrapped = audit_unavailable_error(err);
-            emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
+            emit_bootstrap_error(&wrapped, output_format, "bootstrap.audit", start, 2, None);
             return;
         }
     };
@@ -389,13 +394,13 @@ async fn main() {
     let argv = std::env::args().collect::<Vec<_>>();
     if let Err(err) = audit.log_command_start(&tool_name, &argv) {
         let wrapped = audit_unavailable_error(err);
-        emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
+        emit_bootstrap_error(&wrapped, output_format, "bootstrap.audit", start, 2, None);
         return;
     }
     let input_payload = serde_json::json!({ "tool": &tool_name });
     if let Err(err) = audit.log_command_input(&tool_name, &input_payload.to_string()) {
         let wrapped = audit_unavailable_error(err);
-        emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
+        emit_bootstrap_error(&wrapped, output_format, "bootstrap.audit", start, 2, None);
         return;
     }
 
@@ -403,61 +408,61 @@ async fn main() {
     match &cli.command {
         Commands::Start => match commands::start::run() {
             Ok(exit_code) => {
-                log_command_end_or_exit(&audit, &tool_name, exit_code, start, json_mode);
+                log_command_end_or_exit(&audit, &tool_name, exit_code, start, output_format);
                 std::process::exit(exit_code);
             }
             Err(err) => {
-                emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
+                emit_runtime_error(&err, output_format, &tool_name, start, Some(&audit));
                 let code = error::exit_code(&err);
-                log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
+                log_command_end_or_exit(&audit, &tool_name, code, start, output_format);
                 std::process::exit(code);
             }
         },
         Commands::Tools { name } => {
-            match commands::tools::run(name.as_deref(), output_mode, start, &audit) {
+            match commands::tools::run(name.as_deref(), output_format, start, &audit) {
                 Ok(exit_code) => {
-                    log_command_end_or_exit(&audit, &tool_name, exit_code, start, json_mode);
+                    log_command_end_or_exit(&audit, &tool_name, exit_code, start, output_format);
                     if exit_code == 0 {
                         return;
                     }
                     std::process::exit(exit_code);
                 }
                 Err(err) => {
-                    emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
+                    emit_runtime_error(&err, output_format, &tool_name, start, Some(&audit));
                     let code = error::exit_code(&err);
-                    log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
+                    log_command_end_or_exit(&audit, &tool_name, code, start, output_format);
                     std::process::exit(code);
                 }
             }
         }
-        Commands::Health => match commands::health::run(output_mode, start, &audit).await {
+        Commands::Health => match commands::health::run(output_format, start, &audit).await {
             Ok(exit_code) => {
-                log_command_end_or_exit(&audit, &tool_name, exit_code, start, json_mode);
+                log_command_end_or_exit(&audit, &tool_name, exit_code, start, output_format);
                 std::process::exit(exit_code);
             }
             Err(err) => {
-                emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
+                emit_runtime_error(&err, output_format, &tool_name, start, Some(&audit));
                 let code = error::exit_code(&err);
-                log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
+                log_command_end_or_exit(&audit, &tool_name, code, start, output_format);
                 std::process::exit(code);
             }
         },
         Commands::Config { command } => {
-            match commands::config::run(command, output_mode, start, &audit) {
+            match commands::config::run(command, output_format, start, &audit) {
                 Ok(()) => {
-                    log_command_end_or_exit(&audit, &tool_name, 0, start, json_mode);
+                    log_command_end_or_exit(&audit, &tool_name, 0, start, output_format);
                     return;
                 }
                 Err(err) => {
                     emit_runtime_error(
                         &err,
-                        json_mode,
+                        output_format,
                         commands::config::tool_name(command),
                         start,
                         Some(&audit),
                     );
                     let code = error::exit_code(&err);
-                    log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
+                    log_command_end_or_exit(&audit, &tool_name, code, start, output_format);
                     std::process::exit(code);
                 }
             }
@@ -471,9 +476,9 @@ async fn main() {
             let err = cho_sdk::error::ChoSdkError::AuthRequired {
                 message: "Missing client_id (set CHO_CLIENT_ID or auth.client_id)".to_string(),
             };
-            emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
+            emit_runtime_error(&err, output_format, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
+            log_command_end_or_exit(&audit, &tool_name, code, start, output_format);
             std::process::exit(code);
         }
     };
@@ -485,9 +490,9 @@ async fn main() {
                 message: "Missing client_secret (set CHO_CLIENT_SECRET or auth.client_secret)"
                     .to_string(),
             };
-            emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
+            emit_runtime_error(&err, output_format, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
+            log_command_end_or_exit(&audit, &tool_name, code, start, output_format);
             std::process::exit(code);
         }
     };
@@ -502,17 +507,17 @@ async fn main() {
     ) {
         Ok(auth) => auth,
         Err(err) => {
-            emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
+            emit_runtime_error(&err, output_format, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
+            log_command_end_or_exit(&audit, &tool_name, code, start, output_format);
             std::process::exit(code);
         }
     };
 
     if let Err(err) = auth.load_stored_tokens().await {
-        emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
+        emit_runtime_error(&err, output_format, &tool_name, start, Some(&audit));
         let code = error::exit_code(&err);
-        log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
+        log_command_end_or_exit(&audit, &tool_name, code, start, output_format);
         std::process::exit(code);
     }
 
@@ -525,16 +530,16 @@ async fn main() {
     {
         Ok(client) => client,
         Err(err) => {
-            emit_runtime_error(&err, json_mode, &tool_name, start, Some(&audit));
+            emit_runtime_error(&err, output_format, &tool_name, start, Some(&audit));
             let code = error::exit_code(&err);
-            log_command_end_or_exit(&audit, &tool_name, code, start, json_mode);
+            log_command_end_or_exit(&audit, &tool_name, code, start, output_format);
             std::process::exit(code);
         }
     };
 
     let context = CliContext::new(
         client,
-        output_mode,
+        output_format,
         JsonOptions {
             precise: cli.precise,
         },
@@ -549,12 +554,12 @@ async fn main() {
 
     match result {
         Ok(()) => {
-            log_command_end_or_exit(&audit, &tool, 0, start, json_mode);
+            log_command_end_or_exit(&audit, &tool, 0, start, output_format);
         }
         Err(err) => {
-            emit_runtime_error(&err, json_mode, &tool, start, Some(&audit));
+            emit_runtime_error(&err, output_format, &tool, start, Some(&audit));
             let code = error::exit_code(&err);
-            log_command_end_or_exit(&audit, &tool, code, start, json_mode);
+            log_command_end_or_exit(&audit, &tool, code, start, output_format);
             std::process::exit(code);
         }
     }
@@ -756,62 +761,109 @@ async fn dispatch_command(
     }
 }
 
-fn resolve_output_mode(cli: &Cli) -> OutputMode {
-    if let Some(format) = cli.format {
-        return match format {
-            OutputFormat::Table => OutputMode::Table,
-            OutputFormat::Csv => OutputMode::Csv,
-        };
+fn resolve_output_format(cli: &Cli) -> OutputFormat {
+    if cli.toon {
+        OutputFormat::Toon
+    } else {
+        OutputFormat::Json
+    }
+}
+
+fn help_path_for_missing_subcommand(error: &clap::Error) -> Option<Vec<String>> {
+    if !matches!(
+        error.kind(),
+        ErrorKind::MissingSubcommand | ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+    ) {
+        return None;
     }
 
-    if cli.text {
-        OutputMode::Text
-    } else {
-        OutputMode::Json
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let tokens = positional_tokens(&args);
+    match tokens.as_slice() {
+        [] => Some(Vec::new()),
+        [group] if top_level_group_requires_subcommand(group) => Some(vec![group.clone()]),
+        _ => None,
     }
+}
+
+fn positional_tokens(args: &[String]) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        if matches!(arg.as_str(), "--limit" | "--client-id" | "--client-secret") {
+            index += 2;
+            continue;
+        }
+        if arg.starts_with("--limit=")
+            || arg.starts_with("--client-id=")
+            || arg.starts_with("--client-secret=")
+        {
+            index += 1;
+            continue;
+        }
+        if arg.starts_with('-') {
+            index += 1;
+            continue;
+        }
+        tokens.push(arg.clone());
+        index += 1;
+    }
+    tokens
+}
+
+fn top_level_group_requires_subcommand(name: &str) -> bool {
+    Cli::command()
+        .get_subcommands()
+        .any(|command| command.get_name() == name && command.has_subcommands())
+}
+
+fn print_help(path: &[String]) {
+    let mut command = Cli::command();
+    for name in path {
+        let subcommand = command
+            .find_subcommand_mut(name)
+            .unwrap_or_else(|| panic!("missing help subcommand: {}", path.join(" ")))
+            .clone();
+        command = subcommand;
+    }
+    command.print_help().expect("print cho help");
+    println!();
 }
 
 fn emit_runtime_error(
     err: &cho_sdk::error::ChoSdkError,
-    json_mode: bool,
+    output_format: OutputFormat,
     tool: &str,
     start: Instant,
     audit: Option<&AuditLogger>,
 ) {
-    let output = error::format_error(err, json_mode, tool, start);
+    let output = error::format_error(err, output_format, tool, start);
     if let Some(audit) = audit
         && let Err(err) = audit.log_command_output(tool, &output)
     {
         let wrapped = audit_unavailable_error(err);
-        emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
+        emit_bootstrap_error(&wrapped, output_format, "bootstrap.audit", start, 2, None);
     }
-    if json_mode {
-        println!("{output}");
-    } else {
-        eprintln!("{output}");
-    }
+    envelope::write_stdout(&output);
 }
 
 fn emit_bootstrap_error(
     err: &cho_sdk::error::ChoSdkError,
-    json_mode: bool,
+    output_format: OutputFormat,
     tool: &str,
     start: Instant,
     exit_code: i32,
     audit: Option<&AuditLogger>,
 ) {
-    let output = error::format_error(err, json_mode, tool, start);
+    let output = error::format_error(err, output_format, tool, start);
     if let Some(audit) = audit
         && let Err(err) = audit.log_command_output(tool, &output)
     {
         let wrapped = audit_unavailable_error(err);
-        emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
+        emit_bootstrap_error(&wrapped, output_format, "bootstrap.audit", start, 2, None);
     }
-    if json_mode {
-        println!("{output}");
-    } else {
-        eprintln!("{output}");
-    }
+    envelope::write_stdout(&output);
     std::process::exit(exit_code);
 }
 
@@ -820,11 +872,11 @@ fn log_command_end_or_exit(
     tool: &str,
     exit_code: i32,
     start: Instant,
-    json_mode: bool,
+    output_format: OutputFormat,
 ) {
     if let Err(err) = audit.log_command_end(tool, exit_code, start.elapsed().as_millis() as u64) {
         let wrapped = audit_unavailable_error(err);
-        emit_bootstrap_error(&wrapped, json_mode, "bootstrap.audit", start, 2, None);
+        emit_bootstrap_error(&wrapped, output_format, "bootstrap.audit", start, 2, None);
     }
 }
 

@@ -62,14 +62,9 @@ pub struct ToolMeta {
 /// Registry global flags.
 pub const GLOBAL_FLAGS: &[GlobalFlagMeta] = &[
     GlobalFlagMeta {
-        name: "--text",
-        description: "Emit human-readable text on stdout instead of the default JSON envelope",
+        name: "--toon",
+        description: "Emit Toon instead of the default JSON envelope",
         default: "false",
-    },
-    GlobalFlagMeta {
-        name: "--format",
-        description: "Emit human-readable output as table|csv on stdout",
-        default: "json",
     },
     GlobalFlagMeta {
         name: "--limit",

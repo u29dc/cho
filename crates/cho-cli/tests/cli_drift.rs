@@ -182,14 +182,7 @@ fn tools_registry_has_unique_names_and_json_examples() {
         .map(|item| item["name"].as_str().unwrap_or_default())
         .collect::<HashSet<_>>();
 
-    for required in [
-        "--text",
-        "--format",
-        "--limit",
-        "--all",
-        "--verbose",
-        "--precise",
-    ] {
+    for required in ["--toon", "--limit", "--all", "--verbose", "--precise"] {
         assert!(
             global_flags.contains(required),
             "missing global flag metadata for {required}"
@@ -199,6 +192,16 @@ fn tools_registry_has_unique_names_and_json_examples() {
         !global_flags.contains("--json"),
         "removed --json flag should not be advertised"
     );
+    assert!(
+        !global_flags.contains("--text"),
+        "removed --text flag should not be advertised"
+    );
+    assert!(
+        !global_flags.contains("--format"),
+        "removed --format flag should not be advertised"
+    );
+    assert_eq!(json["data"]["defaultOutputFormat"], "json");
+    assert_eq!(json["data"]["outputFormats"], json!(["json", "toon"]));
 }
 
 #[test]
@@ -1069,7 +1072,7 @@ fn mutating_commands_are_blocked_when_write_gate_is_disabled() {
 
     assert_eq!(code, 2);
     assert_eq!(json["ok"], false);
-    assert_eq!(json["error"]["code"], "WRITE_NOT_ALLOWED");
+    assert_eq!(json["error"]["code"], "write_not_allowed");
 }
 
 #[tokio::test]

@@ -30,7 +30,7 @@
 | --- | --- | --- |
 | Workspace | Rust 2024 | three-crate workspace with shared deps in [`Cargo.toml`](Cargo.toml) |
 | SDK/runtime | `tokio` + `reqwest` + `rustls` | async transport, pagination, retries, 401 refresh, 429 handling |
-| CLI | `clap` + custom JSON envelope/output adapters | default stdout is one compact JSON object; table/csv/text are opt-in |
+| CLI | `clap` + custom JSON/Toon envelope adapters | default stdout is one compact JSON envelope; `--toon` emits the same structured envelope |
 | TUI | `ratatui` + `crossterm` | direct SDK consumer with background fetch worker and persisted cache |
 | Auth/secrets | OAuth code flow + `secrecy` | tokens stored in `tokens.json`, login callback defaults to `127.0.0.1:53682` |
 | JS tooling | Bun + Husky + commitlint + Biome | hooks, lockfile, and `util:*` quality orchestration only |
@@ -61,7 +61,7 @@
 - CLI credential precedence is `--client-id/--client-secret` -> `CHO_CLIENT_ID` / `CHO_CLIENT_SECRET` -> `config.toml` `auth.*`; SDK base URL precedence is `CHO_BASE_URL` -> `config.toml` `sdk.base_url` -> FreeAgent default
 - `auth status`, `health`, CLI bootstrap, and TUI startup all call trusted session checks that can refresh tokens and rewrite `tokens.json`; these are not read-only inspections
 - TUI route data uses stale-while-revalidate caching in [`crates/cho-tui/src/cache.rs`](crates/cho-tui/src/cache.rs); preview and full payloads persist to `tui-cache.json`, oversized cache files are rejected, and stale cached data may be shown while a refresh is in flight
-- JSON mode writes only the compact envelope to stdout; `--verbose` enables tracing to stderr, `--text` or `--format table|csv` switch stdout into human output
+- Structured mode writes only the selected envelope to stdout; default output is compact JSON, `--toon` switches the envelope to Toon, and `--verbose` enables tracing to stderr
 
 ## 7. Conventions
 

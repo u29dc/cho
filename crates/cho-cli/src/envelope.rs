@@ -1,8 +1,17 @@
-//! JSON envelope contract.
+//! Structured stdout envelope contract.
 
 use std::time::Instant;
 
 use serde::Serialize;
+
+/// Structured stdout format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputFormat {
+    /// Compact JSON envelope.
+    Json,
+    /// Toon envelope.
+    Toon,
+}
 
 /// Success envelope.
 #[derive(Serialize)]
@@ -59,7 +68,7 @@ pub struct Meta {
     pub has_more: Option<bool>,
 }
 
-/// Emits compact success JSON.
+/// Renders a success envelope.
 pub fn emit_success<T: Serialize>(
     tool: &str,
     data: T,
@@ -67,6 +76,7 @@ pub fn emit_success<T: Serialize>(
     count: Option<usize>,
     total: Option<usize>,
     has_more: Option<bool>,
+    format: OutputFormat,
 ) -> String {
     let envelope = SuccessEnvelope {
         ok: true,
@@ -80,16 +90,10 @@ pub fn emit_success<T: Serialize>(
         },
     };
 
-    serde_json::to_string(&envelope).unwrap_or_else(|err| {
-        format!(
-            "{{\"ok\":false,\"error\":{{\"code\":\"INTERNAL\",\"message\":\"{}\",\"hint\":\"Report this bug\"}},\"meta\":{{\"tool\":\"{}\",\"elapsed\":0}}}}",
-            escape_json(&format!("Serialization failed: {err}")),
-            escape_json(tool)
-        )
-    })
+    render(&envelope, format).unwrap_or_else(|err| fallback_error(tool, &err))
 }
 
-/// Emits compact error JSON.
+/// Renders an error envelope.
 pub fn emit_error(
     tool: &str,
     code: &'static str,
@@ -97,6 +101,7 @@ pub fn emit_error(
     hint: String,
     details: Option<serde_json::Value>,
     start: Instant,
+    format: OutputFormat,
 ) -> String {
     let envelope = ErrorEnvelope {
         ok: false,
@@ -115,13 +120,27 @@ pub fn emit_error(
         },
     };
 
-    serde_json::to_string(&envelope).unwrap_or_else(|err| {
-        format!(
-            "{{\"ok\":false,\"error\":{{\"code\":\"INTERNAL\",\"message\":\"{}\",\"hint\":\"Report this bug\"}},\"meta\":{{\"tool\":\"{}\",\"elapsed\":0}}}}",
-            escape_json(&format!("Serialization failed: {err}")),
-            escape_json(tool)
-        )
-    })
+    render(&envelope, format).unwrap_or_else(|err| fallback_error(tool, &err))
+}
+
+/// Writes one structured envelope payload to stdout.
+pub fn write_stdout(output: &str) {
+    println!("{output}");
+}
+
+fn render<T: Serialize>(value: &T, format: OutputFormat) -> Result<String, String> {
+    match format {
+        OutputFormat::Json => serde_json::to_string(value).map_err(|err| err.to_string()),
+        OutputFormat::Toon => toon_format::encode_default(value).map_err(|err| err.to_string()),
+    }
+}
+
+fn fallback_error(tool: &str, error: &str) -> String {
+    format!(
+        "{{\"ok\":false,\"error\":{{\"code\":\"internal_error\",\"message\":\"{}\",\"hint\":\"Report this bug\"}},\"meta\":{{\"tool\":\"{}\",\"elapsed\":0}}}}",
+        escape_json(&format!("Serialization failed: {error}")),
+        escape_json(tool)
+    )
 }
 
 fn escape_json(value: &str) -> String {

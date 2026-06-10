@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use cho_sdk::error::ChoSdkError;
 
-use crate::envelope;
+use crate::envelope::{self, OutputFormat};
 
 /// Stable CLI error codes.
 #[derive(Debug, Clone, Copy)]
@@ -39,18 +39,18 @@ impl ErrorCode {
     /// Code string.
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::AuthRequired => "AUTH_REQUIRED",
-            Self::TokenExpired => "TOKEN_EXPIRED",
-            Self::RateLimited => "RATE_LIMITED",
-            Self::NotFound => "NOT_FOUND",
-            Self::ValidationError => "VALIDATION_ERROR",
-            Self::ApiError => "API_ERROR",
-            Self::NetworkError => "NETWORK_ERROR",
-            Self::ParseError => "PARSE_ERROR",
-            Self::ConfigError => "CONFIG_ERROR",
-            Self::WriteNotAllowed => "WRITE_NOT_ALLOWED",
-            Self::UsageError => "USAGE_ERROR",
-            Self::AuditLogUnavailable => "AUDIT_LOG_UNAVAILABLE",
+            Self::AuthRequired => "auth_required",
+            Self::TokenExpired => "token_expired",
+            Self::RateLimited => "rate_limited",
+            Self::NotFound => "not_found",
+            Self::ValidationError => "validation_error",
+            Self::ApiError => "api_error",
+            Self::NetworkError => "network_error",
+            Self::ParseError => "parse_error",
+            Self::ConfigError => "config_error",
+            Self::WriteNotAllowed => "write_not_allowed",
+            Self::UsageError => "usage_error",
+            Self::AuditLogUnavailable => "audit_log_unavailable",
         }
     }
 
@@ -114,7 +114,12 @@ impl From<&ChoSdkError> for ErrorCode {
 }
 
 /// Formats an error for current output mode.
-pub fn format_error(err: &ChoSdkError, json_mode: bool, tool: &str, start: Instant) -> String {
+pub fn format_error(
+    err: &ChoSdkError,
+    output_format: OutputFormat,
+    tool: &str,
+    start: Instant,
+) -> String {
     let code = ErrorCode::from(err);
     let details = match err {
         ChoSdkError::RateLimited { retry_after } => {
@@ -123,18 +128,15 @@ pub fn format_error(err: &ChoSdkError, json_mode: bool, tool: &str, start: Insta
         _ => None,
     };
 
-    if json_mode {
-        envelope::emit_error(
-            tool,
-            code.as_str(),
-            err.to_string(),
-            code.hint().to_string(),
-            details,
-            start,
-        )
-    } else {
-        format!("Error: {err}")
-    }
+    envelope::emit_error(
+        tool,
+        code.as_str(),
+        err.to_string(),
+        code.hint().to_string(),
+        details,
+        start,
+        output_format,
+    )
 }
 
 /// Exit code for SDK error.

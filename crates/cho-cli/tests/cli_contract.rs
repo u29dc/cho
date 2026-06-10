@@ -24,6 +24,22 @@ fn run_json(home: &Path, args: &[&str]) -> (i32, Value) {
     (code, json)
 }
 
+fn run_toon(home: &Path, args: &[&str]) -> (i32, Value) {
+    let output = run_raw(home, args);
+    let code = output.status.code().unwrap_or(-1);
+    let stdout = String::from_utf8(output.stdout).expect("toon stdout should be valid utf8");
+    let json = toon_format::decode_default(stdout.trim_end()).expect("stdout must decode as Toon");
+
+    (code, json)
+}
+
+fn without_elapsed(mut value: Value) -> Value {
+    if let Some(meta) = value["meta"].as_object_mut() {
+        meta.remove("elapsed");
+    }
+    value
+}
+
 #[test]
 fn tools_json_contains_core_contract_commands() {
     let home = TempDir::new().expect("temp home");
@@ -48,61 +64,91 @@ fn tools_json_contains_core_contract_commands() {
     assert!(names.contains(&"invoices.list"));
 
     assert!(json["data"]["globalFlags"].is_array());
+    assert_eq!(json["data"]["defaultOutputFormat"], "json");
+    assert_eq!(
+        json["data"]["outputFormats"],
+        serde_json::json!(["json", "toon"])
+    );
 }
 
 #[test]
-fn tools_text_success_writes_to_stdout() {
+fn bare_invocation_prints_root_help() {
     let home = TempDir::new().expect("temp home");
-    let output = run_raw(home.path(), &["--text", "tools"]);
+    let output = run_raw(home.path(), &[]);
 
     assert_eq!(output.status.code(), Some(0));
-    assert!(
-        String::from_utf8(output.stdout)
-            .expect("stdout should be valid utf8")
-            .contains("TOOLS")
-    );
-    assert!(
-        String::from_utf8(output.stderr)
-            .expect("stderr should be valid utf8")
-            .is_empty()
-    );
+    assert!(output.stderr.is_empty());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf8");
+    assert!(stdout.contains("Usage:"));
+    assert!(stdout.contains("Commands:"));
+    assert!(!stdout.trim_start().starts_with('{'));
 }
 
 #[test]
-fn tools_csv_format_writes_csv_to_stdout() {
+fn group_invocation_prints_group_help() {
     let home = TempDir::new().expect("temp home");
-    let output = run_raw(home.path(), &["--format", "csv", "tools"]);
+    let output = run_raw(home.path(), &["invoices"]);
 
     assert_eq!(output.status.code(), Some(0));
     let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf8");
-    assert!(stdout.starts_with("category,command,description,example"));
-    assert!(
-        String::from_utf8(output.stderr)
-            .expect("stderr should be valid utf8")
-            .is_empty()
-    );
+    assert!(stdout.contains("Usage:"));
+    assert!(stdout.contains("Commands:"));
+    assert!(!stdout.trim_start().starts_with('{'));
+    assert!(output.stderr.is_empty());
 }
 
 #[test]
-fn health_table_format_writes_table_to_stdout() {
+fn missing_leaf_argument_uses_native_clap_error() {
     let home = TempDir::new().expect("temp home");
-    let output = run_raw(home.path(), &["--format", "table", "health"]);
+    let output = run_raw(home.path(), &["invoices", "get"]);
 
     assert_eq!(output.status.code(), Some(2));
-    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf8");
-    assert!(stdout.contains("overall_status"));
-    assert!(!stdout.trim_start().starts_with('{'));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be valid utf8");
+    assert!(stderr.contains("required"));
+    assert!(stderr.contains("Usage:"));
 }
 
 #[test]
-fn config_show_csv_format_writes_csv_to_stdout() {
+fn toon_orientation_commands_match_default_json_shape() {
     let home = TempDir::new().expect("temp home");
-    let output = run_raw(home.path(), &["--format", "csv", "config", "show"]);
 
-    assert_eq!(output.status.code(), Some(0));
-    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf8");
-    assert!(stdout.starts_with("auth,defaults,safety,sdk"));
-    assert!(!stdout.trim_start().starts_with('{'));
+    for args in [vec!["tools"], vec!["health"]] {
+        let (json_code, json) = run_json(home.path(), &args);
+        let mut toon_args = args.clone();
+        toon_args.push("--toon");
+        let (toon_code, toon) = run_toon(home.path(), &toon_args);
+
+        assert_eq!(
+            toon_code,
+            json_code,
+            "exit code drift for cho {}",
+            args.join(" ")
+        );
+        assert_eq!(
+            without_elapsed(toon),
+            without_elapsed(json),
+            "toon parity drift for cho {}",
+            args.join(" ")
+        );
+    }
+}
+
+#[test]
+fn removed_text_and_format_flags_are_rejected() {
+    let home = TempDir::new().expect("temp home");
+
+    for args in [vec!["--text", "tools"], vec!["--format", "csv", "tools"]] {
+        let output = run_raw(home.path(), &args);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(
+            output.stdout.is_empty(),
+            "stdout should stay empty on clap errors"
+        );
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be valid utf8");
+        assert!(stderr.contains(args[0]));
+    }
 }
 
 #[test]
@@ -129,7 +175,7 @@ fn tools_get_unknown_returns_not_found_error_envelope() {
 
     assert_eq!(code, 1);
     assert_eq!(json["ok"], false);
-    assert_eq!(json["error"]["code"], "NOT_FOUND");
+    assert_eq!(json["error"]["code"], "not_found");
 }
 
 #[test]
@@ -158,7 +204,7 @@ fn auth_login_without_client_credentials_returns_auth_required() {
 
     assert_eq!(code, 2);
     assert_eq!(json["ok"], false);
-    assert_eq!(json["error"]["code"], "AUTH_REQUIRED");
+    assert_eq!(json["error"]["code"], "auth_required");
 }
 
 #[test]
@@ -230,5 +276,5 @@ fn existing_unwritable_history_log_fails_closed_before_dispatch() {
     let json = serde_json::from_slice::<Value>(&output.stdout)
         .expect("stdout must contain an audit error envelope");
     assert_eq!(json["ok"], false);
-    assert_eq!(json["error"]["code"], "AUDIT_LOG_UNAVAILABLE");
+    assert_eq!(json["error"]["code"], "audit_log_unavailable");
 }
